@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"roost/server/internal/session"
+	"roost/server/internal/store"
 	"roost/server/internal/ws"
 )
 
@@ -62,6 +64,36 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+type contactDTO struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Online      bool   `json:"online"`
+}
+
+// handleListUsers backs the Contacts/New group screens (FR6.3): everyone
+// who has ever connected, minus the caller, with a live online flag sourced
+// from the WebSocket hub (FR6.5).
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	me, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	users, err := s.Store.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not list users")
+		return
+	}
+	contacts := make([]contactDTO, 0, len(users))
+	for _, u := range users {
+		if u.ID == me.ID {
+			continue
+		}
+		contacts = append(contacts, contactDTO{ID: u.ID, DisplayName: u.DisplayName, Online: s.Hub.IsOnline(u.ID)})
+	}
+	writeJSON(w, http.StatusOK, contacts)
+}
+
 func (s *Server) handleListRooms(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUser(w, r)
 	if !ok {
@@ -89,12 +121,40 @@ func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+
+	if !body.IsGroup && len(body.MemberIDs) == 1 {
+		if existing, err := s.Store.FindDirectRoom(r.Context(), userID, body.MemberIDs[0]); err == nil {
+			writeJSON(w, http.StatusOK, existing)
+			return
+		} else if !errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "could not check for an existing conversation")
+			return
+		}
+	}
+
 	room, err := s.Store.CreateRoom(r.Context(), userID, body.Name, body.IsGroup, body.MemberIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create room")
 		return
 	}
 	writeJSON(w, http.StatusCreated, room)
+}
+
+func (s *Server) handleGetRoom(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+	room, err := s.Store.GetRoom(r.Context(), roomID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, room)
 }
 
 func (s *Server) requireMembership(w http.ResponseWriter, r *http.Request, userID, roomID string) bool {

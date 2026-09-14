@@ -6,6 +6,8 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -35,17 +37,23 @@ func TestStore_RoomAndMessageLifecycle(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	alice, err := s.GetOrCreateUserByTailscaleID(ctx, "alice@github-"+t.Name(), "Alice")
+	// A unique suffix per run: the DB persists across test runs (it's a
+	// docker-compose volume, not reset per invocation), so a fixed identity
+	// would accumulate rooms/messages from previous runs and make
+	// assertions like "exactly 1 room" flaky.
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-%d@github", run), "Alice")
 	if err != nil {
 		t.Fatalf("create alice: %v", err)
 	}
-	bob, err := s.GetOrCreateUserByTailscaleID(ctx, "bob@github-"+t.Name(), "Bob")
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-%d@github", run), "Bob")
 	if err != nil {
 		t.Fatalf("create bob: %v", err)
 	}
 
 	// Re-provisioning the same identity must return the same user, not a duplicate.
-	aliceAgain, err := s.GetOrCreateUserByTailscaleID(ctx, "alice@github-"+t.Name(), "Alice")
+	aliceAgain, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-%d@github", run), "Alice")
 	if err != nil {
 		t.Fatalf("re-provision alice: %v", err)
 	}
@@ -82,5 +90,57 @@ func TestStore_RoomAndMessageLifecycle(t *testing.T) {
 	}
 	if len(found) != 1 || found[0].ID != msg.ID {
 		t.Fatalf("expected search to find the message, got %+v", found)
+	}
+
+	fetched, err := s.GetRoom(ctx, room.ID)
+	if err != nil {
+		t.Fatalf("get room: %v", err)
+	}
+	if len(fetched.Members) != 2 {
+		t.Fatalf("expected 2 members on the fetched room, got %+v", fetched.Members)
+	}
+
+	rooms, err := s.ListRoomsForUser(ctx, alice.ID)
+	if err != nil {
+		t.Fatalf("list rooms for user: %v", err)
+	}
+	if len(rooms) != 1 {
+		t.Fatalf("expected alice to have exactly 1 room, got %+v", rooms)
+	}
+	if rooms[0].LastMessageBody == nil || *rooms[0].LastMessageBody != "hello from the integration test" {
+		t.Fatalf("expected the room list to carry the last message preview, got %+v", rooms[0])
+	}
+
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("list users: %v", err)
+	}
+	var sawAlice, sawBob bool
+	for _, u := range users {
+		sawAlice = sawAlice || u.ID == alice.ID
+		sawBob = sawBob || u.ID == bob.ID
+	}
+	if !sawAlice || !sawBob {
+		t.Fatalf("expected ListUsers to include both provisioned users, got %+v", users)
+	}
+
+	direct, err := s.FindDirectRoom(ctx, alice.ID, bob.ID)
+	if err != nil {
+		t.Fatalf("find direct room: %v", err)
+	}
+	if direct.ID != room.ID {
+		t.Fatalf("expected FindDirectRoom to return the existing 1:1 room %s, got %s", room.ID, direct.ID)
+	}
+	// Order shouldn't matter.
+	if reverse, err := s.FindDirectRoom(ctx, bob.ID, alice.ID); err != nil || reverse.ID != room.ID {
+		t.Fatalf("expected FindDirectRoom(bob, alice) to also find %s, got %+v, err=%v", room.ID, reverse, err)
+	}
+
+	carol, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("carol-%d@github", run), "Carol")
+	if err != nil {
+		t.Fatalf("create carol: %v", err)
+	}
+	if _, err := s.FindDirectRoom(ctx, alice.ID, carol.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a pair with no direct room, got %v", err)
 	}
 }

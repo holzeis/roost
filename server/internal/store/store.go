@@ -43,6 +43,28 @@ func (s *Store) GetUser(ctx context.Context, id string) (models.User, error) {
 	return scanUser(s.pool.QueryRow(ctx, q, id))
 }
 
+// ListUsers returns every provisioned user (FR6: the contact list is simply
+// everyone who has ever connected — there's no separate contacts/friends
+// concept at family scale), ordered for a stable contacts list.
+func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
+	const q = `SELECT id, tailscale_id, display_name, avatar_media_id, created_at, updated_at FROM users ORDER BY display_name`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("store: list users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.TailscaleID, &u.DisplayName, &u.AvatarMediaID, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
 func (s *Store) UpdateUserProfile(ctx context.Context, id, displayName string, avatarMediaID *string) (models.User, error) {
 	const q = `
 		UPDATE users SET display_name = $2, avatar_media_id = $3, updated_at = now()
@@ -95,13 +117,44 @@ func (s *Store) CreateRoom(ctx context.Context, creatorID string, name *string, 
 	return room, nil
 }
 
+// ListRoomsForUser returns userID's rooms, each with its most recent message
+// (if any) for the room-list preview, most recently active first.
+// FindDirectRoom returns the existing 1:1 (non-group) room between userA
+// and userB, if one exists — used to avoid creating duplicate 1:1
+// conversations every time a contact is tapped (FR1.1).
+func (s *Store) FindDirectRoom(ctx context.Context, userA, userB string) (models.Room, error) {
+	const q = `
+		SELECT r.id FROM rooms r
+		WHERE r.is_group = false
+		  AND EXISTS (SELECT 1 FROM room_members WHERE room_id = r.id AND user_id = $1)
+		  AND EXISTS (SELECT 1 FROM room_members WHERE room_id = r.id AND user_id = $2)
+		  AND (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) = 2
+		LIMIT 1`
+	var roomID string
+	err := s.pool.QueryRow(ctx, q, userA, userB).Scan(&roomID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.Room{}, ErrNotFound
+	}
+	if err != nil {
+		return models.Room{}, fmt.Errorf("store: find direct room: %w", err)
+	}
+	return s.GetRoom(ctx, roomID)
+}
+
 func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.Room, error) {
 	const q = `
-		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at
+		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at,
+		       lm.body, lm.kind, lm.created_at
 		FROM rooms r
-		JOIN room_members m ON m.room_id = r.id
-		WHERE m.user_id = $1
-		ORDER BY r.created_at DESC`
+		JOIN room_members rm ON rm.room_id = r.id
+		LEFT JOIN LATERAL (
+			SELECT body, kind, created_at FROM messages
+			WHERE room_id = r.id
+			ORDER BY created_at DESC
+			LIMIT 1
+		) lm ON true
+		WHERE rm.user_id = $1
+		ORDER BY COALESCE(lm.created_at, r.created_at) DESC`
 	rows, err := s.pool.Query(ctx, q, userID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list rooms: %w", err)
@@ -111,12 +164,37 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 	var rooms []models.Room
 	for rows.Next() {
 		var r models.Room
-		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt); err != nil {
+		var lastKind *string
+		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.LastMessageBody, &lastKind, &r.LastMessageAt); err != nil {
 			return nil, fmt.Errorf("store: scan room: %w", err)
+		}
+		if lastKind != nil {
+			kind := models.MessageKind(*lastKind)
+			r.LastMessageKind = &kind
 		}
 		rooms = append(rooms, r)
 	}
 	return rooms, rows.Err()
+}
+
+// GetRoom returns a single room with its member IDs populated, for the chat
+// screen header (FR1.4: who else is in this room).
+func (s *Store) GetRoom(ctx context.Context, roomID string) (models.Room, error) {
+	const q = `SELECT id, name, is_group, created_by, created_at FROM rooms WHERE id = $1`
+	var r models.Room
+	err := s.pool.QueryRow(ctx, q, roomID).Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.Room{}, ErrNotFound
+	}
+	if err != nil {
+		return models.Room{}, fmt.Errorf("store: get room: %w", err)
+	}
+	members, err := s.ListRoomMemberIDs(ctx, roomID)
+	if err != nil {
+		return models.Room{}, err
+	}
+	r.Members = members
+	return r, nil
 }
 
 func (s *Store) ListRoomMemberIDs(ctx context.Context, roomID string) ([]string, error) {

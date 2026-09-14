@@ -19,6 +19,12 @@ type Room struct {
 	CreatedBy string    `json:"createdBy"`
 	CreatedAt time.Time `json:"createdAt"`
 	Members   []string  `json:"members,omitempty"`
+
+	// Populated by ListRoomsForUser for the room list UI; absent (all nil)
+	// for a room with no messages yet.
+	LastMessageBody *string      `json:"lastMessageBody,omitempty"`
+	LastMessageKind *MessageKind `json:"lastMessageKind,omitempty"`
+	LastMessageAt   *time.Time   `json:"lastMessageAt,omitempty"`
 }
 
 type MessageKind string

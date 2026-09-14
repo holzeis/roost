@@ -42,8 +42,11 @@ func (s *Server) Router() http.Handler {
 			r.Get("/me", s.handleGetMe)
 			r.Patch("/me", s.handleUpdateMe)
 
+			r.Get("/users", s.handleListUsers)
+
 			r.Get("/rooms", s.handleListRooms)
 			r.Post("/rooms", s.handleCreateRoom)
+			r.Get("/rooms/{roomID}", s.handleGetRoom)
 			r.Get("/rooms/{roomID}/messages", s.handleListMessages)
 			r.Post("/rooms/{roomID}/messages", s.handleCreateMessage)
 			r.Get("/rooms/{roomID}/search", s.handleSearchMessages)
