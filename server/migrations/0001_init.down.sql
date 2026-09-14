@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS call_participants;
+DROP TABLE IF EXISTS calls;
+DROP TABLE IF EXISTS message_reactions;
+DROP TABLE IF EXISTS location_shares;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS room_members;
+DROP TABLE IF EXISTS rooms;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_avatar_media_id_fkey;
+DROP TABLE IF EXISTS media_objects;
+DROP TABLE IF EXISTS devices;
+DROP TABLE IF EXISTS users;
