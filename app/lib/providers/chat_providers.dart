@@ -65,11 +65,17 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     final sub = ref.listen(wsEventsProvider, (previous, next) {
       final event = next.valueOrNull;
       if (event == null) return;
-      final message = ref.read(wsClientProvider).messageFrom(event);
-      if (message == null || message.roomId != arg) return;
-      final current = state.valueOrNull ?? const <ApiMessage>[];
-      if (current.any((m) => m.id == message.id)) return;
-      state = AsyncData([...current, message]);
+      switch (event.type) {
+        case 'message.created':
+          final message = ref.read(wsClientProvider).messageFrom(event);
+          if (message == null || message.roomId != arg) return;
+          final current = state.valueOrNull ?? const <ApiMessage>[];
+          if (current.any((m) => m.id == message.id)) return;
+          state = AsyncData([...current, message]);
+        case 'reaction.added':
+        case 'reaction.removed':
+          _applyReactionEvent(event.type, event.payload);
+      }
     });
     ref.onDispose(sub.close);
 
@@ -83,5 +89,66 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     // the WebSocket to every room member including the sender, so the
     // listener above is the single source of truth for state updates.
     await ref.read(apiClientProvider).sendTextMessage(roomId, body);
+  }
+
+  /// Adds or removes the caller's own reaction (FR1.9). Like send, this
+  /// doesn't mutate state directly — the server broadcasts the change back
+  /// over the WebSocket to every room member including the actor, and
+  /// _applyReactionEvent is the single place state actually changes.
+  Future<void> toggleReaction(String messageId, String emoji) async {
+    final matches = (state.valueOrNull ?? const <ApiMessage>[]).where((m) => m.id == messageId);
+    final message = matches.isEmpty ? null : matches.first;
+    final alreadyReacted = message?.reactions.any((r) => r.emoji == emoji && r.reactedByMe) ?? false;
+    final api = ref.read(apiClientProvider);
+    if (alreadyReacted) {
+      await api.removeReaction(messageId, emoji);
+    } else {
+      await api.addReaction(messageId, emoji);
+    }
+  }
+
+  void _applyReactionEvent(String type, Map<String, dynamic> payload) {
+    final messageId = payload['messageId'] as String?;
+    final userId = payload['userId'] as String?;
+    final emoji = payload['emoji'] as String?;
+    final current = state.valueOrNull;
+    if (messageId == null || userId == null || emoji == null || current == null) return;
+
+    final meId = ref.read(meProvider).valueOrNull?.id;
+    state = AsyncData([
+      for (final m in current)
+        if (m.id == messageId) _withReactionChange(m, type, userId, emoji, meId) else m,
+    ]);
+  }
+
+  ApiMessage _withReactionChange(ApiMessage message, String type, String userId, String emoji, String? meId) {
+    final reactions = List<ApiReaction>.from(message.reactions);
+    final index = reactions.indexWhere((r) => r.emoji == emoji);
+
+    if (type == 'reaction.added') {
+      if (index >= 0) {
+        final existing = reactions[index];
+        reactions[index] = ApiReaction(
+          emoji: emoji,
+          count: existing.count + 1,
+          reactedByMe: existing.reactedByMe || userId == meId,
+        );
+      } else {
+        reactions.add(ApiReaction(emoji: emoji, count: 1, reactedByMe: userId == meId));
+      }
+    } else if (index >= 0) {
+      final existing = reactions[index];
+      final newCount = existing.count - 1;
+      if (newCount <= 0) {
+        reactions.removeAt(index);
+      } else {
+        reactions[index] = ApiReaction(
+          emoji: emoji,
+          count: newCount,
+          reactedByMe: existing.reactedByMe && userId != meId,
+        );
+      }
+    }
+    return message.copyWith(reactions: reactions);
   }
 }

@@ -77,6 +77,7 @@ class ApiMessage {
     this.body,
     this.mediaId,
     required this.createdAt,
+    this.reactions = const [],
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) => ApiMessage(
@@ -87,6 +88,10 @@ class ApiMessage {
         body: json['body'] as String?,
         mediaId: json['mediaId'] as String?,
         createdAt: DateTime.parse(json['createdAt'] as String),
+        reactions: (json['reactions'] as List<dynamic>?)
+                ?.map((e) => ApiReaction.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
       );
 
   final String id;
@@ -96,4 +101,30 @@ class ApiMessage {
   final String? body;
   final String? mediaId;
   final DateTime createdAt;
+  final List<ApiReaction> reactions;
+
+  ApiMessage copyWith({List<ApiReaction>? reactions}) => ApiMessage(
+        id: id,
+        roomId: roomId,
+        senderId: senderId,
+        kind: kind,
+        body: body,
+        mediaId: mediaId,
+        createdAt: createdAt,
+        reactions: reactions ?? this.reactions,
+      );
+}
+
+class ApiReaction {
+  const ApiReaction({required this.emoji, required this.count, required this.reactedByMe});
+
+  factory ApiReaction.fromJson(Map<String, dynamic> json) => ApiReaction(
+        emoji: json['emoji'] as String,
+        count: json['count'] as int,
+        reactedByMe: json['reactedByMe'] as bool? ?? false,
+      );
+
+  final String emoji;
+  final int count;
+  final bool reactedByMe;
 }

@@ -12,7 +12,7 @@ import 'fakes.dart';
 const _me = ApiUser(id: 'me', displayName: 'Dev User');
 
 FakeApiClient _seededApiClient() {
-  final api = FakeApiClient()
+  final api = FakeApiClient(FakeWsClient())
     ..me = _me
     ..contacts = const [
       ApiContact(id: 'user-mom', displayName: 'Mom', online: true),
@@ -69,7 +69,7 @@ Future<void> _pumpApp(WidgetTester tester, FakeApiClient api) async {
     ProviderScope(
       overrides: [
         apiClientProvider.overrideWithValue(api),
-        wsClientProvider.overrideWithValue(FakeWsClient()),
+        wsClientProvider.overrideWithValue(api.ws),
       ],
       child: const RoostApp(),
     ),
@@ -109,6 +109,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.messagesByRoom['room-family']!.any((m) => m.body == 'hello from a test'), isTrue);
+  });
+
+  testWidgets('Long-pressing a message and picking an emoji adds a reaction', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining("Dinner's at 7"));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('👍'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('👍 1'), findsOneWidget);
+
+    // Tapping the now-present chip toggles it back off.
+    await tester.tap(find.text('👍 1'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('👍 1'), findsNothing);
   });
 
   testWidgets('Contacts screen lists other users with presence', (tester) async {

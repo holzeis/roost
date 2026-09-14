@@ -120,7 +120,12 @@ class _MessageList extends ConsumerWidget {
                 : (usersById[message.senderId]?.displayName ?? '?');
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: _MessageRow(message: message, fromMe: message.senderId == meId, senderName: senderName),
+              child: _MessageRow(
+                roomId: roomId,
+                message: message,
+                fromMe: message.senderId == meId,
+                senderName: senderName,
+              ),
             );
           },
         );
@@ -129,15 +134,23 @@ class _MessageList extends ConsumerWidget {
   }
 }
 
-class _MessageRow extends StatelessWidget {
-  const _MessageRow({required this.message, required this.fromMe, required this.senderName});
+const _quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
+class _MessageRow extends ConsumerWidget {
+  const _MessageRow({
+    required this.roomId,
+    required this.message,
+    required this.fromMe,
+    required this.senderName,
+  });
+
+  final String roomId;
   final ApiMessage message;
   final bool fromMe;
   final String senderName;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final align = fromMe ? MainAxisAlignment.end : MainAxisAlignment.start;
     final timeLabel = TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
@@ -168,16 +181,87 @@ class _MessageRow extends StatelessWidget {
       ),
     );
 
-    return Row(
-      mainAxisAlignment: align,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: fromMe
-          ? [bubble]
-          : [
-              InitialAvatar(initial: senderName.isNotEmpty ? senderName[0].toUpperCase() : '?', size: 20),
-              const SizedBox(width: 6),
-              bubble,
+    return Column(
+      crossAxisAlignment: fromMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onLongPress: () => _showReactionPicker(context, ref),
+          child: Row(
+            mainAxisAlignment: align,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: fromMe
+                ? [bubble]
+                : [
+                    InitialAvatar(initial: senderName.isNotEmpty ? senderName[0].toUpperCase() : '?', size: 20),
+                    const SizedBox(width: 6),
+                    bubble,
+                  ],
+          ),
+        ),
+        if (message.reactions.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.only(left: fromMe ? 0 : 26, top: 4),
+            child: Wrap(
+              spacing: 4,
+              children: [
+                for (final reaction in message.reactions)
+                  _ReactionChip(
+                    reaction: reaction,
+                    onTap: () => ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, reaction.emoji),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _showReactionPicker(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Wrap(
+            spacing: 16,
+            children: [
+              for (final emoji in _quickReactions)
+                InkWell(
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, emoji);
+                  },
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReactionChip extends StatelessWidget {
+  const _ReactionChip({required this.reaction, required this.onTap});
+
+  final ApiReaction reaction;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: reaction.reactedByMe ? scheme.primary.withOpacity(0.15) : scheme.onSurface.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+          border: reaction.reactedByMe ? Border.all(color: scheme.primary.withOpacity(0.4)) : null,
+        ),
+        child: Text('${reaction.emoji} ${reaction.count}', style: const TextStyle(fontSize: 12)),
+      ),
     );
   }
 }

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
@@ -5,9 +8,16 @@ import 'package:roost/data/ws_client.dart';
 /// In-memory stand-ins for the network layer, used by widget tests so they
 /// never make a real HTTP/WebSocket call. Overriding a method on a
 /// non-final class is enough in Dart — no separate interface needed.
+///
+/// [ws] mirrors the real server's behavior of broadcasting a change back to
+/// the actor over the socket rather than the REST response being the source
+/// of truth — MessagesController relies entirely on that broadcast to
+/// update its state (see chat_providers.dart), so a fake that never emits
+/// anything would leave the UI never updating in tests.
 class FakeApiClient extends ApiClient {
-  FakeApiClient();
+  FakeApiClient(this.ws);
 
+  final FakeWsClient ws;
   ApiUser me = const ApiUser(id: 'me', displayName: 'Dev User');
   List<ApiContact> contacts = const [];
   List<ApiRoom> rooms = [];
@@ -61,6 +71,7 @@ class FakeApiClient extends ApiClient {
       createdAt: DateTime.now(),
     );
     messagesByRoom.putIfAbsent(roomId, () => []).add(message);
+    ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(message))) as Map<String, dynamic>));
     return message;
   }
 
@@ -72,15 +83,45 @@ class FakeApiClient extends ApiClient {
   }
 
   @override
+  Future<void> addReaction(String messageId, String emoji) async {
+    ws.emit(WsEvent('reaction.added', {'messageId': messageId, 'userId': me.id, 'emoji': emoji}));
+  }
+
+  @override
+  Future<void> removeReaction(String messageId, String emoji) async {
+    ws.emit(WsEvent('reaction.removed', {'messageId': messageId, 'userId': me.id, 'emoji': emoji}));
+  }
+
+  @override
   Future<String> mintLiveKitToken(String roomId) async => 'fake-token';
+
+  Map<String, dynamic> _messageJson(ApiMessage m) => {
+        'id': m.id,
+        'roomId': m.roomId,
+        'senderId': m.senderId,
+        'kind': m.kind,
+        'body': m.body,
+        'mediaId': m.mediaId,
+        'createdAt': m.createdAt.toIso8601String(),
+      };
 }
 
 class FakeWsClient extends WsClient {
+  final _controller = StreamController<WsEvent>.broadcast();
+
   @override
   void connect() {
     // No real socket in tests; nothing to do.
   }
 
   @override
-  Stream<WsEvent> get events => const Stream.empty();
+  Stream<WsEvent> get events => _controller.stream;
+
+  void emit(WsEvent event) => _controller.add(event);
+
+  @override
+  void dispose() {
+    _controller.close();
+    super.dispose();
+  }
 }

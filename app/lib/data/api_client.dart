@@ -98,6 +98,16 @@ class ApiClient {
         .toList();
   }
 
+  Future<void> addReaction(String messageId, String emoji) async {
+    final res = await _http.put(_uri('/api/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}'));
+    _checkOk(res);
+  }
+
+  Future<void> removeReaction(String messageId, String emoji) async {
+    final res = await _http.delete(_uri('/api/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}'));
+    _checkOk(res);
+  }
+
   Future<String> mintLiveKitToken(String roomId) async {
     final res = await _http.post(
       _uri('/api/livekit/token'),
