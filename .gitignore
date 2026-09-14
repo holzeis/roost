@@ -1,0 +1,51 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!docs/**/*.key
+
+# Docker / local dev data
+docker-compose.override.yml
+.data/
+postgres-data/
+minio-data/
+livekit-data/
+
+# Logs
+*.log
+logs/
+
+# Flutter / Dart (mobile app)
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+**/ios/.symlinks/
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+*.iml
+
+# Go (chat server)
+/server/roost-server
+vendor/
+
+# Kubernetes / Helm local overrides
+*.local.yaml

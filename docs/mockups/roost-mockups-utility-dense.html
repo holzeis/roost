@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roost — utility dense mockups</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css">
+<style>
+:root {
+  --surface-0: #f3f2ee;
+  --surface-1: #f8f7f4;
+  --surface-2: #ffffff;
+  --text-primary: #1f1e1c;
+  --text-secondary: #6b6b63;
+  --text-muted: #9c9b93;
+  --border: rgba(31,30,28,0.12);
+  --border-strong: rgba(31,30,28,0.24);
+  --fill-control: rgba(31,30,28,0.08);
+  --fill-accent: #2f6fed;
+  --on-accent: #ffffff;
+  --text-accent: #2f6fed;
+  --bg-accent-muted: rgba(47,111,237,0.10);
+  --fill-success: #3fa360;
+  --fill-danger: #e5484d;
+  --bg-highlight: rgba(250,204,21,0.35);
+  --fill-field: rgba(255,255,255,0.6);
+  --fill-field-ring: var(--border);
+  --radius: 8px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-0: #141413;
+    --surface-1: #1c1c1a;
+    --surface-2: #232320;
+    --text-primary: #f2f1ee;
+    --text-secondary: #a8a79f;
+    --text-muted: #75746c;
+    --border: rgba(255,255,255,0.12);
+    --border-strong: rgba(255,255,255,0.22);
+    --fill-control: rgba(255,255,255,0.08);
+    --fill-accent: #5b8cf5;
+    --on-accent: #0b1220;
+    --text-accent: #5b8cf5;
+    --bg-accent-muted: rgba(91,140,245,0.16);
+    --fill-success: #4bbf78;
+    --fill-danger: #ef5a5f;
+    --bg-highlight: rgba(250,204,21,0.28);
+    --fill-field: rgba(255,255,255,0.05);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--surface-0);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  padding: 32px 16px 80px;
+}
+h1 {
+  font-size: 20px;
+  font-weight: 500;
+  text-align: center;
+  margin: 0 0 4px;
+}
+p.sub {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0 0 40px;
+}
+.gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  justify-content: center;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.screen {
+  width: 300px;
+}
+.screen h2 {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0 0 10px;
+}
+.frame {
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.frame.dark {
+  background: #1c1c1a;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+}
+input[type="text"] {
+  border: 0.5px solid var(--fill-field-ring);
+  background: var(--fill-field);
+  border-radius: var(--radius);
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+input[type="checkbox"] { accent-color: var(--fill-accent); }
+</style>
+</head>
+<body>
+
+<h1>Roost — utility dense</h1>
+<p class="sub">Reference mockups for development handoff. Colors are CSS custom properties on :root — swap the light/dark blocks for your actual design tokens.</p>
+
+<div class="gallery">
+
+<div class="screen">
+<h2>Home</h2>
+<div class="frame" style="position:relative;">
+<div style="display:flex; align-items:center; justify-content:space-between; padding:12px 12px 10px;">
+<p style="margin:0; font-size:16px; font-weight:500;">Roost</p>
+<i class="ti ti-search" style="font-size:17px; color:var(--text-accent);"></i>
+</div>
+<div style="display:flex; flex-direction:column;">
+<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:0.5px solid var(--border);">
+<div style="width:32px; height:32px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">F</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:13px; font-weight:500;">Family</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">On my way, leaving now</p>
+</div>
+<div style="display:flex; flex-direction:column; align-items:flex-end; gap:3px;">
+<span style="font-size:10px; color:var(--text-muted);">6:12 PM</span>
+<span style="background:var(--fill-accent); color:var(--on-accent); font-size:9px; font-weight:500; border-radius:8px; padding:1px 5px;">2</span>
+</div>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:0.5px solid var(--border);">
+<div style="width:32px; height:32px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">M</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:13px; font-weight:500;">Mom</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Dinner's at 7, see you all soon</p>
+</div>
+<span style="font-size:10px; color:var(--text-muted);">6:04 PM</span>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:0.5px solid var(--border);">
+<div style="width:32px; height:32px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">W</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:13px; font-weight:500;">Weekend trip</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Sam: booked the cabin</p>
+</div>
+<span style="font-size:10px; color:var(--text-muted);">Yesterday</span>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:0.5px solid var(--border);">
+<div style="width:32px; height:32px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">S</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:13px; font-weight:500;">Sam</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Shared their location</p>
+</div>
+<span style="font-size:10px; color:var(--text-muted);">Mon</span>
+</div>
+</div>
+<div style="position:absolute; right:12px; bottom:12px; width:40px; height:40px; border-radius:50%; background:var(--fill-accent); display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-edit" style="font-size:17px; color:var(--on-accent);"></i>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>Contacts</h2>
+<div class="frame">
+<div style="display:flex; align-items:center; gap:8px; padding:12px;">
+<i class="ti ti-chevron-left" style="font-size:18px; color:var(--text-secondary);"></i>
+<p style="margin:0; font-size:14px; font-weight:500;">Contacts</p>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:0.5px solid var(--border);">
+<div style="width:30px; height:30px; border-radius:50%; background:var(--bg-accent-muted); display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-users" style="font-size:15px; color:var(--text-accent);"></i>
+</div>
+<p style="margin:0; font-size:13px; font-weight:500; color:var(--text-accent);">New group</p>
+</div>
+<p style="margin:0; padding:8px 12px 3px; font-size:11px; color:var(--text-muted);">On the tailnet</p>
+<div style="display:flex; align-items:center; gap:8px; padding:7px 12px;">
+<div style="position:relative;">
+<div style="width:30px; height:30px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary);">M</div>
+<div style="position:absolute; right:-1px; bottom:-1px; width:8px; height:8px; border-radius:50%; background:var(--fill-success); border:2px solid var(--surface-2);"></div>
+</div>
+<div>
+<p style="margin:0; font-size:13px; font-weight:500;">Mom</p>
+<p style="margin:0; font-size:11px; color:var(--text-secondary);">Online</p>
+</div>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:7px 12px;">
+<div style="position:relative;">
+<div style="width:30px; height:30px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary);">D</div>
+<div style="position:absolute; right:-1px; bottom:-1px; width:8px; height:8px; border-radius:50%; background:var(--border-strong); border:2px solid var(--surface-2);"></div>
+</div>
+<div>
+<p style="margin:0; font-size:13px; font-weight:500;">Dad</p>
+<p style="margin:0; font-size:11px; color:var(--text-secondary);">Last seen 2h ago</p>
+</div>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:7px 12px;">
+<div style="position:relative;">
+<div style="width:30px; height:30px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary);">S</div>
+<div style="position:absolute; right:-1px; bottom:-1px; width:8px; height:8px; border-radius:50%; background:var(--fill-success); border:2px solid var(--surface-2);"></div>
+</div>
+<div>
+<p style="margin:0; font-size:13px; font-weight:500;">Sam</p>
+<p style="margin:0; font-size:11px; color:var(--text-secondary);">Online</p>
+</div>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>New group</h2>
+<div class="frame">
+<div style="display:flex; align-items:center; justify-content:space-between; padding:12px;">
+<div style="display:flex; align-items:center; gap:8px;">
+<i class="ti ti-x" style="font-size:17px; color:var(--text-secondary);"></i>
+<p style="margin:0; font-size:14px; font-weight:500;">New group</p>
+</div>
+<span style="font-size:12px; font-weight:500; color:var(--text-accent);">Create</span>
+</div>
+<div style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-top:0.5px solid var(--border);">
+<div style="position:relative; flex-shrink:0;">
+<div style="width:44px; height:44px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-users" style="font-size:18px; color:var(--text-secondary);"></i>
+</div>
+<div style="position:absolute; right:-2px; bottom:-2px; width:18px; height:18px; border-radius:50%; background:var(--fill-accent); border:2px solid var(--surface-2); display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-camera" style="font-size:9px; color:var(--on-accent);"></i>
+</div>
+</div>
+<input type="text" placeholder="Group name" style="flex:1;">
+</div>
+<div style="padding:10px 12px; display:flex; flex-wrap:wrap; gap:6px; border-top:0.5px solid var(--border);">
+<div style="display:flex; align-items:center; gap:4px; background:var(--fill-control); border-radius:12px; padding:2px 7px 2px 3px;">
+<div style="width:16px; height:16px; border-radius:50%; background:var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-secondary);">M</div>
+<span style="font-size:11px; color:var(--text-secondary);">Mom</span>
+</div>
+<div style="display:flex; align-items:center; gap:4px; background:var(--fill-control); border-radius:12px; padding:2px 7px 2px 3px;">
+<div style="width:16px; height:16px; border-radius:50%; background:var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-secondary);">D</div>
+<span style="font-size:11px; color:var(--text-secondary);">Dad</span>
+</div>
+<div style="display:flex; align-items:center; gap:4px; background:var(--fill-control); border-radius:12px; padding:2px 7px 2px 3px;">
+<div style="width:16px; height:16px; border-radius:50%; background:var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-secondary);">S</div>
+<span style="font-size:11px; color:var(--text-secondary);">Sam</span>
+</div>
+</div>
+<p style="margin:0; padding:8px 12px 3px; font-size:11px; color:var(--text-muted);">Add more people</p>
+<div style="display:flex; align-items:center; gap:8px; padding:7px 12px;">
+<input type="checkbox" checked>
+<div style="width:26px; height:26px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-secondary);">M</div>
+<span style="font-size:12px;">Mom</span>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:7px 12px;">
+<input type="checkbox">
+<div style="width:26px; height:26px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-secondary);">G</div>
+<span style="font-size:12px;">Grandpa</span>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>Chat</h2>
+<div class="frame">
+<div style="display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:0.5px solid var(--border);">
+<i class="ti ti-chevron-left" style="font-size:18px; color:var(--text-secondary);"></i>
+<div style="width:26px; height:26px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--text-secondary);">F</div>
+<div style="flex:1;">
+<p style="margin:0; font-size:14px; font-weight:500;">Family</p>
+<p style="margin:0; font-size:11px; color:var(--text-muted);">4 members</p>
+</div>
+<i class="ti ti-search" style="font-size:17px; color:var(--text-accent);"></i>
+<i class="ti ti-video" style="font-size:17px; color:var(--text-accent); margin-left:12px;"></i>
+</div>
+<div style="padding:10px 12px; display:flex; flex-direction:column; gap:8px;">
+<div style="display:flex; gap:6px; align-items:flex-end;">
+<div style="width:20px; height:20px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">M</div>
+<div style="background:var(--surface-1); padding:6px 9px; border-radius:8px 8px 8px 2px; font-size:13px; max-width:220px;">Dinner's at 7, see you all soon<span style="font-size:10px; color:var(--text-muted); margin-left:6px;">6:04</span></div>
+</div>
+<div style="display:flex; gap:6px; align-items:flex-end;">
+<div style="width:20px; height:20px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">D</div>
+<div style="background:var(--surface-1); border-radius:8px 8px 8px 2px; overflow:hidden; width:150px;">
+<div style="height:96px; background:var(--surface-0); display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-photo" style="font-size:20px; color:var(--text-muted);"></i>
+</div>
+<p style="margin:0; padding:3px 7px; font-size:10px; color:var(--text-muted);">6:07</p>
+</div>
+</div>
+<div style="display:flex; gap:6px; align-items:flex-end;">
+<div style="width:20px; height:20px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:500; color:var(--text-secondary); flex-shrink:0;">S</div>
+<div style="background:var(--surface-1); border-radius:8px 8px 8px 2px; overflow:hidden; width:200px;">
+<div style="height:100px; background:var(--surface-0); position:relative;">
+<div style="position:absolute; left:38%; top:45%; width:16px; height:16px; border-radius:50%; background:var(--surface-2); border:2px solid var(--fill-accent); display:flex; align-items:center; justify-content:center; transform:translate(-50%,-50%);">
+<i class="ti ti-user" style="font-size:9px; color:var(--text-accent);"></i>
+</div>
+<div style="position:absolute; left:58%; top:60%; width:14px; height:14px; border-radius:50%; background:var(--fill-control); border:2px solid var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-secondary); transform:translate(-50%,-50%);">D</div>
+</div>
+<p style="margin:0; padding:3px 7px; font-size:10px; color:var(--text-muted);">Live · 43 min left</p>
+</div>
+</div>
+<div style="display:flex; justify-content:flex-end;">
+<div style="background:var(--fill-accent); color:var(--on-accent); padding:6px 9px; border-radius:8px 8px 2px 8px; font-size:13px; max-width:220px;">On my way, leaving now<span style="font-size:10px; opacity:0.8; margin-left:6px;">6:12</span></div>
+</div>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:0.5px solid var(--border);">
+<i class="ti ti-plus" style="font-size:17px; color:var(--text-secondary);"></i>
+<input type="text" placeholder="Message" style="flex:1; height:30px;">
+<i class="ti ti-send" style="font-size:17px; color:var(--text-accent);"></i>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>Search</h2>
+<div class="frame">
+<div style="display:flex; align-items:center; gap:8px; padding:10px 12px;">
+<i class="ti ti-chevron-left" style="font-size:18px; color:var(--text-secondary);"></i>
+<div style="flex:1; display:flex; align-items:center; gap:6px; background:var(--fill-field); border:0.5px solid var(--fill-field-ring); border-radius:8px; padding:0 8px; height:32px;">
+<i class="ti ti-search" style="font-size:14px; color:var(--text-muted);"></i>
+<input type="text" value="cabin" style="border:none; background:transparent; padding:0; height:auto;">
+</div>
+</div>
+<p style="margin:0; padding:8px 12px 3px; font-size:11px; color:var(--text-muted);">3 results</p>
+<div style="display:flex; align-items:flex-start; gap:8px; padding:7px 12px; border-top:0.5px solid var(--border);">
+<div style="width:26px; height:26px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-secondary); flex-shrink:0;">S</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:11px; font-weight:500;">Sam · Mon</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary);">Booked the <span style="background:var(--bg-highlight); border-radius:2px; padding:0 2px;">cabin</span> for the weekend trip</p>
+</div>
+</div>
+<div style="display:flex; align-items:flex-start; gap:8px; padding:7px 12px; border-top:0.5px solid var(--border);">
+<div style="width:26px; height:26px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-secondary); flex-shrink:0;">D</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:11px; font-weight:500;">Dad · Mon</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary);">Does the <span style="background:var(--bg-highlight); border-radius:2px; padding:0 2px;">cabin</span> have wifi?</p>
+</div>
+</div>
+<div style="display:flex; align-items:flex-start; gap:8px; padding:7px 12px; border-top:0.5px solid var(--border);">
+<div style="width:26px; height:26px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-secondary); flex-shrink:0;">S</div>
+<div style="flex:1; min-width:0;">
+<p style="margin:0; font-size:11px; font-weight:500;">Sam · Tue</p>
+<p style="margin:1px 0 0; font-size:12px; color:var(--text-secondary);">Sent a photo of the <span style="background:var(--bg-highlight); border-radius:2px; padding:0 2px;">cabin</span></p>
+</div>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>1:1 call</h2>
+<div class="frame dark">
+<div style="display:flex; flex-direction:column; align-items:center; padding-top:30px;">
+<div style="width:56px; height:56px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-user" style="font-size:24px; color:#a3a39c;"></i>
+</div>
+<p style="margin:10px 0 0; font-size:13px; font-weight:500; color:#f5f5f0;">Family call</p>
+<p style="margin:3px 0 0; font-size:11px; color:#a3a39c;">02:14 · Mom, Sam</p>
+</div>
+<div style="position:absolute; top:12px; right:12px; width:60px; height:80px; border-radius:8px; background:#2c2c2a; border:1px solid #46463f; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-video" style="font-size:16px; color:#6b6b63;"></i>
+</div>
+<div style="display:flex; align-items:center; justify-content:center; gap:10px; padding:16px 12px 22px;">
+<div style="width:44px; height:44px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-microphone" style="font-size:17px; color:#f5f5f0;"></i>
+</div>
+<div style="width:44px; height:44px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-video" style="font-size:17px; color:#f5f5f0;"></i>
+</div>
+<div style="width:44px; height:44px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-camera-rotate" style="font-size:17px; color:#f5f5f0;"></i>
+</div>
+<div style="width:44px; height:44px; border-radius:50%; background:#c14343; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-phone-x" style="font-size:17px; color:#ffffff;"></i>
+</div>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>Group call</h2>
+<div class="frame dark">
+<div style="padding:12px 12px 0; text-align:center;">
+<p style="margin:0; font-size:12px; font-weight:500; color:#f5f5f0;">Family call · 05:32</p>
+</div>
+<div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; padding:12px;">
+<div style="background:#2c2c2a; border-radius:8px; height:104px; position:relative; display:flex; align-items:center; justify-content:center;">
+<div style="width:34px; height:34px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center; font-size:12px; color:#a3a39c;">M</div>
+<span style="position:absolute; left:6px; bottom:5px; font-size:10px; color:#f5f5f0;">Mom</span>
+</div>
+<div style="background:#2c2c2a; border-radius:8px; height:104px; position:relative; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-video" style="font-size:20px; color:#6b6b63;"></i>
+<span style="position:absolute; left:6px; bottom:5px; font-size:10px; color:#f5f5f0;">Dad</span>
+</div>
+<div style="background:#2c2c2a; border-radius:8px; height:104px; position:relative; display:flex; align-items:center; justify-content:center;">
+<div style="width:34px; height:34px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center; font-size:12px; color:#a3a39c;">S</div>
+<i class="ti ti-microphone-off" style="position:absolute; right:6px; bottom:5px; font-size:11px; color:#c98a8a;"></i>
+<span style="position:absolute; left:6px; bottom:5px; font-size:10px; color:#f5f5f0;">Sam</span>
+</div>
+<div style="background:#2c2c2a; border-radius:8px; height:104px; position:relative; display:flex; align-items:center; justify-content:center; border:1px solid #46463f;">
+<i class="ti ti-video-off" style="font-size:18px; color:#6b6b63;"></i>
+<span style="position:absolute; left:6px; bottom:5px; font-size:10px; color:#f5f5f0;">You</span>
+</div>
+</div>
+<div style="display:flex; align-items:center; justify-content:center; gap:10px; padding:12px 12px 22px;">
+<div style="width:44px; height:44px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-microphone" style="font-size:17px; color:#f5f5f0;"></i>
+</div>
+<div style="width:44px; height:44px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-video-off" style="font-size:17px; color:#f5f5f0;"></i>
+</div>
+<div style="width:44px; height:44px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-camera-rotate" style="font-size:17px; color:#f5f5f0;"></i>
+</div>
+<div style="width:44px; height:44px; border-radius:50%; background:#c14343; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-phone-x" style="font-size:17px; color:#ffffff;"></i>
+</div>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>Incoming call</h2>
+<div class="frame dark">
+<div style="display:flex; flex-direction:column; align-items:center; padding-top:56px;">
+<p style="margin:0; font-size:11px; color:#a3a39c;">Incoming video call</p>
+<div style="width:76px; height:76px; border-radius:50%; background:#3a3a37; display:flex; align-items:center; justify-content:center; font-size:26px; color:#a3a39c; margin-top:14px;">M</div>
+<p style="margin:14px 0 0; font-size:15px; font-weight:500; color:#f5f5f0;">Mom</p>
+<p style="margin:3px 0 0; font-size:11px; color:#a3a39c;">Roost · calling…</p>
+</div>
+<div style="display:flex; align-items:center; justify-content:center; gap:48px; padding:0 12px 36px;">
+<div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+<div style="width:48px; height:48px; border-radius:50%; background:#c14343; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-phone-x" style="font-size:19px; color:#ffffff;"></i>
+</div>
+<span style="font-size:10px; color:#a3a39c;">Decline</span>
+</div>
+<div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+<div style="width:48px; height:48px; border-radius:50%; background:#4a9463; display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-phone" style="font-size:19px; color:#ffffff;"></i>
+</div>
+<span style="font-size:10px; color:#a3a39c;">Accept</span>
+</div>
+</div>
+</div>
+</div>
+
+<div class="screen">
+<h2>Profile</h2>
+<div class="frame">
+<div style="display:flex; align-items:center; gap:8px; padding:12px;">
+<i class="ti ti-chevron-left" style="font-size:18px; color:var(--text-secondary);"></i>
+<p style="margin:0; font-size:14px; font-weight:500;">Profile</p>
+</div>
+<div style="display:flex; flex-direction:column; align-items:center; padding:16px 12px 18px;">
+<div style="position:relative;">
+<div style="width:64px; height:64px; border-radius:50%; background:var(--fill-control); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:500; color:var(--text-secondary);">S</div>
+<div style="position:absolute; right:-2px; bottom:-2px; width:20px; height:20px; border-radius:50%; background:var(--fill-accent); border:2px solid var(--surface-2); display:flex; align-items:center; justify-content:center;">
+<i class="ti ti-camera" style="font-size:10px; color:var(--on-accent);"></i>
+</div>
+</div>
+</div>
+<div style="padding:0 12px 12px;">
+<label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:3px;">Display name</label>
+<input type="text" value="Sam" style="width:100%;">
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:9px 12px; border-top:0.5px solid var(--border);">
+<i class="ti ti-wifi" style="font-size:15px; color:var(--text-secondary);"></i>
+<div style="flex:1;">
+<p style="margin:0; font-size:12px;">Tailnet identity</p>
+<p style="margin:0; font-size:11px; color:var(--text-muted);">sam@family.ts.net</p>
+</div>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding:9px 12px; border-top:0.5px solid var(--border);">
+<i class="ti ti-moon" style="font-size:15px; color:var(--text-secondary);"></i>
+<div style="flex:1;">
+<p style="margin:0; font-size:12px;">Theme</p>
+<p style="margin:0; font-size:11px; color:var(--text-muted);">System</p>
+</div>
+<i class="ti ti-chevron-down" style="font-size:14px; color:var(--text-muted);"></i>
+</div>
+</div>
+</div>
+
+</div>
+</body>
+</html>
