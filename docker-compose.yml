@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: roost
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-roost-dev-password}
+      POSTGRES_DB: roost
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    # minio/minio on Docker Hub now requires authentication to pull; quay.io
+    # is MinIO's recommended anonymous-pull mirror.
+    image: quay.io/minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-roost}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-roost-dev-password}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --dev --bind 0.0.0.0
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-devsecret-devsecret-devsecret}"
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "127.0.0.1:7881:7881"
+      - "127.0.0.1:50000-50100:50000-50100/udp"
+
+  chat-server:
+    build:
+      context: ./server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    environment:
+      LISTEN_ADDR: ":8080"
+      DATABASE_URL: "postgres://roost:${POSTGRES_PASSWORD:-roost-dev-password}@postgres:5432/roost?sslmode=disable"
+      S3_ENDPOINT: "minio:9000"
+      S3_ACCESS_KEY: "${MINIO_ROOT_USER:-roost}"
+      S3_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-roost-dev-password}"
+      S3_BUCKET: "roost-media"
+      S3_USE_SSL: "false"
+      LIVEKIT_URL: "ws://livekit:7880"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-devkey}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-devsecret-devsecret-devsecret}"
+      # Local dev only: bypasses real Tailscale identity resolution with a
+      # fixed fake identity, since there's no tailnet to join from a laptop
+      # docker-compose stack. Never set this in production. See
+      # server/internal/auth/dev_resolver.go.
+      ENABLE_DEV_AUTH: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  postgres-data:
+  minio-data:
