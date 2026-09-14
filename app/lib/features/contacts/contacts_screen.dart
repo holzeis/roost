@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/mock_data.dart';
-import '../../data/models.dart';
+import '../../data/api_models.dart';
+import '../../providers/chat_providers.dart';
 import '../../widgets/avatar.dart';
 
-class ContactsScreen extends StatelessWidget {
+class ContactsScreen extends ConsumerWidget {
   const ContactsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final users = ref.watch(usersProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Contacts')),
       body: ListView(
@@ -32,28 +34,57 @@ class ContactsScreen extends StatelessWidget {
               child: Text('On the tailnet', style: TextStyle(fontSize: 11)),
             ),
           ),
-          for (final contact in MockData.contacts) _ContactTile(contact: contact),
+          users.when(
+            data: (contacts) => contacts.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('Nobody else has connected yet.'),
+                  )
+                : Column(children: [for (final c in contacts) _ContactTile(contact: c)]),
+            error: (error, _) => Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Could not load contacts.\n$error'),
+            ),
+            loading: () => const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ContactTile extends StatelessWidget {
+class _ContactTile extends ConsumerWidget {
   const _ContactTile({required this.contact});
 
-  final Contact contact;
+  final ApiContact contact;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       leading: InitialAvatar(
-        initial: contact.initial,
-        presenceOnline: contact.presence == PresenceStatus.online,
+        initial: contact.displayName.isNotEmpty ? contact.displayName[0].toUpperCase() : '?',
+        presenceOnline: contact.online,
       ),
       title: Text(contact.displayName),
-      subtitle: Text(contact.presence == PresenceStatus.online ? 'Online' : (contact.lastSeenLabel ?? '')),
-      onTap: () => context.push('/chat/user-${contact.id}'),
+      subtitle: Text(contact.online ? 'Online' : 'Offline'),
+      onTap: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        final router = GoRouter.of(context);
+        try {
+          // Reuses an existing 1:1 room if one already exists server-side
+          // would be nicer, but for now this always starts a fresh one —
+          // good enough until room de-duplication is added.
+          final room = await ref
+              .read(roomsProvider.notifier)
+              .createRoom(isGroup: false, memberIds: [contact.id]);
+          router.push('/chat/${room.id}');
+        } catch (error) {
+          messenger.showSnackBar(SnackBar(content: Text('Could not start chat: $error')));
+        }
+      },
     );
   }
 }

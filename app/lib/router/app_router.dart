@@ -1,6 +1,6 @@
 import 'package:go_router/go_router.dart';
 
-import '../data/models.dart';
+import '../data/api_models.dart';
 import '../features/call/call_screen.dart';
 import '../features/call/incoming_call_screen.dart';
 import '../features/chat/chat_screen.dart';
@@ -21,7 +21,7 @@ final appRouter = GoRouter(
       path: '/chat/:roomId',
       builder: (context, state) => ChatScreen(
         roomId: state.pathParameters['roomId']!,
-        room: state.extra as RoomSummary?,
+        room: state.extra as ApiRoom?,
       ),
     ),
     GoRoute(

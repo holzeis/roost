@@ -1,14 +1,68 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/api_models.dart';
+import '../../providers/chat_providers.dart';
 import '../../theme/theme_controller.dart';
 
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  final _nameController = TextEditingController();
+  String? _loadedForUserId;
+  bool _saving = false;
+  late final ProviderSubscription<AsyncValue<ApiUser>> _meSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    // fireImmediately matters here: meProvider is very likely already
+    // resolved by the time this screen mounts (Home watches it first), so a
+    // plain listen would only catch a loading->data transition that already
+    // happened before this widget existed. listenManual (initState-only,
+    // unlike ref.listen) is what supports fireImmediately in this version.
+    _meSubscription = ref.listenManual(meProvider, (previous, next) {
+      final user = next.valueOrNull;
+      if (user != null && _loadedForUserId != user.id) {
+        _loadedForUserId = user.id;
+        _nameController.text = user.displayName;
+      }
+    }, fireImmediately: true);
+  }
+
+  @override
+  void dispose() {
+    _meSubscription.close();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveIfChanged(String currentDisplayName) async {
+    final newName = _nameController.text.trim();
+    if (newName.isEmpty || newName == currentDisplayName) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(apiClientProvider).updateMe(displayName: newName);
+      ref.invalidate(meProvider);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
+    final me = ref.watch(meProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: ListView(
@@ -26,7 +80,10 @@ class ProfileScreen extends ConsumerWidget {
                     color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08),
                     shape: BoxShape.circle,
                   ),
-                  child: const Text('?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
+                  child: Text(
+                    (me.valueOrNull?.displayName.isNotEmpty ?? false) ? me.value!.displayName[0].toUpperCase() : '?',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                  ),
                 ),
                 Positioned(
                   right: -2,
@@ -43,15 +100,24 @@ class ProfileScreen extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
             child: TextField(
-              decoration: const InputDecoration(labelText: 'Display name'),
-              controller: TextEditingController(text: ''),
+              controller: _nameController,
+              enabled: me.hasValue,
+              decoration: InputDecoration(
+                labelText: 'Display name',
+                suffixIcon: _saving ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                ) : null,
+              ),
+              onSubmitted: (_) => _saveIfChanged(me.value?.displayName ?? ''),
+              onTapOutside: (_) => _saveIfChanged(me.value?.displayName ?? ''),
             ),
           ),
           const Divider(height: 24),
-          const ListTile(
-            leading: Icon(Icons.wifi),
-            title: Text('Tailnet identity'),
-            subtitle: Text('Resolved from your Tailscale connection'),
+          ListTile(
+            leading: const Icon(Icons.wifi),
+            title: const Text('Tailnet identity'),
+            subtitle: Text(me.hasValue ? 'Resolved from your Tailscale connection' : 'Loading…'),
           ),
           ListTile(
             leading: const Icon(Icons.dark_mode_outlined),
