@@ -201,6 +201,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not list messages")
 		return
 	}
+	if err := s.Store.AttachReactions(r.Context(), userID, messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load reactions")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -254,7 +258,76 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not search messages")
 		return
 	}
+	if err := s.Store.AttachReactions(r.Context(), userID, messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load reactions")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
+}
+
+// messageRoomForReaction fetches the message and verifies the caller is a
+// member of its room, returning the room ID on success. Shared by add/remove
+// since both need the same authorization check before touching a reaction.
+func (s *Server) messageRoomForReaction(w http.ResponseWriter, r *http.Request, userID, messageID string) (roomID string, ok bool) {
+	message, err := s.Store.GetMessage(r.Context(), messageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "message not found")
+		return "", false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return "", false
+	}
+	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return "", false
+	}
+	return message.RoomID, true
+}
+
+func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+	emoji := chi.URLParam(r, "emoji")
+	roomID, ok := s.messageRoomForReaction(w, r, userID, messageID)
+	if !ok {
+		return
+	}
+	if err := s.Store.AddReaction(r.Context(), messageID, userID, emoji); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not add reaction")
+		return
+	}
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "reaction.added", Payload: map[string]string{
+			"messageId": messageID, "userId": userID, "emoji": emoji,
+		}})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+	emoji := chi.URLParam(r, "emoji")
+	roomID, ok := s.messageRoomForReaction(w, r, userID, messageID)
+	if !ok {
+		return
+	}
+	if err := s.Store.RemoveReaction(r.Context(), messageID, userID, emoji); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not remove reaction")
+		return
+	}
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "reaction.removed", Payload: map[string]string{
+			"messageId": messageID, "userId": userID, "emoji": emoji,
+		}})
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMintLiveKitToken(w http.ResponseWriter, r *http.Request) {

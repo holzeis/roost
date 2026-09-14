@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"roost/server/internal/db"
+	"roost/server/internal/models"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -142,5 +143,79 @@ func TestStore_RoomAndMessageLifecycle(t *testing.T) {
 	}
 	if _, err := s.FindDirectRoom(ctx, alice.ID, carol.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for a pair with no direct room, got %v", err)
+	}
+}
+
+func TestStore_Reactions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-r-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-r-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "react to this")
+	if err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	if err := s.AddReaction(ctx, msg.ID, alice.ID, "👍"); err != nil {
+		t.Fatalf("alice react: %v", err)
+	}
+	if err := s.AddReaction(ctx, msg.ID, bob.ID, "👍"); err != nil {
+		t.Fatalf("bob react: %v", err)
+	}
+	// Reacting twice with the same emoji must be a no-op, not an error or a duplicate count.
+	if err := s.AddReaction(ctx, msg.ID, alice.ID, "👍"); err != nil {
+		t.Fatalf("alice react again: %v", err)
+	}
+	if err := s.AddReaction(ctx, msg.ID, bob.ID, "❤️"); err != nil {
+		t.Fatalf("bob react heart: %v", err)
+	}
+
+	messages := []models.Message{msg}
+	if err := s.AttachReactions(ctx, alice.ID, messages); err != nil {
+		t.Fatalf("attach reactions: %v", err)
+	}
+	reactions := messages[0].Reactions
+	if len(reactions) != 2 {
+		t.Fatalf("expected 2 distinct emoji, got %+v", reactions)
+	}
+	var thumbsUp, heart *models.ReactionSummary
+	for i := range reactions {
+		switch reactions[i].Emoji {
+		case "👍":
+			thumbsUp = &reactions[i]
+		case "❤️":
+			heart = &reactions[i]
+		}
+	}
+	if thumbsUp == nil || thumbsUp.Count != 2 || !thumbsUp.ReactedByMe {
+		t.Fatalf("expected 👍 count=2 reactedByMe=true (caller is alice), got %+v", thumbsUp)
+	}
+	if heart == nil || heart.Count != 1 || heart.ReactedByMe {
+		t.Fatalf("expected ❤️ count=1 reactedByMe=false (caller is alice, bob reacted), got %+v", heart)
+	}
+
+	if err := s.RemoveReaction(ctx, msg.ID, alice.ID, "👍"); err != nil {
+		t.Fatalf("remove reaction: %v", err)
+	}
+	messages = []models.Message{{ID: msg.ID}}
+	if err := s.AttachReactions(ctx, alice.ID, messages); err != nil {
+		t.Fatalf("attach reactions after removal: %v", err)
+	}
+	for _, r := range messages[0].Reactions {
+		if r.Emoji == "👍" && r.Count != 1 {
+			t.Fatalf("expected 👍 count=1 after alice removed hers, got %+v", messages[0].Reactions)
+		}
 	}
 }

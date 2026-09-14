@@ -232,6 +232,69 @@ func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body st
 	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body))
 }
 
+func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, error) {
+	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at FROM messages WHERE id = $1`
+	return scanMessage(s.pool.QueryRow(ctx, q, id))
+}
+
+// AddReaction is idempotent: reacting twice with the same emoji is a no-op,
+// not an error (message_reactions' primary key is (message_id, user_id, emoji)).
+func (s *Store) AddReaction(ctx context.Context, messageID, userID, emoji string) error {
+	const q = `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`
+	if _, err := s.pool.Exec(ctx, q, messageID, userID, emoji); err != nil {
+		return fmt.Errorf("store: add reaction: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RemoveReaction(ctx context.Context, messageID, userID, emoji string) error {
+	const q = `DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`
+	if _, err := s.pool.Exec(ctx, q, messageID, userID, emoji); err != nil {
+		return fmt.Errorf("store: remove reaction: %w", err)
+	}
+	return nil
+}
+
+// AttachReactions populates each message's Reactions field in place, grouped
+// by emoji, with ReactedByMe relative to callerID — one query regardless of
+// how many messages, so list/search endpoints stay a fixed two round-trips.
+func (s *Store) AttachReactions(ctx context.Context, callerID string, messages []models.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]string, len(messages))
+	byID := make(map[string]*models.Message, len(messages))
+	for i := range messages {
+		ids[i] = messages[i].ID
+		byID[messages[i].ID] = &messages[i]
+	}
+
+	const q = `
+		SELECT message_id, emoji, COUNT(*), BOOL_OR(user_id = $1)
+		FROM message_reactions
+		WHERE message_id = ANY($2)
+		GROUP BY message_id, emoji
+		ORDER BY message_id, emoji`
+	rows, err := s.pool.Query(ctx, q, callerID, ids)
+	if err != nil {
+		return fmt.Errorf("store: attach reactions: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var messageID, emoji string
+		var count int
+		var reactedByMe bool
+		if err := rows.Scan(&messageID, &emoji, &count, &reactedByMe); err != nil {
+			return fmt.Errorf("store: scan reaction summary: %w", err)
+		}
+		if m, ok := byID[messageID]; ok {
+			m.Reactions = append(m.Reactions, models.ReactionSummary{Emoji: emoji, Count: count, ReactedByMe: reactedByMe})
+		}
+	}
+	return rows.Err()
+}
+
 func scanMessage(row pgx.Row) (models.Message, error) {
 	var m models.Message
 	var kind string

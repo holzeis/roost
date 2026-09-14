@@ -38,14 +38,24 @@ const (
 )
 
 type Message struct {
-	ID        string      `json:"id"`
-	RoomID    string      `json:"roomId"`
-	SenderID  string      `json:"senderId"`
-	Kind      MessageKind `json:"kind"`
-	Body      *string     `json:"body,omitempty"`
-	MediaID   *string     `json:"mediaId,omitempty"`
-	CreatedAt time.Time   `json:"createdAt"`
-	EditedAt  *time.Time  `json:"editedAt,omitempty"`
+	ID        string            `json:"id"`
+	RoomID    string            `json:"roomId"`
+	SenderID  string            `json:"senderId"`
+	Kind      MessageKind       `json:"kind"`
+	Body      *string           `json:"body,omitempty"`
+	MediaID   *string           `json:"mediaId,omitempty"`
+	CreatedAt time.Time         `json:"createdAt"`
+	EditedAt  *time.Time        `json:"editedAt,omitempty"`
+	Reactions []ReactionSummary `json:"reactions,omitempty"`
+}
+
+// ReactionSummary groups message_reactions rows by emoji for one message
+// (FR1.9): how many people reacted with this emoji, and whether the
+// requesting user is one of them (so the client can render it toggled-on).
+type ReactionSummary struct {
+	Emoji       string `json:"emoji"`
+	Count       int    `json:"count"`
+	ReactedByMe bool   `json:"reactedByMe"`
 }
 
 // LocationShare is the FR3.* subtype attached to a Kind == MessageKindLocation message.

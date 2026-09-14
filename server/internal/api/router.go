@@ -51,6 +51,9 @@ func (s *Server) Router() http.Handler {
 			r.Post("/rooms/{roomID}/messages", s.handleCreateMessage)
 			r.Get("/rooms/{roomID}/search", s.handleSearchMessages)
 
+			r.Put("/messages/{messageID}/reactions/{emoji}", s.handleAddReaction)
+			r.Delete("/messages/{messageID}/reactions/{emoji}", s.handleRemoveReaction)
+
 			r.Post("/livekit/token", s.handleMintLiveKitToken)
 		})
 	})
