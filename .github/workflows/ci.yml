@@ -1,0 +1,97 @@
+name: CI
+
+# Build-and-test only. Kept separate from release.yml (app store shipping)
+# per CLAUDE.md, so a release isn't blocked on this full matrix.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server-test:
+    name: server / test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: roost
+          POSTGRES_PASSWORD: roost-ci-password
+          POSTGRES_DB: roost
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U roost"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: go vet
+        working-directory: server
+        run: go vet ./...
+      - name: go test (unit)
+        working-directory: server
+        run: go test ./...
+      - name: go test (integration)
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://roost:roost-ci-password@localhost:5432/roost?sslmode=disable
+        run: go test -tags=integration ./...
+
+  server-build-matrix:
+    name: server / build (${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: Cross-compile
+        working-directory: server
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o /dev/null ./cmd/server
+
+  server-image:
+    name: server / container image (amd64+arm64)
+    runs-on: ubuntu-latest
+    needs: [server-test, server-build-matrix]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: server
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: ghcr.io/${{ github.repository }}-chat-server:${{ github.sha }}
+
+  app-test:
+    name: app / analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - working-directory: app
+        run: flutter pub get
+      - working-directory: app
+        run: flutter analyze
+      - working-directory: app
+        run: flutter test

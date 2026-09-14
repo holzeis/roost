@@ -1,0 +1,63 @@
+name: Release
+
+# Ships app builds to the Android internal testing track and iOS TestFlight.
+# Deliberately separate from ci.yml so a release isn't gated on the full
+# build-and-test matrix — this still builds and code-signs the app itself,
+# just without re-running unrelated CI jobs (server tests, multi-arch server
+# image, etc).
+#
+# Requires repo secrets that don't exist yet (see each job) — this workflow
+# is scaffolding until real signing credentials are configured; the trigger
+# below is manual-only until then so it can't fire and fail unexpectedly.
+on:
+  workflow_dispatch:
+  # push:
+  #   tags: ["v*"]
+
+jobs:
+  android:
+    name: release / android internal track
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - working-directory: app
+        run: flutter pub get
+
+      # TODO: decode signing key + key.properties from secrets before this
+      # step (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+      # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) once release signing is set
+      # up — see https://docs.flutter.dev/deployment/android#signing-the-app
+      - name: Build release app bundle
+        working-directory: app
+        run: flutter build appbundle --release
+
+      # TODO: upload app/build/app/outputs/bundle/release/app-release.aab to
+      # the Play Console internal testing track, e.g. via
+      # r0adkll/upload-google-play with a GOOGLE_PLAY_SERVICE_ACCOUNT secret.
+
+  ios:
+    name: release / TestFlight
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - working-directory: app
+        run: flutter pub get
+
+      # TODO: install the distribution certificate + provisioning profile
+      # from secrets (IOS_DIST_CERTIFICATE_BASE64, IOS_DIST_CERTIFICATE_PASSWORD,
+      # IOS_PROVISIONING_PROFILE_BASE64) before this step — see
+      # https://docs.flutter.dev/deployment/ios
+      - name: Build release IPA
+        working-directory: app
+        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+
+      # TODO: upload app/build/ios/ipa/*.ipa to TestFlight, e.g. via
+      # apple-actions/upload-testflight-build with App Store Connect API key
+      # secrets (APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID,
+      # APP_STORE_CONNECT_KEY).
