@@ -1,0 +1,22 @@
+# Values for the bitnami/minio chart (cluster-internal only — media uploads
+# proxy through chat-server rather than exposing MinIO to the tailnet
+# directly; see the high-level architecture diagram in
+# docs/architecture-overview.md).
+# helm install minio bitnami/minio -n roost -f minio-values.yaml
+
+auth:
+  existingSecret: chat-server-minio # keys: root-user, root-password
+
+defaultBuckets: "roost-media"
+
+persistence:
+  size: 50Gi # images/video persist indefinitely (FR2.4); size for family-scale, grow as needed
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+mode: standalone

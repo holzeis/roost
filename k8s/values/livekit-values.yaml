@@ -1,0 +1,32 @@
+# Values for the livekit/livekit-server chart. Unlike chat-server, LiveKit
+# doesn't need to resolve per-connection Tailscale identity itself (it trusts
+# a signed JWT minted by chat-server), so it's exposed the simple way — via
+# the Tailscale Kubernetes operator's LoadBalancer-class Service — rather
+# than embedding tsnet.
+# helm install livekit livekit/livekit-server -n roost -f livekit-values.yaml
+#
+# Prerequisite: the Tailscale Kubernetes operator is installed in the
+# cluster (see https://tailscale.com/kb/1236/kubernetes-operator).
+
+service:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  annotations:
+    tailscale.com/hostname: roost-livekit
+
+config:
+  keys:
+    # Populated by an external secret/values override, never committed here.
+    # ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+  rtc:
+    tcp_port: 7881
+    port_range_start: 50000
+    port_range_end: 50100
+    use_external_ip: false # tailnet-only: WireGuard direct paths / DERP relay, no public STUN/TURN
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
