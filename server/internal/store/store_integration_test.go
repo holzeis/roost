@@ -112,6 +112,12 @@ func TestStore_RoomAndMessageLifecycle(t *testing.T) {
 	if rooms[0].LastMessageBody == nil || *rooms[0].LastMessageBody != "hello from the integration test" {
 		t.Fatalf("expected the room list to carry the last message preview, got %+v", rooms[0])
 	}
+	// Regression check: the client resolves a 1:1 room's display name from
+	// its member IDs (it has no room name of its own), so ListRoomsForUser
+	// must include members, not just GetRoom.
+	if len(rooms[0].Members) != 2 {
+		t.Fatalf("expected ListRoomsForUser to include both members, got %+v", rooms[0].Members)
+	}
 
 	users, err := s.ListUsers(ctx)
 	if err != nil {

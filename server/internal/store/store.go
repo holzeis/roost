@@ -119,8 +119,6 @@ func (s *Store) CreateRoom(ctx context.Context, creatorID string, name *string, 
 	return room, nil
 }
 
-// ListRoomsForUser returns userID's rooms, each with its most recent message
-// (if any) for the room-list preview, most recently active first.
 // FindDirectRoom returns the existing 1:1 (non-group) room between userA
 // and userB, if one exists — used to avoid creating duplicate 1:1
 // conversations every time a contact is tapped (FR1.1).
@@ -143,10 +141,15 @@ func (s *Store) FindDirectRoom(ctx context.Context, userA, userB string) (models
 	return s.GetRoom(ctx, roomID)
 }
 
+// ListRoomsForUser returns userID's rooms, each with its most recent message
+// (if any) for the room-list preview, most recently active first. Members
+// are included so the client can resolve a 1:1 room's display name (it has
+// no `name` of its own) without a second round-trip per room.
 func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.Room, error) {
 	const q = `
 		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at,
-		       lm.body, lm.kind, lm.created_at
+		       lm.body, lm.kind, lm.created_at,
+		       members.member_ids
 		FROM rooms r
 		JOIN room_members rm ON rm.room_id = r.id
 		LEFT JOIN LATERAL (
@@ -155,6 +158,9 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 			ORDER BY created_at DESC
 			LIMIT 1
 		) lm ON true
+		JOIN LATERAL (
+			SELECT array_agg(user_id) AS member_ids FROM room_members WHERE room_id = r.id
+		) members ON true
 		WHERE rm.user_id = $1
 		ORDER BY COALESCE(lm.created_at, r.created_at) DESC`
 	rows, err := s.pool.Query(ctx, q, userID)
@@ -168,7 +174,7 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 	for rows.Next() {
 		var r models.Room
 		var lastKind *string
-		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.LastMessageBody, &lastKind, &r.LastMessageAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.LastMessageBody, &lastKind, &r.LastMessageAt, &r.Members); err != nil {
 			return nil, fmt.Errorf("store: scan room: %w", err)
 		}
 		if lastKind != nil {
