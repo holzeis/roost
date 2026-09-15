@@ -172,6 +172,63 @@ void main() {
     expect(find.text('👍 1'), findsNothing);
   });
 
+  testWidgets('Replying to a message shows a draft bar and tags the sent reply', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining("Dinner's at 7"));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reply'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Replying to'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, 'sure, on it');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    final sent = api.messagesByRoom['room-family']!.firstWhere((m) => m.body == 'sure, on it');
+    expect(sent.replyToMessageId, 'm1');
+    // The draft bar clears once the reply is sent.
+    expect(find.textContaining('Replying to'), findsNothing);
+    // The sent reply renders a quote of the original above its own text.
+    expect(find.textContaining("Dinner's at 7"), findsNWidgets(2));
+  });
+
+  testWidgets('Editing a recent message updates its body in place', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'oops typo');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining('oops typo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit'), findsOneWidget);
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Editing message'), findsOneWidget);
+    final field = tester.widget<TextField>(find.byType(TextField).last);
+    expect(field.controller!.text, 'oops typo');
+
+    await tester.enterText(find.byType(TextField).last, 'fixed now');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    expect(api.messagesByRoom['room-family']!.any((m) => m.body == 'fixed now'), isTrue);
+    expect(find.textContaining('oops typo'), findsNothing);
+    expect(find.text('Editing message'), findsNothing);
+  });
+
   testWidgets('Image messages render inline and can be deleted', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);

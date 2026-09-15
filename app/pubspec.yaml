@@ -48,6 +48,7 @@ dependencies:
   http_parser: ^4.0.2
   mime: ^2.1.0
   tabler_icons_plus: ^3.46.0
+  scrollable_positioned_list: ^0.3.8
 
 dev_dependencies:
   flutter_test:

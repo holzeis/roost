@@ -32,12 +32,7 @@ class MediaBubbleContent extends ConsumerWidget {
             aspectRatio: 1,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: const ColoredBox(
-                color: Colors.black87,
-                child: Center(
-                  child: Icon(TablerIcons.playerPlayFilled, color: Colors.white, size: 40),
-                ),
-              ),
+              child: _VideoThumbnail(url: url),
             ),
           ),
         ),
@@ -70,11 +65,67 @@ class MediaBubbleContent extends ConsumerWidget {
   }
 }
 
+/// A real first-frame thumbnail for a video bubble, rather than a plain
+/// black box — initializes a controller just far enough to have a decoded
+/// frame, never plays it. Falls back to a black box while loading/on error,
+/// same as before this existed.
+class _VideoThumbnail extends StatefulWidget {
+  const _VideoThumbnail({required this.url});
+  final String url;
+
+  @override
+  State<_VideoThumbnail> createState() => _VideoThumbnailState();
+}
+
+class _VideoThumbnailState extends State<_VideoThumbnail> {
+  late final VideoPlayerController _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (mounted) setState(() => _ready = true);
+      }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black87,
+      child: Stack(
+        alignment: Alignment.center,
+        fit: StackFit.expand,
+        children: [
+          if (_ready)
+            FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _controller.value.size.width,
+                  height: _controller.value.size.height,
+                  child: VideoPlayer(_controller),
+                )),
+          const Icon(TablerIcons.playerPlayFilled,
+              color: Colors.white, size: 40),
+        ],
+      ),
+    );
+  }
+}
+
 /// Saves a media object's bytes into the app's documents directory and
 /// reports where. There's no native "save to Photos" integration here —
 /// that needs platform permissions this bootstrap doesn't wire up yet — but
 /// this does give FR2.3's "downloaded" a real, verifiable effect.
-Future<String> downloadMediaToDisk(WidgetRef ref, String mediaId, String suggestedName) async {
+Future<String> downloadMediaToDisk(
+    WidgetRef ref, String mediaId, String suggestedName) async {
   final bytes = await ref.read(apiClientProvider).downloadMedia(mediaId);
   final dir = await getApplicationDocumentsDirectory();
   final file = File('${dir.path}/$suggestedName');
@@ -114,7 +165,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white),
+      appBar:
+          AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: Center(
         child: _ready
             ? AspectRatio(
@@ -126,9 +178,13 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       floatingActionButton: _ready
           ? FloatingActionButton(
               onPressed: () => setState(() {
-                _controller.value.isPlaying ? _controller.pause() : _controller.play();
+                _controller.value.isPlaying
+                    ? _controller.pause()
+                    : _controller.play();
               }),
-              child: Icon(_controller.value.isPlaying ? Icons.pause : TablerIcons.playerPlay),
+              child: Icon(_controller.value.isPlaying
+                  ? Icons.pause
+                  : TablerIcons.playerPlay),
             )
           : null,
     );

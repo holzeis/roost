@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
@@ -10,7 +12,10 @@ import '../../providers/chat_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
+import 'forward_sheet.dart';
+import 'link_preview_card.dart';
 import 'media_message.dart';
+import 'reply_preview.dart';
 
 class ChatScreen extends ConsumerWidget {
   const ChatScreen({super.key, required this.roomId, this.room});
@@ -22,7 +27,9 @@ class ChatScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(meProvider);
     final usersById = ref.watch(usersByIdProvider);
-    final roomAsync = room != null ? AsyncData<ApiRoom>(room!) : ref.watch(_roomProvider(roomId));
+    final roomAsync = room != null
+        ? AsyncData<ApiRoom>(room!)
+        : ref.watch(_roomProvider(roomId));
     final isGroup = roomAsync.valueOrNull?.isGroup ?? false;
 
     return Scaffold(
@@ -38,7 +45,8 @@ class ChatScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(TablerIcons.video),
-            onPressed: () => context.push('/call/$roomId?group=${room?.isGroup ?? false}'),
+            onPressed: () =>
+                context.push('/call/$roomId?group=${room?.isGroup ?? false}'),
           ),
         ],
       ),
@@ -66,7 +74,8 @@ final _roomProvider = FutureProvider.family<ApiRoom, String>(
 );
 
 class _ChatTitle extends StatelessWidget {
-  const _ChatTitle({required this.roomAsync, required this.me, required this.usersById});
+  const _ChatTitle(
+      {required this.roomAsync, required this.me, required this.usersById});
 
   final AsyncValue<ApiRoom> roomAsync;
   final AsyncValue<ApiUser> me;
@@ -80,25 +89,34 @@ class _ChatTitle extends StatelessWidget {
     String title = room.name ?? '';
     if (title.isEmpty) {
       final meId = me.valueOrNull?.id;
-      final otherId = room.members.firstWhere((id) => id != meId, orElse: () => '');
+      final otherId =
+          room.members.firstWhere((id) => id != meId, orElse: () => '');
       title = usersById.valueOrNull?[otherId]?.displayName ?? 'Direct message';
     }
 
     return Row(
       children: [
-        InitialAvatar(initial: title.isNotEmpty ? title[0].toUpperCase() : '?', seed: title, size: 34),
+        InitialAvatar(
+            initial: title.isNotEmpty ? title[0].toUpperCase() : '?',
+            seed: title,
+            size: 34),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600)),
               if (room.isGroup)
                 Text(
                   '${room.members.length} members',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.5),
                       ),
                 ),
             ],
@@ -109,7 +127,7 @@ class _ChatTitle extends StatelessWidget {
   }
 }
 
-class _MessageList extends ConsumerWidget {
+class _MessageList extends ConsumerStatefulWidget {
   const _MessageList({
     required this.roomId,
     required this.meId,
@@ -123,49 +141,82 @@ class _MessageList extends ConsumerWidget {
   final bool isGroup;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final messages = ref.watch(messagesProvider(roomId));
+  ConsumerState<_MessageList> createState() => _MessageListState();
+}
+
+class _MessageListState extends ConsumerState<_MessageList> {
+  final _itemScrollController = ItemScrollController();
+
+  /// Scrolls back to a message by id, e.g. when a reply quote is tapped
+  /// (FR1.10). A silent no-op if it isn't in the currently loaded window
+  /// (e.g. it's further back than pagination has fetched) — there's no
+  /// stable way to jump to something that isn't loaded yet.
+  void _jumpToMessage(String messageId, List<ApiMessage> reversed) {
+    final index = reversed.indexWhere((m) => m.id == messageId);
+    if (index == -1 || !_itemScrollController.isAttached) return;
+    _itemScrollController.scrollTo(
+        index: index,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0.4);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final messages = ref.watch(messagesProvider(widget.roomId));
 
     return messages.when(
-      error: (error, _) => Center(child: Text('Could not load messages.\n$error')),
+      error: (error, _) =>
+          Center(child: Text('Could not load messages.\n$error')),
       loading: () => const Center(child: CircularProgressIndicator()),
       data: (messages) {
         if (messages.isEmpty) {
           return Center(
             child: Text(
               'No messages yet. Say hello!',
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+              style: TextStyle(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
             ),
           );
         }
         // `messages` is oldest-first; the list itself renders newest-at-
         // bottom via reverse:true, so we walk it newest-first here too.
         final reversed = messages.reversed.toList();
-        return ListView.builder(
+        return ScrollablePositionedList.builder(
           reverse: true,
+          itemScrollController: _itemScrollController,
           padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
           itemCount: reversed.length,
           itemBuilder: (context, index) {
             final message = reversed[index];
             // Chronologically-next/-previous, i.e. the neighbors on screen
             // above/below since this list is newest-first.
-            final older = index + 1 < reversed.length ? reversed[index + 1] : null;
+            final older =
+                index + 1 < reversed.length ? reversed[index + 1] : null;
             final newer = index > 0 ? reversed[index - 1] : null;
-            final isFirstInGroup = older == null || older.senderId != message.senderId;
-            final isLastInGroup = newer == null || newer.senderId != message.senderId;
+            final isFirstInGroup =
+                older == null || older.senderId != message.senderId;
+            final isLastInGroup =
+                newer == null || newer.senderId != message.senderId;
 
-            final senderName =
-                message.senderId == meId ? 'Me' : (usersById[message.senderId]?.displayName ?? '?');
+            final senderName = message.senderId == widget.meId
+                ? 'Me'
+                : (widget.usersById[message.senderId]?.displayName ?? '?');
             return Padding(
               padding: EdgeInsets.only(bottom: isLastInGroup ? 10 : 2),
               child: _MessageRow(
-                roomId: roomId,
+                roomId: widget.roomId,
                 message: message,
-                fromMe: message.senderId == meId,
+                fromMe: message.senderId == widget.meId,
                 senderName: senderName,
                 isFirstInGroup: isFirstInGroup,
                 isLastInGroup: isLastInGroup,
-                showSenderLabel: isGroup && message.senderId != meId && isFirstInGroup,
+                showSenderLabel: widget.isGroup &&
+                    message.senderId != widget.meId &&
+                    isFirstInGroup,
+                meId: widget.meId,
+                usersById: widget.usersById,
+                onJumpToReply: (id) => _jumpToMessage(id, reversed),
               ),
             );
           },
@@ -186,6 +237,9 @@ class _MessageRow extends ConsumerWidget {
     required this.isFirstInGroup,
     required this.isLastInGroup,
     required this.showSenderLabel,
+    required this.meId,
+    required this.usersById,
+    required this.onJumpToReply,
   });
 
   final String roomId;
@@ -195,19 +249,27 @@ class _MessageRow extends ConsumerWidget {
   final bool isFirstInGroup;
   final bool isLastInGroup;
   final bool showSenderLabel;
+  final String meId;
+  final Map<String, ApiContact> usersById;
+  final void Function(String messageId) onJumpToReply;
+
+  String _nameFor(String userId) =>
+      userId == meId ? 'You' : (usersById[userId]?.displayName ?? '?');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final align = fromMe ? MainAxisAlignment.end : MainAxisAlignment.start;
-    final timeLabel = TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
+    final timeLabel =
+        TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
     final isMedia = message.kind == 'image' || message.kind == 'video';
 
     // Only the last bubble of a consecutive run from one sender gets the
     // "tail" (pointed) corner; earlier bubbles in the same run are fully
     // rounded, reading as one continuous group — the same grouping cue
     // WhatsApp/Telegram use instead of repeating the tail on every bubble.
-    final tail = isLastInGroup ? ChatBubbleStyle.tailRadius : ChatBubbleStyle.radius;
+    final tail =
+        isLastInGroup ? ChatBubbleStyle.tailRadius : ChatBubbleStyle.radius;
     final borderRadius = BorderRadius.only(
       topLeft: ChatBubbleStyle.radius,
       topRight: ChatBubbleStyle.radius,
@@ -216,7 +278,8 @@ class _MessageRow extends ConsumerWidget {
     );
 
     final bubble = Container(
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
+      constraints:
+          BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
       padding: isMedia
           ? const EdgeInsets.all(3)
           : const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
@@ -225,41 +288,89 @@ class _MessageRow extends ConsumerWidget {
         borderRadius: borderRadius,
         boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
       ),
-      child: isMedia
-          ? MediaBubbleContent(message: message)
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (showSenderLabel)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(
-                      senderName,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: colorForAvatarSeed(senderName),
-                      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (message.forwarded)
+            Padding(
+              padding: EdgeInsets.only(bottom: 2, left: isMedia ? 5 : 0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(TablerIcons.arrowForwardUp,
+                      size: 12,
+                      color: (fromMe ? scheme.onPrimary : scheme.onSurface)
+                          .withOpacity(0.55)),
+                  const SizedBox(width: 3),
+                  Text(
+                    'Forwarded',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: (fromMe ? scheme.onPrimary : scheme.onSurface)
+                          .withOpacity(0.55),
                     ),
                   ),
-                Text.rich(
-                  TextSpan(
-                    style: TextStyle(fontSize: 14.5, height: 1.28, color: fromMe ? scheme.onPrimary : scheme.onSurface),
-                    children: [
-                      TextSpan(text: message.kind == 'location' ? 'Shared their location' : (message.body ?? '')),
-                      TextSpan(
-                        text: '  $timeLabel',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          color: (fromMe ? scheme.onPrimary : scheme.onSurface).withOpacity(0.62),
-                        ),
-                      ),
-                    ],
+                ],
+              ),
+            ),
+          if (message.replyTo != null)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: isMedia ? 5 : 0),
+              child: ReplyQuoteChip(
+                snippet: message.replyTo!,
+                senderName: _nameFor(message.replyTo!.senderId),
+                tint: fromMe ? scheme.onPrimary : scheme.primary,
+                onTap: () => onJumpToReply(message.replyTo!.id),
+              ),
+            ),
+          if (isMedia)
+            MediaBubbleContent(message: message)
+          else ...[
+            if (showSenderLabel)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  senderName,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: colorForAvatarSeed(senderName),
                   ),
                 ),
-              ],
+              ),
+            Text.rich(
+              TextSpan(
+                style: TextStyle(
+                    fontSize: 14.5,
+                    height: 1.28,
+                    color: fromMe ? scheme.onPrimary : scheme.onSurface),
+                children: [
+                  TextSpan(
+                      text: message.kind == 'location'
+                          ? 'Shared their location'
+                          : (message.body ?? '')),
+                  TextSpan(
+                    text:
+                        '${message.editedAt != null ? ' (edited)' : ''}  $timeLabel',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: (fromMe ? scheme.onPrimary : scheme.onSurface)
+                          .withOpacity(0.62),
+                    ),
+                  ),
+                ],
+              ),
             ),
+            if (message.kind == 'text' &&
+                message.body != null &&
+                firstUrlIn(message.body!) != null)
+              LinkPreviewCard(
+                  url: firstUrlIn(message.body!)!, onBackground: fromMe),
+          ],
+        ],
+      ),
     );
 
     final avatarSlot = SizedBox(
@@ -268,7 +379,8 @@ class _MessageRow extends ConsumerWidget {
           ? Padding(
               padding: const EdgeInsets.only(right: 6),
               child: InitialAvatar(
-                initial: senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
+                initial:
+                    senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
                 seed: senderName,
                 size: 22,
               ),
@@ -277,7 +389,8 @@ class _MessageRow extends ConsumerWidget {
     );
 
     return Column(
-      crossAxisAlignment: fromMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment:
+          fromMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
         GestureDetector(
           onLongPress: () => _showMessageActions(context, ref),
@@ -289,7 +402,8 @@ class _MessageRow extends ConsumerWidget {
         ),
         if (message.reactions.isNotEmpty)
           Padding(
-            padding: EdgeInsets.only(left: fromMe ? 0 : 32, top: 2, right: fromMe ? 4 : 0),
+            padding: EdgeInsets.only(
+                left: fromMe ? 0 : 32, top: 2, right: fromMe ? 4 : 0),
             child: Transform.translate(
               offset: const Offset(0, -7),
               child: Container(
@@ -297,7 +411,8 @@ class _MessageRow extends ConsumerWidget {
                 decoration: BoxDecoration(
                   color: chatWallpaperColor(context),
                   borderRadius: BorderRadius.circular(999),
-                  boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
+                  boxShadow:
+                      ChatBubbleStyle.shadow(Theme.of(context).brightness),
                 ),
                 child: Wrap(
                   spacing: 3,
@@ -305,8 +420,9 @@ class _MessageRow extends ConsumerWidget {
                     for (final reaction in message.reactions)
                       _ReactionChip(
                         reaction: reaction,
-                        onTap: () =>
-                            ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, reaction.emoji),
+                        onTap: () => ref
+                            .read(messagesProvider(roomId).notifier)
+                            .toggleReaction(message.id, reaction.emoji),
                       ),
                   ],
                 ),
@@ -317,8 +433,18 @@ class _MessageRow extends ConsumerWidget {
     );
   }
 
+  /// FR1.13: a message can be edited only if it's the caller's own text
+  /// message, sent within the last minute — mirrors the server's own check
+  /// (see server/internal/api's editWindow) so the option simply doesn't
+  /// appear rather than appearing and then failing.
+  bool get _canEdit =>
+      fromMe &&
+      message.kind == 'text' &&
+      DateTime.now().difference(message.createdAt) < const Duration(minutes: 1);
+
   void _showMessageActions(BuildContext context, WidgetRef ref) {
     final isMedia = message.kind == 'image' || message.kind == 'video';
+    final isText = message.kind == 'text';
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -337,17 +463,58 @@ class _MessageRow extends ConsumerWidget {
                     InkWell(
                       onTap: () {
                         Navigator.of(sheetContext).pop();
-                        ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, emoji);
+                        ref
+                            .read(messagesProvider(roomId).notifier)
+                            .toggleReaction(message.id, emoji);
                       },
                       borderRadius: BorderRadius.circular(24),
                       child: Padding(
                         padding: const EdgeInsets.all(4),
-                        child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                        child:
+                            Text(emoji, style: const TextStyle(fontSize: 28)),
                       ),
                     ),
                 ],
               ),
             ),
+            ListTile(
+              leading: const Icon(TablerIcons.arrowBackUp),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                ref.read(composerDraftProvider(roomId).notifier).state =
+                    ReplyDraft(message);
+              },
+            ),
+            ListTile(
+              leading: const Icon(TablerIcons.arrowForwardUp),
+              title: const Text('Forward'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                showForwardSheet(context, ref, message);
+              },
+            ),
+            if (isText)
+              ListTile(
+                leading: const Icon(TablerIcons.copy),
+                title: const Text('Copy'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Clipboard.setData(ClipboardData(text: message.body ?? ''));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('Copied')));
+                },
+              ),
+            if (_canEdit)
+              ListTile(
+                leading: const Icon(TablerIcons.pencil),
+                title: const Text('Edit'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  ref.read(composerDraftProvider(roomId).notifier).state =
+                      EditDraft(message);
+                },
+              ),
             if (isMedia)
               ListTile(
                 leading: const Icon(TablerIcons.download),
@@ -357,24 +524,33 @@ class _MessageRow extends ConsumerWidget {
                   final messenger = ScaffoldMessenger.of(context);
                   try {
                     final ext = message.kind == 'video' ? 'mp4' : 'jpg';
-                    final path = await downloadMediaToDisk(ref, message.mediaId!, '${message.id}.$ext');
-                    messenger.showSnackBar(SnackBar(content: Text('Saved to $path')));
+                    final path = await downloadMediaToDisk(
+                        ref, message.mediaId!, '${message.id}.$ext');
+                    messenger.showSnackBar(
+                        SnackBar(content: Text('Saved to $path')));
                   } catch (error) {
-                    messenger.showSnackBar(SnackBar(content: Text('Could not download: $error')));
+                    messenger.showSnackBar(
+                        SnackBar(content: Text('Could not download: $error')));
                   }
                 },
               ),
             if (isMedia && fromMe)
               ListTile(
-                leading: Icon(TablerIcons.trash, color: Theme.of(context).colorScheme.error),
-                title: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                leading: Icon(TablerIcons.trash,
+                    color: Theme.of(context).colorScheme.error),
+                title: Text('Delete',
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
                   final messenger = ScaffoldMessenger.of(context);
                   try {
-                    await ref.read(messagesProvider(roomId).notifier).deleteMedia(message.mediaId!);
+                    await ref
+                        .read(messagesProvider(roomId).notifier)
+                        .deleteMedia(message.mediaId!);
                   } catch (error) {
-                    messenger.showSnackBar(SnackBar(content: Text('Could not delete: $error')));
+                    messenger.showSnackBar(
+                        SnackBar(content: Text('Could not delete: $error')));
                   }
                 },
               ),
@@ -401,11 +577,16 @@ class _ReactionChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
-          color: reaction.reactedByMe ? scheme.primary.withOpacity(0.15) : scheme.onSurface.withOpacity(0.06),
+          color: reaction.reactedByMe
+              ? scheme.primary.withOpacity(0.15)
+              : scheme.onSurface.withOpacity(0.06),
           borderRadius: BorderRadius.circular(999),
-          border: reaction.reactedByMe ? Border.all(color: scheme.primary.withOpacity(0.4)) : null,
+          border: reaction.reactedByMe
+              ? Border.all(color: scheme.primary.withOpacity(0.4))
+              : null,
         ),
-        child: Text('${reaction.emoji} ${reaction.count}', style: const TextStyle(fontSize: 12)),
+        child: Text('${reaction.emoji} ${reaction.count}',
+            style: const TextStyle(fontSize: 12)),
       ),
     );
   }
@@ -445,28 +626,46 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
+    final draftNotifier =
+        ref.read(composerDraftProvider(widget.roomId).notifier);
+    final draft = draftNotifier.state;
+
     setState(() => _sending = true);
     _controller.clear();
+    draftNotifier.state = null;
     try {
-      await ref.read(messagesProvider(widget.roomId).notifier).send(text);
+      if (draft is EditDraft) {
+        await ref
+            .read(messagesProvider(widget.roomId).notifier)
+            .editMessage(draft.message.id, text);
+      } else {
+        await ref.read(messagesProvider(widget.roomId).notifier).send(text,
+            replyToMessageId: draft is ReplyDraft ? draft.message.id : null);
+      }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send: $error')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not send: $error')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
 
-  Future<void> _pickAndSendMedia({required bool video, ImageSource source = ImageSource.gallery}) async {
+  Future<void> _pickAndSendMedia(
+      {required bool video, ImageSource source = ImageSource.gallery}) async {
     final picker = ImagePicker();
-    final file = video ? await picker.pickVideo(source: source) : await picker.pickImage(source: source);
+    final file = video
+        ? await picker.pickVideo(source: source)
+        : await picker.pickImage(source: source);
     if (file == null) return;
 
     setState(() => _sending = true);
     try {
       final bytes = await file.readAsBytes();
-      final contentType = file.mimeType ?? lookupMimeType(file.path) ?? (video ? 'video/mp4' : 'image/jpeg');
+      final contentType = file.mimeType ??
+          lookupMimeType(file.path) ??
+          (video ? 'video/mp4' : 'image/jpeg');
       await ref.read(messagesProvider(widget.roomId).notifier).sendMedia(
             bytes: bytes,
             filename: file.name,
@@ -475,7 +674,8 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
           );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not upload: $error')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not upload: $error')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -490,7 +690,8 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   /// camera picker UI isn't customizable from Flutter). Long-pressing
   /// surfaces the alternatives (record video, or pick from the gallery
   /// instead) without slowing down the common one-tap case.
-  Future<void> _onCameraTap() => _pickAndSendMedia(video: false, source: ImageSource.camera);
+  Future<void> _onCameraTap() =>
+      _pickAndSendMedia(video: false, source: ImageSource.camera);
 
   void _showCameraOptions() {
     showModalBottomSheet<void>(
@@ -536,60 +737,104 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final draft = ref.watch(composerDraftProvider(widget.roomId));
+
+    // Entering edit mode prefills the field with the message being edited;
+    // leaving it (send, or the bar's own discard button) doesn't touch the
+    // field, except discard explicitly clears it back out — see _discardDraft.
+    ref.listen<ComposerDraft?>(composerDraftProvider(widget.roomId),
+        (previous, next) {
+      if (next is EditDraft && previous is! EditDraft) {
+        _controller.text = next.message.body ?? '';
+        _controller.selection =
+            TextSelection.collapsed(offset: _controller.text.length);
+      }
+    });
+
+    final meId = ref.watch(meProvider).valueOrNull?.id;
+    final usersById = ref.watch(usersByIdProvider).valueOrNull ?? const {};
+    String nameFor(String userId) => userId == meId
+        ? 'yourself'
+        : (usersById[userId]?.displayName ?? 'them');
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(6, 8, 10, 8),
       color: Theme.of(context).scaffoldBackgroundColor,
       child: SafeArea(
         top: false,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
           children: [
-            // Hidden while composing text, matching WhatsApp/Telegram —
-            // there's nothing to shortcut to the camera for once you're
-            // already mid-message.
-            if (!_hasText)
-              GestureDetector(
-                onLongPress: _showCameraOptions,
-                // No `tooltip:` here — IconButton wraps itself in a Tooltip
-                // when one is set, and Tooltip's own long-press-to-show
-                // recognizer competes with ours in the same gesture arena,
-                // making onLongPress fire unreliably.
-                child: IconButton(
-                  icon: Icon(TablerIcons.camera, color: scheme.onSurface.withOpacity(0.6)),
-                  onPressed: _onCameraTap,
-                ),
+            if (draft != null)
+              ComposerDraftBar(
+                draft: draft,
+                senderName: nameFor(draft.message.senderId),
+                onDiscard: () {
+                  final wasEditing = draft is EditDraft;
+                  ref
+                      .read(composerDraftProvider(widget.roomId).notifier)
+                      .state = null;
+                  if (wasEditing) _controller.clear();
+                },
               ),
-            Expanded(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 42),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: scheme.surface,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: scheme.onSurface.withOpacity(0.08)),
-                  ),
-                  child: TextField(
-                    controller: _controller,
-                    minLines: 1,
-                    maxLines: 5,
-                    textCapitalization: TextCapitalization.sentences,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _send(),
-                    decoration: const InputDecoration(
-                      hintText: 'Message',
-                      isDense: true,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 8, 10, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // Hidden while composing text, matching WhatsApp/Telegram —
+                  // there's nothing to shortcut to the camera for once you're
+                  // already mid-message.
+                  if (!_hasText)
+                    GestureDetector(
+                      onLongPress: _showCameraOptions,
+                      // No `tooltip:` here — IconButton wraps itself in a Tooltip
+                      // when one is set, and Tooltip's own long-press-to-show
+                      // recognizer competes with ours in the same gesture arena,
+                      // making onLongPress fire unreliably.
+                      child: IconButton(
+                        icon: Icon(TablerIcons.camera,
+                            color: scheme.onSurface.withOpacity(0.6)),
+                        onPressed: _onCameraTap,
+                      ),
+                    ),
+                  Expanded(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 42),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: scheme.surface,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                              color: scheme.onSurface.withOpacity(0.08)),
+                        ),
+                        child: TextField(
+                          controller: _controller,
+                          minLines: 1,
+                          maxLines: 5,
+                          textCapitalization: TextCapitalization.sentences,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _send(),
+                          decoration: const InputDecoration(
+                            hintText: 'Message',
+                            isDense: true,
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 10),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (_sending)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                ],
               ),
             ),
-            if (_sending)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-              ),
           ],
         ),
       ),

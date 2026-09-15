@@ -59,6 +59,26 @@ final linkPreviewProvider = FutureProvider.family<ApiLinkPreview?, String>(
   (ref, url) => ref.watch(apiClientProvider).fetchLinkPreview(url),
 );
 
+/// What the composer is currently doing beyond a plain new message: quoting
+/// a message to reply to it (FR1.10), or editing one of the sender's own
+/// (FR1.13). Lives here rather than as composer-local state because it's
+/// set from the message list's long-press menu — a sibling widget — and
+/// read by the composer.
+sealed class ComposerDraft {
+  const ComposerDraft(this.message);
+  final ApiMessage message;
+}
+
+class ReplyDraft extends ComposerDraft {
+  const ReplyDraft(super.message);
+}
+
+class EditDraft extends ComposerDraft {
+  const EditDraft(super.message);
+}
+
+final composerDraftProvider = StateProvider.family<ComposerDraft?, String>((ref, roomId) => null);
+
 final messagesProvider = AsyncNotifierProvider.family<MessagesController, List<ApiMessage>, String>(
   MessagesController.new,
 );
