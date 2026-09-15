@@ -7,6 +7,8 @@ service is a plain Kubernetes manifest — no Helm.
 ## Prerequisites
 
 - A k3s cluster with the [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) installed (needed for LiveKit's `LoadBalancer` exposure).
+- [Longhorn](https://longhorn.io/) installed, providing a `longhorn` StorageClass. This is a real multi-node cluster (mixed arm64/amd64 hardware), not a single box — k3s's built-in default `local-path` StorageClass ties a volume to whichever node the pod first lands on and doesn't let it follow the pod elsewhere, which breaks on any node failure/drain/reboot. Every PVC below sets `storageClassName: longhorn` for that reason. If your Longhorn install uses a different StorageClass name, update each PVC to match.
+- Every image used here (`postgres:16-alpine`, `quay.io/minio/minio`, `livekit/livekit-server`, and the CI-built chat-server image) publishes multi-arch manifests covering both amd64 and arm64, matching `CLAUDE.md`'s requirement and this cluster's mixed Raspberry Pi 4 / ThinkCentre hardware — Kubernetes resolves the right architecture per node automatically, no per-node manifest changes needed.
 
 ## Secrets
 

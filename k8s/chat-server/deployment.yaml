@@ -104,6 +104,7 @@ metadata:
   name: chat-server-tsnet-state
   namespace: roost
 spec:
+  storageClassName: longhorn # so this volume can follow the pod across the cluster's nodes; see k8s/README.md
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:

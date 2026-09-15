@@ -1,4 +1,4 @@
-# Plain manifest (no Helm) for a single-node MinIO instance — cluster-
+# Plain manifest (no Helm) for a single-replica MinIO instance — cluster-
 # internal only; media uploads proxy through chat-server rather than
 # exposing MinIO to the tailnet directly (see docs/architecture-overview.md's
 # high-level architecture diagram). chat-server creates the `roost-media`
@@ -89,6 +89,7 @@ metadata:
   name: minio-data
   namespace: roost
 spec:
+  storageClassName: longhorn # so this volume can follow the pod across the cluster's nodes; see k8s/README.md
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
