@@ -30,14 +30,6 @@ class ChatScreen extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 4,
         leading: const TablerBackButton(),
-        // Explicit hairline matching the composer's top border exactly (same
-        // color, same 0.5 width) — without this the only separation here was
-        // the AppBar/wallpaper background colors meeting, which reads as a
-        // different, softer line than the composer's actual drawn border.
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(0.5),
-          child: Container(height: 0.5, color: Theme.of(context).dividerColor),
-        ),
         title: _ChatTitle(roomAsync: roomAsync, me: me, usersById: usersById),
         actions: [
           IconButton(
@@ -555,10 +547,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.fromLTRB(6, 8, 10, 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor, width: 0.5)),
-      ),
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: SafeArea(
         top: false,
         child: Row(
