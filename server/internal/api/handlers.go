@@ -224,6 +224,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load location shares")
 		return
 	}
+	if err := s.Store.AttachCalls(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load calls")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -481,6 +485,10 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.AttachLocations(r.Context(), messages); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load location shares")
+		return
+	}
+	if err := s.Store.AttachCalls(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load calls")
 		return
 	}
 	writeJSON(w, http.StatusOK, messages)
@@ -911,6 +919,144 @@ func (s *Server) handleEndLocationShare(w http.ResponseWriter, r *http.Request) 
 		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: message})
 	}
 	writeJSON(w, http.StatusOK, message)
+}
+
+// handleStartCall implements FR4.1/FR4.2: begins a call in roomID, ringing
+// every other member. Reuses the existing message.created event — a call
+// is just another message, so the callee's incoming-call detector
+// (client-side) and the room's normal history both pick this up with no
+// new WebSocket plumbing.
+func (s *Server) handleStartCall(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+
+	msg, err := s.Store.CreateCall(r.Context(), roomID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not start call")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
+	}
+	writeJSON(w, http.StatusCreated, msg)
+}
+
+// callForAction fetches callID and verifies the caller is a member of its
+// room — shared by accept/decline/leave, mirroring how
+// locationShareForUpdate centralizes lookup+authorization for location shares.
+func (s *Server) callForAction(w http.ResponseWriter, r *http.Request, userID, callID string) (models.Call, bool) {
+	call, err := s.Store.GetCall(r.Context(), callID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "call not found")
+		return models.Call{}, false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up call")
+		return models.Call{}, false
+	}
+	if !s.requireMembership(w, r, userID, call.RoomID) {
+		return models.Call{}, false
+	}
+	return call, true
+}
+
+// handleAcceptCall implements FR4.5: the callee joins. No broadcast here —
+// LiveKit's own room-join event is what every other participant actually
+// observes in real time; the chat message's status doesn't change on
+// accept (it stays "ringing" until the call ends either way — see
+// LeaveCall/DeclineCall).
+func (s *Server) handleAcceptCall(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	callID := chi.URLParam(r, "callID")
+	call, ok := s.callForAction(w, r, userID, callID)
+	if !ok {
+		return
+	}
+	if call.Status != models.CallStatusRinging {
+		writeError(w, http.StatusForbidden, "this call has already ended")
+		return
+	}
+	if err := s.Store.JoinCall(r.Context(), callID, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not join call")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeclineCall implements FR4.5. In a 1:1 room, declining ends the
+// call immediately — there's nobody left to answer. In a group room it's a
+// no-op at the call-record level: other invitees may still pick up.
+func (s *Server) handleDeclineCall(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	callID := chi.URLParam(r, "callID")
+	call, ok := s.callForAction(w, r, userID, callID)
+	if !ok {
+		return
+	}
+	if call.Status != models.CallStatusRinging {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	room, err := s.Store.GetRoom(r.Context(), call.RoomID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up room")
+		return
+	}
+	if room.IsGroup {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	updated, err := s.Store.DeclineCall(r.Context(), callID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not decline call")
+		return
+	}
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), call.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: updated})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleLeaveCall implements FR4.5's end/hang-up. Works the same way for
+// the original caller giving up on an unanswered call and for any
+// participant hanging up mid-call.
+func (s *Server) handleLeaveCall(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	callID := chi.URLParam(r, "callID")
+	call, ok := s.callForAction(w, r, userID, callID)
+	if !ok {
+		return
+	}
+
+	updated, finalized, err := s.Store.LeaveCall(r.Context(), callID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not leave call")
+		return
+	}
+	if finalized {
+		if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), call.RoomID); err == nil {
+			s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: updated})
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleLinkPreview implements FR1.14: given a URL a client found in a text

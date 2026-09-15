@@ -68,6 +68,10 @@ type Message struct {
 	// message, attached at read time (never stored on the message row
 	// itself) — see AttachLocations.
 	Location *LocationShare `json:"location,omitempty"`
+
+	// Call is the FR4.* subtype row for a Kind == MessageKindCall message,
+	// attached at read time like Location — see AttachCalls.
+	Call *Call `json:"call,omitempty"`
 }
 
 // MessageStatus is the sender-facing delivery/seen status of a message
@@ -200,8 +204,30 @@ const (
 type Call struct {
 	ID        string     `json:"id"`
 	RoomID    string     `json:"roomId"`
+	MessageID *string    `json:"messageId,omitempty"`
 	StartedBy string     `json:"startedBy"`
 	Status    CallStatus `json:"status"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+// CallParticipant tracks one user's attendance in a call (FR4.8's "who was
+// on the call", and the basis for FinalizeCallStatus below): JoinedAt is nil
+// until they actually join media, LeftAt is nil while they're still in it.
+type CallParticipant struct {
+	CallID   string     `json:"callId"`
+	UserID   string     `json:"userId"`
+	JoinedAt *time.Time `json:"joinedAt,omitempty"`
+	LeftAt   *time.Time `json:"leftAt,omitempty"`
+}
+
+// FinalizeCallStatus decides a call's terminal status once its last active
+// participant leaves: "completed" if anyone other than the original caller
+// ever joined, "missed" otherwise — the same rule for a 1:1 call nobody
+// answered and a group call where every invitee let it ring out.
+func FinalizeCallStatus(otherParticipantJoined bool) CallStatus {
+	if otherParticipantJoined {
+		return CallStatusCompleted
+	}
+	return CallStatusMissed
 }

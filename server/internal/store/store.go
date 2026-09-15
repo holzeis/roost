@@ -327,6 +327,169 @@ func (s *Store) EndLocationShare(ctx context.Context, messageID string) (models.
 	return l, nil
 }
 
+// CreateCall implements FR4.1/FR4.2: creates a kind='call' message and its
+// calls row in one transaction, with the caller immediately recorded as a
+// joined participant — same shape as CreateLocationMessage above.
+func (s *Store) CreateCall(ctx context.Context, roomID, callerID string) (models.Message, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Message{}, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const insertMessage = `
+		INSERT INTO messages (room_id, sender_id, kind) VALUES ($1, $2, 'call')
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+	msg, err := scanMessage(tx.QueryRow(ctx, insertMessage, roomID, callerID))
+	if err != nil {
+		return models.Message{}, err
+	}
+
+	var call models.Call
+	const insertCall = `
+		INSERT INTO calls (room_id, message_id, started_by, status) VALUES ($1, $2, $3, 'ringing')
+		RETURNING id, room_id, message_id, started_by, status, started_at, ended_at`
+	if err := tx.QueryRow(ctx, insertCall, roomID, msg.ID, callerID).
+		Scan(&call.ID, &call.RoomID, &call.MessageID, &call.StartedBy, &call.Status, &call.StartedAt, &call.EndedAt); err != nil {
+		return models.Message{}, fmt.Errorf("store: insert call: %w", err)
+	}
+
+	const insertParticipant = `INSERT INTO call_participants (call_id, user_id, joined_at) VALUES ($1, $2, now())`
+	if _, err := tx.Exec(ctx, insertParticipant, call.ID, callerID); err != nil {
+		return models.Message{}, fmt.Errorf("store: insert call participant: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return models.Message{}, fmt.Errorf("store: commit: %w", err)
+	}
+	msg.Call = &call
+	return msg, nil
+}
+
+func (s *Store) GetCall(ctx context.Context, callID string) (models.Call, error) {
+	const q = `SELECT id, room_id, message_id, started_by, status, started_at, ended_at FROM calls WHERE id = $1`
+	var c models.Call
+	err := s.pool.QueryRow(ctx, q, callID).Scan(&c.ID, &c.RoomID, &c.MessageID, &c.StartedBy, &c.Status, &c.StartedAt, &c.EndedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.Call{}, ErrNotFound
+	}
+	if err != nil {
+		return models.Call{}, fmt.Errorf("store: get call: %w", err)
+	}
+	return c, nil
+}
+
+// JoinCall implements FR4.5's accept: records userID's join time. Upserts
+// so a retried accept (e.g. a flaky connection) doesn't error or move
+// joined_at forward.
+func (s *Store) JoinCall(ctx context.Context, callID, userID string) error {
+	const q = `
+		INSERT INTO call_participants (call_id, user_id, joined_at) VALUES ($1, $2, now())
+		ON CONFLICT (call_id, user_id) DO UPDATE SET
+			joined_at = COALESCE(call_participants.joined_at, EXCLUDED.joined_at)`
+	if _, err := s.pool.Exec(ctx, q, callID, userID); err != nil {
+		return fmt.Errorf("store: join call: %w", err)
+	}
+	return nil
+}
+
+// LeaveCall implements FR4.5's end/hang-up, used uniformly whether the
+// leaver is the original caller giving up on an unanswered call or any
+// participant hanging up mid-call. If this was the last active
+// participant, the call is finalized (models.FinalizeCallStatus) and the
+// returned bool is true — the handler only broadcasts message.updated in
+// that case, since LiveKit's own room events are what every other client
+// actually observes while the call is still live.
+func (s *Store) LeaveCall(ctx context.Context, callID, userID string) (models.Message, bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Message{}, false, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const leave = `UPDATE call_participants SET left_at = COALESCE(left_at, now()) WHERE call_id = $1 AND user_id = $2`
+	if _, err := tx.Exec(ctx, leave, callID, userID); err != nil {
+		return models.Message{}, false, fmt.Errorf("store: leave call: %w", err)
+	}
+
+	const anyoneStillIn = `
+		SELECT EXISTS(SELECT 1 FROM call_participants WHERE call_id = $1 AND joined_at IS NOT NULL AND left_at IS NULL)`
+	var stillActive bool
+	if err := tx.QueryRow(ctx, anyoneStillIn, callID).Scan(&stillActive); err != nil {
+		return models.Message{}, false, fmt.Errorf("store: check remaining participants: %w", err)
+	}
+	if stillActive {
+		if err := tx.Commit(ctx); err != nil {
+			return models.Message{}, false, fmt.Errorf("store: commit: %w", err)
+		}
+		return models.Message{}, false, nil
+	}
+
+	const otherJoined = `
+		SELECT EXISTS(
+			SELECT 1 FROM call_participants cp
+			JOIN calls c ON c.id = cp.call_id
+			WHERE cp.call_id = $1 AND cp.user_id != c.started_by AND cp.joined_at IS NOT NULL
+		)`
+	var otherParticipantJoined bool
+	if err := tx.QueryRow(ctx, otherJoined, callID).Scan(&otherParticipantJoined); err != nil {
+		return models.Message{}, false, fmt.Errorf("store: check other participants: %w", err)
+	}
+
+	status := models.FinalizeCallStatus(otherParticipantJoined)
+	const finalize = `UPDATE calls SET status = $2, ended_at = now() WHERE id = $1 RETURNING message_id`
+	var messageID *string
+	if err := tx.QueryRow(ctx, finalize, callID, status).Scan(&messageID); err != nil {
+		return models.Message{}, false, fmt.Errorf("store: finalize call: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return models.Message{}, false, fmt.Errorf("store: commit: %w", err)
+	}
+	if messageID == nil {
+		return models.Message{}, true, nil
+	}
+
+	msg, err := s.GetMessage(ctx, *messageID)
+	if err != nil {
+		return models.Message{}, true, err
+	}
+	messages := []models.Message{msg}
+	if err := s.AttachCalls(ctx, messages); err != nil {
+		return models.Message{}, true, err
+	}
+	return messages[0], true, nil
+}
+
+// DeclineCall implements FR4.5's decline for a 1:1 call. Callers must check
+// the room isn't a group before calling this (see handleDeclineCall) — a
+// group call's decline never reaches here, since other invitees may still
+// answer.
+func (s *Store) DeclineCall(ctx context.Context, callID string) (models.Message, error) {
+	const q = `UPDATE calls SET status = 'declined', ended_at = now() WHERE id = $1 RETURNING message_id`
+	var messageID *string
+	err := s.pool.QueryRow(ctx, q, callID).Scan(&messageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.Message{}, ErrNotFound
+	}
+	if err != nil {
+		return models.Message{}, fmt.Errorf("store: decline call: %w", err)
+	}
+	if messageID == nil {
+		return models.Message{}, fmt.Errorf("store: declined call has no linked message")
+	}
+
+	msg, err := s.GetMessage(ctx, *messageID)
+	if err != nil {
+		return models.Message{}, err
+	}
+	messages := []models.Message{msg}
+	if err := s.AttachCalls(ctx, messages); err != nil {
+		return models.Message{}, err
+	}
+	return messages[0], nil
+}
+
 // CreateMediaObject records a MinIO upload's pointer row (FR2.1/2.2). The
 // bytes themselves are already in MinIO by the time this is called — see
 // the upload handler in internal/api, which uploads first so a DB failure
@@ -638,6 +801,45 @@ func (s *Store) AttachLocations(ctx context.Context, messages []models.Message) 
 		}
 		if m, ok := byID[l.MessageID]; ok {
 			m.Location = &l
+		}
+	}
+	return rows.Err()
+}
+
+// AttachCalls populates each kind='call' message's Call field in place
+// (FR4.*), one batched query regardless of how many messages — same
+// pattern as AttachLocations/AttachStatus above.
+func (s *Store) AttachCalls(ctx context.Context, messages []models.Message) error {
+	ids := make([]string, 0, len(messages))
+	byID := make(map[string]*models.Message, len(messages))
+	for i := range messages {
+		if messages[i].Kind != models.MessageKindCall {
+			continue
+		}
+		ids = append(ids, messages[i].ID)
+		byID[messages[i].ID] = &messages[i]
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const q = `SELECT id, room_id, message_id, started_by, status, started_at, ended_at FROM calls WHERE message_id = ANY($1)`
+	rows, err := s.pool.Query(ctx, q, ids)
+	if err != nil {
+		return fmt.Errorf("store: attach calls: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var c models.Call
+		if err := rows.Scan(&c.ID, &c.RoomID, &c.MessageID, &c.StartedBy, &c.Status, &c.StartedAt, &c.EndedAt); err != nil {
+			return fmt.Errorf("store: scan call: %w", err)
+		}
+		if c.MessageID == nil {
+			continue
+		}
+		if m, ok := byID[*c.MessageID]; ok {
+			m.Call = &c
 		}
 	}
 	return rows.Err()

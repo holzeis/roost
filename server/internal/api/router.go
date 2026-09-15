@@ -55,6 +55,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/rooms/{roomID}/media", s.handleUploadMedia)
 			r.Post("/rooms/{roomID}/receipts", s.handleAckReceipts)
 			r.Post("/rooms/{roomID}/location", s.handleShareLocation)
+			r.Post("/rooms/{roomID}/calls", s.handleStartCall)
 
 			r.Get("/media/{mediaID}", s.handleGetMedia)
 			r.Delete("/media/{mediaID}", s.handleDeleteMedia)
@@ -65,6 +66,10 @@ func (s *Server) Router() http.Handler {
 			r.Post("/messages/{messageID}/forward", s.handleForwardMessage)
 			r.Patch("/messages/{messageID}/location", s.handleUpdateLocation)
 			r.Post("/messages/{messageID}/location/end", s.handleEndLocationShare)
+
+			r.Post("/calls/{callID}/accept", s.handleAcceptCall)
+			r.Post("/calls/{callID}/decline", s.handleDeclineCall)
+			r.Post("/calls/{callID}/leave", s.handleLeaveCall)
 
 			r.Get("/link-preview", s.handleLinkPreview)
 

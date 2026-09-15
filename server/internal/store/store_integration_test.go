@@ -751,3 +751,224 @@ func TestStore_LocationShare_GetLocationShareNotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for a message with no location share, got %v", err)
 	}
 }
+
+func TestStore_Call_CreateAttach(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-call-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-call-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	msg, err := s.CreateCall(ctx, room.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("create call: %v", err)
+	}
+	if msg.Kind != models.MessageKindCall {
+		t.Fatalf("expected kind=call, got %v", msg.Kind)
+	}
+	if msg.Call == nil || msg.Call.Status != models.CallStatusRinging || msg.Call.StartedBy != alice.ID {
+		t.Fatalf("unexpected call on create response: %+v", msg.Call)
+	}
+
+	fetched := []models.Message{{ID: msg.ID, Kind: models.MessageKindCall}}
+	if err := s.AttachCalls(ctx, fetched); err != nil {
+		t.Fatalf("attach calls: %v", err)
+	}
+	if fetched[0].Call == nil || fetched[0].Call.ID != msg.Call.ID {
+		t.Fatalf("expected AttachCalls to reproduce the created call, got %+v", fetched[0].Call)
+	}
+
+	got, err := s.GetCall(ctx, msg.Call.ID)
+	if err != nil {
+		t.Fatalf("get call: %v", err)
+	}
+	if got.RoomID != room.ID || got.Status != models.CallStatusRinging {
+		t.Fatalf("unexpected GetCall result: %+v", got)
+	}
+}
+
+func TestStore_Call_OneToOne_CompletedWhenCalleeAnswers(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-call1-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-call1-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateCall(ctx, room.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("create call: %v", err)
+	}
+
+	if err := s.JoinCall(ctx, msg.Call.ID, bob.ID); err != nil {
+		t.Fatalf("bob joins: %v", err)
+	}
+
+	// Bob leaving alone doesn't end the call — alice is still in it.
+	_, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID)
+	if err != nil {
+		t.Fatalf("bob leaves: %v", err)
+	}
+	if finalized {
+		t.Fatal("expected the call to still be active with alice remaining")
+	}
+
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("alice leaves: %v", err)
+	}
+	if !finalized {
+		t.Fatal("expected the call to finalize once the last participant leaves")
+	}
+	if updated.Call == nil || updated.Call.Status != models.CallStatusCompleted {
+		t.Fatalf("expected status=completed (bob answered), got %+v", updated.Call)
+	}
+	if updated.Call.EndedAt == nil {
+		t.Fatal("expected EndedAt to be set")
+	}
+}
+
+func TestStore_Call_OneToOne_MissedWhenNobodyAnswers(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-call2-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-call2-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateCall(ctx, room.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("create call: %v", err)
+	}
+
+	// Alice (the caller) gives up — bob never joined.
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("alice leaves: %v", err)
+	}
+	if !finalized {
+		t.Fatal("expected the call to finalize once the caller (its only participant) leaves")
+	}
+	if updated.Call == nil || updated.Call.Status != models.CallStatusMissed {
+		t.Fatalf("expected status=missed, got %+v", updated.Call)
+	}
+}
+
+func TestStore_Call_Group_CompletedIfAnyoneAnswered(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-callg-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-callg-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	carol, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("carol-callg-%d@github", run), "Carol")
+	if err != nil {
+		t.Fatalf("create carol: %v", err)
+	}
+	name := "Family"
+	room, err := s.CreateRoom(ctx, alice.ID, &name, true, []string{bob.ID, carol.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateCall(ctx, room.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("create call: %v", err)
+	}
+
+	// Bob answers; carol never does.
+	if err := s.JoinCall(ctx, msg.Call.ID, bob.ID); err != nil {
+		t.Fatalf("bob joins: %v", err)
+	}
+	if _, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID); err != nil || finalized {
+		t.Fatalf("bob leaves (call should stay active, alice remains): finalized=%v err=%v", finalized, err)
+	}
+
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("alice leaves: %v", err)
+	}
+	if !finalized {
+		t.Fatal("expected the call to finalize once alice (the last active participant) leaves")
+	}
+	if updated.Call == nil || updated.Call.Status != models.CallStatusCompleted {
+		t.Fatalf("expected status=completed (bob answered even though carol never did), got %+v", updated.Call)
+	}
+}
+
+func TestStore_Call_DeclineOneToOne(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-calld-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-calld-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateCall(ctx, room.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("create call: %v", err)
+	}
+
+	updated, err := s.DeclineCall(ctx, msg.Call.ID)
+	if err != nil {
+		t.Fatalf("decline call: %v", err)
+	}
+	if updated.Call == nil || updated.Call.Status != models.CallStatusDeclined {
+		t.Fatalf("expected status=declined, got %+v", updated.Call)
+	}
+	if updated.Call.EndedAt == nil {
+		t.Fatal("expected EndedAt to be set")
+	}
+}
+
+func TestStore_Call_GetCallNotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.GetCall(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a nonexistent call, got %v", err)
+	}
+}

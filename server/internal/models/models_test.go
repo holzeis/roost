@@ -129,3 +129,21 @@ func TestValidCoordinate(t *testing.T) {
 		})
 	}
 }
+
+func TestFinalizeCallStatus(t *testing.T) {
+	cases := []struct {
+		name                   string
+		otherParticipantJoined bool
+		want                   CallStatus
+	}{
+		{"nobody else ever joined (1:1 no-answer or group nobody answered)", false, CallStatusMissed},
+		{"at least one other participant joined", true, CallStatusCompleted},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FinalizeCallStatus(tc.otherParticipantJoined); got != tc.want {
+				t.Errorf("FinalizeCallStatus(%v) = %v, want %v", tc.otherParticipantJoined, got, tc.want)
+			}
+		})
+	}
+}
