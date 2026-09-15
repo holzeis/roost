@@ -58,6 +58,17 @@ type ReactionSummary struct {
 	ReactedByMe bool   `json:"reactedByMe"`
 }
 
+// MediaObject is a pointer to one uploaded file's bytes in MinIO (FR2.*).
+type MediaObject struct {
+	ID          string    `json:"id"`
+	Bucket      string    `json:"-"`
+	ObjectKey   string    `json:"-"`
+	ContentType string    `json:"contentType"`
+	SizeBytes   int64     `json:"sizeBytes"`
+	UploadedBy  string    `json:"uploadedBy"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // LocationShare is the FR3.* subtype attached to a Kind == MessageKindLocation message.
 // The TTL is enforced by comparing ExpiresAt at read time; there is no deletion job.
 type LocationShare struct {

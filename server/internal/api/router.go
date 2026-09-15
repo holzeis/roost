@@ -11,6 +11,7 @@ import (
 
 	"roost/server/internal/auth"
 	"roost/server/internal/livekit"
+	"roost/server/internal/storage"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
 )
@@ -19,6 +20,7 @@ type Server struct {
 	Store    *store.Store
 	Hub      *ws.Hub
 	LiveKit  *livekit.Minter
+	Media    *storage.Store
 	Resolver auth.Resolver
 }
 
@@ -50,6 +52,10 @@ func (s *Server) Router() http.Handler {
 			r.Get("/rooms/{roomID}/messages", s.handleListMessages)
 			r.Post("/rooms/{roomID}/messages", s.handleCreateMessage)
 			r.Get("/rooms/{roomID}/search", s.handleSearchMessages)
+			r.Post("/rooms/{roomID}/media", s.handleUploadMedia)
+
+			r.Get("/media/{mediaID}", s.handleGetMedia)
+			r.Delete("/media/{mediaID}", s.handleDeleteMedia)
 
 			r.Put("/messages/{messageID}/reactions/{emoji}", s.handleAddReaction)
 			r.Delete("/messages/{messageID}/reactions/{emoji}", s.handleRemoveReaction)

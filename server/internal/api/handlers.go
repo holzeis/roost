@@ -3,12 +3,17 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
+	"roost/server/internal/models"
 	"roost/server/internal/session"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
@@ -237,6 +242,151 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+// maxMediaUploadBytes caps a single image/video upload — generous for phone
+// photos/video clips on a home network, not a hard product requirement.
+const maxMediaUploadBytes = 200 << 20 // 200 MiB
+
+// handleUploadMedia implements FR2.1/2.2: the client posts the file plus a
+// "kind" field (image|video) as multipart form data, and gets back the chat
+// message that was created for it — one request creates both the MinIO
+// object and the message referencing it, so there's never a message
+// pointing at bytes that don't exist (upload happens before either DB row).
+func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadBytes)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "upload too large or malformed")
+		return
+	}
+
+	kind := r.FormValue("kind")
+	if kind != string(models.MessageKindImage) && kind != string(models.MessageKindVideo) {
+		writeError(w, http.StatusBadRequest, `kind must be "image" or "video"`)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing file")
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	objectKey := fmt.Sprintf("%s/%s%s", roomID, uuid.NewString(), filepath.Ext(header.Filename))
+
+	if err := s.Media.Put(r.Context(), objectKey, file, header.Size, contentType); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not store file")
+		return
+	}
+
+	mediaObj, err := s.Store.CreateMediaObject(r.Context(), s.Media.Bucket(), objectKey, contentType, header.Size, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not record uploaded file")
+		return
+	}
+
+	msg, err := s.Store.CreateMediaMessage(r.Context(), roomID, userID, kind, mediaObj.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create message")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
+	}
+
+	writeJSON(w, http.StatusCreated, msg)
+}
+
+// handleGetMedia streams a media object's bytes back, for both inline
+// display and download (FR2.3). Any authenticated (tailnet) user can fetch
+// any media object by ID: per "trust follows the network", there's no
+// separate per-object ACL to check, consistent with family-scale simplicity
+// over building out a full authorization graph for a rarely-guessed UUID.
+func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
+	mediaID := chi.URLParam(r, "mediaID")
+	obj, err := s.Store.GetMediaObject(r.Context(), mediaID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "media not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up media")
+		return
+	}
+
+	reader, err := s.Media.Get(r.Context(), obj.ObjectKey)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "media not found")
+		return
+	}
+	defer reader.Close()
+
+	w.Header().Set("Content-Type", obj.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(obj.SizeBytes, 10))
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable") // FR2.4: media never changes once uploaded
+	_, _ = io.Copy(w, reader)
+}
+
+// handleDeleteMedia implements FR2.5. Only the uploader may delete their own
+// media. Deleting the media object cascades to delete the message it
+// belongs to (migration 0002) — the message *was* the shared photo/video —
+// so this also broadcasts message.deleted to the room.
+func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	mediaID := chi.URLParam(r, "mediaID")
+	obj, err := s.Store.GetMediaObject(r.Context(), mediaID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "media not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up media")
+		return
+	}
+	if obj.UploadedBy != userID {
+		writeError(w, http.StatusForbidden, "only the uploader can delete this media")
+		return
+	}
+
+	message, err := s.Store.GetMessageByMediaID(r.Context(), mediaID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up the message for this media")
+		return
+	}
+
+	if err := s.Media.Delete(r.Context(), obj.ObjectKey); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete file")
+		return
+	}
+	if err := s.Store.DeleteMediaObject(r.Context(), mediaID); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete media record")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.deleted", Payload: map[string]string{
+			"messageId": message.ID, "roomId": message.RoomID,
+		}})
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {

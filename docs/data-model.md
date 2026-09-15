@@ -39,7 +39,9 @@ A user's push-capable devices (FR5.1).
 
 A pointer to one object in MinIO. Rows are never deleted by a background job
 — images/video persist indefinitely by default (FR2.4); manual delete (FR2.5)
-removes both the row and the object.
+removes the row, the object in MinIO, and (via `messages.media_id`'s
+`ON DELETE CASCADE`, migration 0002) the chat message it was attached to —
+the message *was* the shared photo/video, so deleting one deletes the other.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -90,7 +92,7 @@ scoped to text bodies only.
 | `sender_id` | uuid, FK → `users` | |
 | `kind` | text | see table above |
 | `body` | text, nullable | |
-| `media_id` | uuid, FK → `media_objects`, nullable | |
+| `media_id` | uuid, FK → `media_objects`, nullable, `ON DELETE CASCADE` | Deleting the media object deletes this message too (FR2.5) |
 | `created_at`, `edited_at` | timestamptz | |
 
 ### location_shares

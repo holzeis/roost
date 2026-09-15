@@ -219,3 +219,50 @@ func TestStore_Reactions(t *testing.T) {
 		}
 	}
 }
+
+func TestStore_MediaMessages(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-m-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, true, nil)
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	objectKey := fmt.Sprintf("room/photo-%d.jpg", run)
+	media, err := s.CreateMediaObject(ctx, "roost-media", objectKey, "image/jpeg", 12345, alice.ID)
+	if err != nil {
+		t.Fatalf("create media object: %v", err)
+	}
+	if media.ID == "" {
+		t.Fatal("expected a generated media object id")
+	}
+
+	fetched, err := s.GetMediaObject(ctx, media.ID)
+	if err != nil {
+		t.Fatalf("get media object: %v", err)
+	}
+	if fetched.ObjectKey != objectKey || fetched.SizeBytes != 12345 {
+		t.Fatalf("expected fetched media object to match what was created, got %+v", fetched)
+	}
+
+	msg, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", media.ID)
+	if err != nil {
+		t.Fatalf("create media message: %v", err)
+	}
+	if msg.Kind != models.MessageKindImage || msg.MediaID == nil || *msg.MediaID != media.ID {
+		t.Fatalf("expected an image message referencing the media object, got %+v", msg)
+	}
+
+	if err := s.DeleteMediaObject(ctx, media.ID); err != nil {
+		t.Fatalf("delete media object: %v", err)
+	}
+	if _, err := s.GetMediaObject(ctx, media.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after deleting media object, got %v", err)
+	}
+}

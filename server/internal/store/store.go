@@ -232,9 +232,66 @@ func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body st
 	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body))
 }
 
+// CreateMediaObject records a MinIO upload's pointer row (FR2.1/2.2). The
+// bytes themselves are already in MinIO by the time this is called — see
+// the upload handler in internal/api, which uploads first so a DB failure
+// never leaves a message referencing bytes that don't exist.
+func (s *Store) CreateMediaObject(ctx context.Context, bucket, objectKey, contentType string, sizeBytes int64, uploadedBy string) (models.MediaObject, error) {
+	const q = `
+		INSERT INTO media_objects (bucket, object_key, content_type, size_bytes, uploaded_by)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at`
+	var m models.MediaObject
+	err := s.pool.QueryRow(ctx, q, bucket, objectKey, contentType, sizeBytes, uploadedBy).
+		Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt)
+	if err != nil {
+		return models.MediaObject{}, fmt.Errorf("store: create media object: %w", err)
+	}
+	return m, nil
+}
+
+func (s *Store) GetMediaObject(ctx context.Context, id string) (models.MediaObject, error) {
+	const q = `SELECT id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at FROM media_objects WHERE id = $1`
+	var m models.MediaObject
+	err := s.pool.QueryRow(ctx, q, id).Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.MediaObject{}, ErrNotFound
+	}
+	if err != nil {
+		return models.MediaObject{}, fmt.Errorf("store: get media object: %w", err)
+	}
+	return m, nil
+}
+
+func (s *Store) DeleteMediaObject(ctx context.Context, id string) error {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM media_objects WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("store: delete media object: %w", err)
+	}
+	return nil
+}
+
+// CreateMediaMessage is CreateTextMessage's counterpart for FR2.1/2.2:
+// kind is "image" or "video", body is left null, media_id points at the
+// already-created media_objects row.
+func (s *Store) CreateMediaMessage(ctx context.Context, roomID, senderID, kind, mediaID string) (models.Message, error) {
+	const q = `
+		INSERT INTO messages (room_id, sender_id, kind, media_id) VALUES ($1, $2, $3, $4)
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at`
+	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, kind, mediaID))
+}
+
 func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, error) {
 	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at FROM messages WHERE id = $1`
 	return scanMessage(s.pool.QueryRow(ctx, q, id))
+}
+
+// GetMessageByMediaID finds the message a media object belongs to — used
+// before deleting the media object (which cascades to delete this message
+// row, see migration 0002) so the caller can still broadcast which room and
+// message just disappeared.
+func (s *Store) GetMessageByMediaID(ctx context.Context, mediaID string) (models.Message, error) {
+	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at FROM messages WHERE media_id = $1`
+	return scanMessage(s.pool.QueryRow(ctx, q, mediaID))
 }
 
 // AddReaction is idempotent: reacting twice with the same emoji is a no-op,

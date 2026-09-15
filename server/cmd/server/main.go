@@ -20,6 +20,7 @@ import (
 	"roost/server/internal/config"
 	"roost/server/internal/db"
 	"roost/server/internal/livekit"
+	"roost/server/internal/storage"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
 )
@@ -52,10 +53,16 @@ func run() error {
 		return err
 	}
 
+	media, err := storage.New(ctx, cfg.S3Endpoint, cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3Bucket, cfg.S3UseSSL)
+	if err != nil {
+		return err
+	}
+
 	srv := &api.Server{
 		Store:   store.New(pool),
 		Hub:     ws.NewHub(),
 		LiveKit: livekit.NewMinter(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret),
+		Media:   media,
 	}
 
 	listener, cleanup, err := newListener(ctx, cfg.ListenAddr, &srv.Resolver)
