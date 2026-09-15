@@ -68,6 +68,19 @@ func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return obj, nil
 }
 
+// Copy duplicates an object under a new key, server-side (no bytes pass
+// through this process) — used when forwarding a media message, so the
+// forwarded copy has its own independent object that can be deleted without
+// affecting the original (see docs/data-model.md's forward semantics).
+func (s *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
+	src := minio.CopySrcOptions{Bucket: s.bucket, Object: srcKey}
+	dst := minio.CopyDestOptions{Bucket: s.bucket, Object: dstKey}
+	if _, err := s.client.CopyObject(ctx, dst, src); err != nil {
+		return fmt.Errorf("storage: copy object: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
 		return fmt.Errorf("storage: delete object: %w", err)

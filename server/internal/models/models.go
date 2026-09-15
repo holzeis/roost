@@ -47,6 +47,26 @@ type Message struct {
 	CreatedAt time.Time         `json:"createdAt"`
 	EditedAt  *time.Time        `json:"editedAt,omitempty"`
 	Reactions []ReactionSummary `json:"reactions,omitempty"`
+
+	// ReplyToMessageID is set when this message is a reply (FR1.10). ReplyTo
+	// is a lightweight snapshot of the quoted message, populated alongside it
+	// so clients can render the quote without a second round trip; both are
+	// absent if this isn't a reply, and ReplyTo alone is absent if the
+	// original was later deleted (the FK is ON DELETE SET NULL).
+	ReplyToMessageID *string         `json:"replyToMessageId,omitempty"`
+	ReplyTo          *MessageSnippet `json:"replyTo,omitempty"`
+	// Forwarded marks a message created via the forward action (FR1.11).
+	Forwarded bool `json:"forwarded,omitempty"`
+}
+
+// MessageSnippet is a trimmed preview of another message, embedded in a
+// reply (FR1.10). Body is truncated by the store so a reply to a long text
+// message doesn't carry the whole thing around a second time.
+type MessageSnippet struct {
+	ID       string      `json:"id"`
+	SenderID string      `json:"senderId"`
+	Kind     MessageKind `json:"kind"`
+	Body     *string     `json:"body,omitempty"`
 }
 
 // ReactionSummary groups message_reactions rows by emoji for one message
@@ -56,6 +76,19 @@ type ReactionSummary struct {
 	Emoji       string `json:"emoji"`
 	Count       int    `json:"count"`
 	ReactedByMe bool   `json:"reactedByMe"`
+}
+
+// LinkPreview is fetched server-side for a URL found in a text message
+// (FR1.14) — see internal/linkpreview. It's the second documented exception
+// to "no open ports"/self-hosted (see docs/architecture-overview.md): the
+// chat server makes one outbound HTTPS fetch to the linked site to read its
+// Open Graph metadata, never accepting a connection from it.
+type LinkPreview struct {
+	URL         string `json:"url"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	ImageURL    string `json:"imageUrl,omitempty"`
+	SiteName    string `json:"siteName,omitempty"`
 }
 
 // MediaObject is a pointer to one uploaded file's bytes in MinIO (FR2.*).

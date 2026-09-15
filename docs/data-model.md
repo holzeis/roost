@@ -93,7 +93,15 @@ scoped to text bodies only.
 | `kind` | text | see table above |
 | `body` | text, nullable | |
 | `media_id` | uuid, FK → `media_objects`, nullable, `ON DELETE CASCADE` | Deleting the media object deletes this message too (FR2.5) |
-| `created_at`, `edited_at` | timestamptz | |
+| `created_at`, `edited_at` | timestamptz | `edited_at` is also set by an edit (FR1.13), not just media deletion cascades |
+| `reply_to_message_id` | uuid, FK → `messages`, nullable, `ON DELETE SET NULL` | The quoted message (FR1.10). Deleting the original clears this rather than deleting the reply — the reply just loses its preview |
+| `forwarded` | boolean, default `false` | Set on a message created via the forward action (FR1.11), so clients can render a "Forwarded" label |
+
+Forwarding never sets both `reply_to_message_id` and `forwarded` — they're
+separate actions. Forwarding an image/video message doesn't reuse the
+original's `media_id`; the server copies the object to a new key in MinIO
+and creates an independent `media_objects` row for it (see below), so
+deleting either the original or the forwarded copy never affects the other.
 
 ### location_shares
 

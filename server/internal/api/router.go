@@ -59,6 +59,10 @@ func (s *Server) Router() http.Handler {
 
 			r.Put("/messages/{messageID}/reactions/{emoji}", s.handleAddReaction)
 			r.Delete("/messages/{messageID}/reactions/{emoji}", s.handleRemoveReaction)
+			r.Patch("/messages/{messageID}", s.handleEditMessage)
+			r.Post("/messages/{messageID}/forward", s.handleForwardMessage)
+
+			r.Get("/link-preview", s.handleLinkPreview)
 
 			r.Post("/livekit/token", s.handleMintLiveKitToken)
 		})

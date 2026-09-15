@@ -26,7 +26,7 @@ Self-hosted chat, media sharing, and video calling for family use, running on a 
 
 ## Architecture principles
 
-1. **No open ports, ever.** All inbound access happens over Tailscale; the only outbound exception is push notifications, which the platform initiates and which require no listener.
+1. **No open ports, ever.** All inbound access happens over Tailscale; the only outbound exceptions are push notifications and link-preview fetches, both initiated by the server and requiring no listener.
 2. **Reuse mature infrastructure for hard, generic problems; build only what's product-specific.** WebRTC/SFU, object storage, relational storage, and network transport are reused; chat semantics, location expiry, and UX are built.
 3. **Signaling and media are separate paths.** The chat server brokers calls (auth, tokens) but never touches audio/video — media flows directly between clients and the SFU.
 4. **Simplicity over standards compliance.** The platform optimizes for this specific deployment rather than interoperability with other servers or third-party clients; standards compliance is revisited only if that need actually arises.
@@ -88,6 +88,9 @@ The platform is tailnet-only, family-only, with no guest access path. If a non-t
 
 **Push delivery via APNs/FCM, the one accepted external dependency.**
 Everything else in the stack is self-hosted; push is the single exception, accepted because it's the only way to wake a backgrounded iOS app for CallKit to take over. It stays scoped to outbound wake-up calls only (see the call flow below), so it doesn't reopen the "no open ports" principle.
+
+**Link previews (FR1.14), the second accepted external dependency.**
+Rendering a title/description/image card for a URL a family member shares means fetching that URL's HTML somewhere. Rather than have every client device fetch arbitrary third-party URLs directly, the chat server does it (`internal/linkpreview`): one outbound HTTPS GET to read `<meta property="og:...">` tags, same shape as the push exception — server-initiated, no listener, nothing external ever connects in. Because this fetches URLs family members paste in (arbitrary user input), the server's dialer additionally refuses to connect to private/loopback/link-local addresses, so a pasted link can't be used to probe the cluster's internal network (Postgres, MinIO) from inside the chat server's own pod.
 
 **Deploy on k3s using the Tailscale Kubernetes operator, not `hostNetwork`.**
 Running on k3s means services live in pod network namespaces by default, not directly on the host's Tailscale interface — so "no open ports" needs a deliberate mechanism, not just a config flag. The Tailscale Kubernetes operator exposes chosen Services onto the tailnet directly (each gets its own tailnet identity/IP), which keeps every service reachable only over Tailscale without resorting to `hostNetwork: true` or manually running a `tailscaled` sidecar in every pod. Each core service (chat server, LiveKit, MinIO, Postgres) deploys as its own Deployment/StatefulSet; official Helm charts are used for Postgres, MinIO, and LiveKit where available, with only the chat server and its manifests being fully custom.

@@ -15,6 +15,11 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR1.7 | Users can see a "typing…" indicator from other participants | Could |
 | FR1.8 | Users can search for messages within a chat | Must |
 | FR1.9 | Users can add emoji reactions directly on a message | Must |
+| FR1.10 | Users can reply to a specific message; the reply shows a quoted preview of the original, and tapping the quote scrolls to it | Should |
+| FR1.11 | Users can forward a message to another room; forwarded media is duplicated as an independent copy, not shared by reference | Should |
+| FR1.12 | Users can copy a text message's content to the clipboard | Could |
+| FR1.13 | Users can edit their own text messages within 1 minute of sending | Could |
+| FR1.14 | Users see a rich preview (title/description/image) for links shared in a message | Could |
 
 ## 2. Media sharing (images & video)
 

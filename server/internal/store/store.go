@@ -234,11 +234,15 @@ func (s *Store) IsRoomMember(ctx context.Context, roomID, userID string) (bool, 
 	return exists, nil
 }
 
-func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body string) (models.Message, error) {
+// CreateTextMessage creates a text message. replyTo is the ID of the
+// message this one quotes (FR1.10), or nil for a normal send; forwarded
+// marks it as created via the forward action (FR1.11) — the two are never
+// both set by any current caller, matching migration 0003's comment.
+func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body string, replyTo *string, forwarded bool) (models.Message, error) {
 	const q = `
-		INSERT INTO messages (room_id, sender_id, kind, body) VALUES ($1, $2, 'text', $3)
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at`
-	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body))
+		INSERT INTO messages (room_id, sender_id, kind, body, reply_to_message_id, forwarded) VALUES ($1, $2, 'text', $3, $4, $5)
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body, replyTo, forwarded))
 }
 
 // CreateMediaObject records a MinIO upload's pointer row (FR2.1/2.2). The
@@ -281,16 +285,17 @@ func (s *Store) DeleteMediaObject(ctx context.Context, id string) error {
 
 // CreateMediaMessage is CreateTextMessage's counterpart for FR2.1/2.2:
 // kind is "image" or "video", body is left null, media_id points at the
-// already-created media_objects row.
-func (s *Store) CreateMediaMessage(ctx context.Context, roomID, senderID, kind, mediaID string) (models.Message, error) {
+// already-created media_objects row. replyTo/forwarded mean the same as on
+// CreateTextMessage.
+func (s *Store) CreateMediaMessage(ctx context.Context, roomID, senderID, kind, mediaID string, replyTo *string, forwarded bool) (models.Message, error) {
 	const q = `
-		INSERT INTO messages (room_id, sender_id, kind, media_id) VALUES ($1, $2, $3, $4)
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at`
-	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, kind, mediaID))
+		INSERT INTO messages (room_id, sender_id, kind, media_id, reply_to_message_id, forwarded) VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, kind, mediaID, replyTo, forwarded))
 }
 
 func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, error) {
-	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at FROM messages WHERE id = $1`
+	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded FROM messages WHERE id = $1`
 	return scanMessage(s.pool.QueryRow(ctx, q, id))
 }
 
@@ -299,8 +304,71 @@ func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, erro
 // row, see migration 0002) so the caller can still broadcast which room and
 // message just disappeared.
 func (s *Store) GetMessageByMediaID(ctx context.Context, mediaID string) (models.Message, error) {
-	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at FROM messages WHERE media_id = $1`
+	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded FROM messages WHERE media_id = $1`
 	return scanMessage(s.pool.QueryRow(ctx, q, mediaID))
+}
+
+// EditMessageBody implements FR1.13. Callers (internal/api's handler) are
+// responsible for checking ownership and the 1-minute edit window before
+// calling this — kept out of the query so the handler can return a specific
+// "too old to edit" error instead of a generic not-found.
+func (s *Store) EditMessageBody(ctx context.Context, id, newBody string) (models.Message, error) {
+	const q = `
+		UPDATE messages SET body = $1, edited_at = now()
+		WHERE id = $2 AND kind = 'text'
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+	return scanMessage(s.pool.QueryRow(ctx, q, newBody, id))
+}
+
+// AttachReplyPreviews populates each message's ReplyTo field in place from
+// its ReplyToMessageID, one batched query regardless of how many messages
+// (same pattern as AttachReactions). A message whose original was deleted
+// simply gets no ReplyTo — the FK is ON DELETE SET NULL, but a message
+// fetched via a stale ReplyToMessageID this call doesn't resolve is left as-is.
+func (s *Store) AttachReplyPreviews(ctx context.Context, messages []models.Message) error {
+	replyIDs := make([]string, 0, len(messages))
+	for _, m := range messages {
+		if m.ReplyToMessageID != nil {
+			replyIDs = append(replyIDs, *m.ReplyToMessageID)
+		}
+	}
+	if len(replyIDs) == 0 {
+		return nil
+	}
+
+	const q = `SELECT id, sender_id, kind, LEFT(COALESCE(body, ''), 140) FROM messages WHERE id = ANY($1)`
+	rows, err := s.pool.Query(ctx, q, replyIDs)
+	if err != nil {
+		return fmt.Errorf("store: attach reply previews: %w", err)
+	}
+	defer rows.Close()
+
+	snippets := make(map[string]models.MessageSnippet, len(replyIDs))
+	for rows.Next() {
+		var snippet models.MessageSnippet
+		var kind, body string
+		if err := rows.Scan(&snippet.ID, &snippet.SenderID, &kind, &body); err != nil {
+			return fmt.Errorf("store: scan reply preview: %w", err)
+		}
+		snippet.Kind = models.MessageKind(kind)
+		if body != "" {
+			snippet.Body = &body
+		}
+		snippets[snippet.ID] = snippet
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range messages {
+		if messages[i].ReplyToMessageID == nil {
+			continue
+		}
+		if snippet, ok := snippets[*messages[i].ReplyToMessageID]; ok {
+			messages[i].ReplyTo = &snippet
+		}
+	}
+	return nil
 }
 
 // AddReaction is idempotent: reacting twice with the same emoji is a no-op,
@@ -364,7 +432,7 @@ func (s *Store) AttachReactions(ctx context.Context, callerID string, messages [
 func scanMessage(row pgx.Row) (models.Message, error) {
 	var m models.Message
 	var kind string
-	err := row.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt)
+	err := row.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt, &m.ReplyToMessageID, &m.Forwarded)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.Message{}, ErrNotFound
 	}
@@ -382,7 +450,7 @@ func (s *Store) ListMessages(ctx context.Context, roomID string, before time.Tim
 		before = time.Now().Add(24 * time.Hour)
 	}
 	const q = `
-		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at
+		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded
 		FROM messages
 		WHERE room_id = $1 AND created_at < $2
 		ORDER BY created_at DESC
@@ -396,12 +464,10 @@ func (s *Store) ListMessages(ctx context.Context, roomID string, before time.Tim
 	// Non-nil for the same reason as ListUsers above.
 	messages := []models.Message{}
 	for rows.Next() {
-		var m models.Message
-		var kind string
-		if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt); err != nil {
-			return nil, fmt.Errorf("store: scan message: %w", err)
+		m, err := scanMessageRow(rows)
+		if err != nil {
+			return nil, err
 		}
-		m.Kind = models.MessageKind(kind)
 		messages = append(messages, m)
 	}
 	return messages, rows.Err()
@@ -410,7 +476,7 @@ func (s *Store) ListMessages(ctx context.Context, roomID string, before time.Tim
 // SearchMessages implements FR1.8, using the generated body_tsv column.
 func (s *Store) SearchMessages(ctx context.Context, roomID, query string) ([]models.Message, error) {
 	const q = `
-		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at
+		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded
 		FROM messages
 		WHERE room_id = $1 AND body_tsv @@ plainto_tsquery('english', $2)
 		ORDER BY created_at DESC
@@ -436,7 +502,7 @@ func (s *Store) SearchMessages(ctx context.Context, roomID, query string) ([]mod
 func scanMessageRow(rows pgx.Rows) (models.Message, error) {
 	var m models.Message
 	var kind string
-	if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt); err != nil {
+	if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt, &m.ReplyToMessageID, &m.Forwarded); err != nil {
 		return models.Message{}, fmt.Errorf("store: scan message: %w", err)
 	}
 	m.Kind = models.MessageKind(kind)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"roost/server/internal/linkpreview"
 	"roost/server/internal/models"
 	"roost/server/internal/session"
 	"roost/server/internal/store"
@@ -210,6 +212,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load reactions")
 		return
 	}
+	if err := s.Store.AttachReplyPreviews(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load reply previews")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -224,17 +230,29 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Body string `json:"body"`
+		Body             string  `json:"body"`
+		ReplyToMessageID *string `json:"replyToMessageId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Body == "" {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	if body.ReplyToMessageID != nil && !s.validReplyTarget(w, r, roomID, *body.ReplyToMessageID) {
+		return
+	}
 
-	msg, err := s.Store.CreateTextMessage(r.Context(), roomID, userID, body.Body)
+	msg, err := s.Store.CreateTextMessage(r.Context(), roomID, userID, body.Body, body.ReplyToMessageID, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create message")
 		return
+	}
+	if body.ReplyToMessageID != nil {
+		// Best-effort: on failure the response just omits the reply preview
+		// the client would otherwise render inline.
+		messages := []models.Message{msg}
+		if err := s.Store.AttachReplyPreviews(r.Context(), messages); err == nil {
+			msg = messages[0]
+		}
 	}
 
 	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
@@ -242,6 +260,26 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+// validReplyTarget checks that replyToMessageID exists and belongs to
+// roomID — replying across rooms would let a client reference another
+// room's message it may not even be a member of.
+func (s *Server) validReplyTarget(w http.ResponseWriter, r *http.Request, roomID, replyToMessageID string) bool {
+	original, err := s.Store.GetMessage(r.Context(), replyToMessageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "reply target not found")
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up reply target")
+		return false
+	}
+	if original.RoomID != roomID {
+		writeError(w, http.StatusBadRequest, "reply target is not in this room")
+		return false
+	}
+	return true
 }
 
 // maxMediaUploadBytes caps a single image/video upload — generous for phone
@@ -274,6 +312,13 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, `kind must be "image" or "video"`)
 		return
 	}
+	var replyToMessageID *string
+	if v := r.FormValue("replyToMessageId"); v != "" {
+		if !s.validReplyTarget(w, r, roomID, v) {
+			return
+		}
+		replyToMessageID = &v
+	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -299,10 +344,16 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := s.Store.CreateMediaMessage(r.Context(), roomID, userID, kind, mediaObj.ID)
+	msg, err := s.Store.CreateMediaMessage(r.Context(), roomID, userID, kind, mediaObj.ID, replyToMessageID, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create message")
 		return
+	}
+	if replyToMessageID != nil {
+		messages := []models.Message{msg}
+		if err := s.Store.AttachReplyPreviews(r.Context(), messages); err == nil {
+			msg = messages[0]
+		}
 	}
 
 	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
@@ -412,6 +463,10 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load reactions")
 		return
 	}
+	if err := s.Store.AttachReplyPreviews(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load reply previews")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -478,6 +533,173 @@ func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request) {
 		}})
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// editWindow bounds FR1.13: a text message can be edited only within this
+// long of being sent, matching the user-facing "not older than 1 minute" rule.
+const editWindow = 1 * time.Minute
+
+// handleEditMessage implements FR1.13. Only the sender may edit, only a
+// text message can be edited (media messages have no body), and only within
+// editWindow of the original send — enforced here rather than in SQL so a
+// too-old edit gets a distinct, specific error instead of a generic 404/403.
+func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Body == "" {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	message, err := s.Store.GetMessage(r.Context(), messageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return
+	}
+	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return
+	}
+	if message.SenderID != userID {
+		writeError(w, http.StatusForbidden, "only the sender can edit this message")
+		return
+	}
+	if message.Kind != models.MessageKindText {
+		writeError(w, http.StatusBadRequest, "only text messages can be edited")
+		return
+	}
+	if time.Since(message.CreatedAt) > editWindow {
+		writeError(w, http.StatusForbidden, "message is too old to edit")
+		return
+	}
+
+	updated, err := s.Store.EditMessageBody(r.Context(), messageID, body.Body)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not edit message")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: updated})
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleForwardMessage implements FR1.11: re-post a message into another
+// room the caller belongs to. Per the product decision to duplicate rather
+// than share media, a forwarded image/video gets its own MinIO object (a
+// server-side copy) and its own media_objects row, so deleting either copy
+// never affects the other.
+func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+
+	var body struct {
+		RoomID string `json:"roomId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RoomID == "" {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !s.requireMembership(w, r, userID, body.RoomID) {
+		return
+	}
+
+	original, err := s.Store.GetMessage(r.Context(), messageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return
+	}
+	// The caller must also belong to the *source* room — otherwise this
+	// would let anyone forward a message from a room they can't even read.
+	if !s.requireMembership(w, r, userID, original.RoomID) {
+		return
+	}
+
+	var forwarded models.Message
+	switch original.Kind {
+	case models.MessageKindText:
+		forwarded, err = s.Store.CreateTextMessage(r.Context(), body.RoomID, userID, *original.Body, nil, true)
+	case models.MessageKindImage, models.MessageKindVideo:
+		var mediaID string
+		mediaID, err = s.duplicateMedia(r.Context(), *original.MediaID, body.RoomID, userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not duplicate media")
+			return
+		}
+		forwarded, err = s.Store.CreateMediaMessage(r.Context(), body.RoomID, userID, string(original.Kind), mediaID, nil, true)
+	default:
+		writeError(w, http.StatusBadRequest, "this message type can't be forwarded")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not forward message")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), body.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: forwarded})
+	}
+	writeJSON(w, http.StatusCreated, forwarded)
+}
+
+// duplicateMedia copies an existing media object's bytes to a new key in
+// MinIO and records a new, independent media_objects row for it, returning
+// the new object's ID.
+func (s *Server) duplicateMedia(ctx context.Context, sourceMediaID, dstRoomID, uploadedBy string) (string, error) {
+	src, err := s.Store.GetMediaObject(ctx, sourceMediaID)
+	if err != nil {
+		return "", fmt.Errorf("look up source media: %w", err)
+	}
+	dstKey := fmt.Sprintf("%s/%s%s", dstRoomID, uuid.NewString(), filepath.Ext(src.ObjectKey))
+	if err := s.Media.Copy(ctx, src.ObjectKey, dstKey); err != nil {
+		return "", fmt.Errorf("copy object: %w", err)
+	}
+	dst, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), dstKey, src.ContentType, src.SizeBytes, uploadedBy)
+	if err != nil {
+		return "", fmt.Errorf("record duplicated media: %w", err)
+	}
+	return dst.ID, nil
+}
+
+// handleLinkPreview implements FR1.14: given a URL a client found in a text
+// message, fetch its Open Graph metadata server-side (see internal/linkpreview
+// for why this happens on the server, not the client). Any authenticated
+// user may call this — there's nothing room-scoped about a URL's metadata.
+func (s *Server) handleLinkPreview(w http.ResponseWriter, r *http.Request) {
+	if _, ok := currentUser(w, r); !ok {
+		return
+	}
+	target := r.URL.Query().Get("url")
+	if target == "" {
+		writeError(w, http.StatusBadRequest, "missing query parameter url")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	preview, err := linkpreview.Fetch(ctx, target)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no preview available")
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (s *Server) handleMintLiveKitToken(w http.ResponseWriter, r *http.Request) {

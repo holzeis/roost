@@ -73,7 +73,7 @@ func TestStore_RoomAndMessageLifecycle(t *testing.T) {
 		t.Fatalf("expected bob to be a member of the room, err=%v isMember=%v", err, isMember)
 	}
 
-	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "hello from the integration test")
+	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "hello from the integration test", nil, false)
 	if err != nil {
 		t.Fatalf("create message: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestStore_Reactions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create room: %v", err)
 	}
-	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "react to this")
+	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "react to this", nil, false)
 	if err != nil {
 		t.Fatalf("create message: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestStore_MediaMessages(t *testing.T) {
 		t.Fatalf("expected fetched media object to match what was created, got %+v", fetched)
 	}
 
-	msg, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", media.ID)
+	msg, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", media.ID, nil, false)
 	if err != nil {
 		t.Fatalf("create media message: %v", err)
 	}
@@ -317,5 +317,134 @@ func TestStore_EmptyListsAreNeverNil(t *testing.T) {
 	}
 	if reflect.ValueOf(found).IsNil() {
 		t.Fatal("SearchMessages returned a nil slice for no matches; it must marshal to [] not null")
+	}
+}
+
+func TestStore_ReplyPreview(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-reply-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, true, nil)
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	original, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "the original message", nil, false)
+	if err != nil {
+		t.Fatalf("create original: %v", err)
+	}
+	reply, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "replying to it", &original.ID, false)
+	if err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+	if reply.ReplyToMessageID == nil || *reply.ReplyToMessageID != original.ID {
+		t.Fatalf("expected reply to reference the original, got %+v", reply)
+	}
+
+	messages := []models.Message{reply}
+	if err := s.AttachReplyPreviews(ctx, messages); err != nil {
+		t.Fatalf("attach reply previews: %v", err)
+	}
+	if messages[0].ReplyTo == nil || messages[0].ReplyTo.ID != original.ID || messages[0].ReplyTo.Body == nil ||
+		*messages[0].ReplyTo.Body != "the original message" {
+		t.Fatalf("expected reply preview to snapshot the original message, got %+v", messages[0].ReplyTo)
+	}
+
+	// Deleting the original must not break the reply — it should just lose
+	// its preview (ON DELETE SET NULL), not fail to load or cascade-delete.
+	if _, err := s.pool.Exec(ctx, "DELETE FROM messages WHERE id = $1", original.ID); err != nil {
+		t.Fatalf("delete original: %v", err)
+	}
+	refetched, err := s.GetMessage(ctx, reply.ID)
+	if err != nil {
+		t.Fatalf("get reply after original deleted: %v", err)
+	}
+	if refetched.ReplyToMessageID != nil {
+		t.Fatalf("expected reply_to_message_id to be nulled out after the original was deleted, got %+v", refetched.ReplyToMessageID)
+	}
+}
+
+func TestStore_EditMessage(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-edit-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, true, nil)
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "typo", nil, false)
+	if err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	if msg.EditedAt != nil {
+		t.Fatalf("expected a freshly created message to have no edited_at, got %v", msg.EditedAt)
+	}
+
+	edited, err := s.EditMessageBody(ctx, msg.ID, "fixed")
+	if err != nil {
+		t.Fatalf("edit message: %v", err)
+	}
+	if edited.Body == nil || *edited.Body != "fixed" {
+		t.Fatalf("expected edited body to be updated, got %+v", edited.Body)
+	}
+	if edited.EditedAt == nil {
+		t.Fatal("expected edited_at to be set after an edit")
+	}
+}
+
+func TestStore_ForwardDuplicatesMedia(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-fwd-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, true, nil)
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	src, err := s.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("room/orig-%d.jpg", run), "image/jpeg", 42, alice.ID)
+	if err != nil {
+		t.Fatalf("create source media: %v", err)
+	}
+	dup, err := s.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("room/dup-%d.jpg", run), "image/jpeg", 42, alice.ID)
+	if err != nil {
+		t.Fatalf("create duplicated media: %v", err)
+	}
+	if dup.ID == src.ID {
+		t.Fatal("expected the duplicated media object to have its own id, distinct from the source")
+	}
+
+	forwarded, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", dup.ID, nil, true)
+	if err != nil {
+		t.Fatalf("create forwarded message: %v", err)
+	}
+	if !forwarded.Forwarded {
+		t.Fatalf("expected forwarded message to have Forwarded=true, got %+v", forwarded)
+	}
+	if forwarded.MediaID == nil || *forwarded.MediaID != dup.ID {
+		t.Fatalf("expected forwarded message to reference the duplicated media object, got %+v", forwarded.MediaID)
+	}
+
+	// Deleting the duplicate must not affect the source — independent
+	// ownership/delete semantics is the whole point of duplicating.
+	if err := s.DeleteMediaObject(ctx, dup.ID); err != nil {
+		t.Fatalf("delete duplicated media: %v", err)
+	}
+	if _, err := s.GetMediaObject(ctx, src.ID); err != nil {
+		t.Fatalf("expected source media to survive deleting its duplicate, got %v", err)
 	}
 }

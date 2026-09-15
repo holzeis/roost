@@ -10,6 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/livekit/protocol v1.51.0
 	github.com/minio/minio-go/v7 v7.3.0
+	golang.org/x/net v0.58.0
 	tailscale.com v1.102.4
 )
 
@@ -114,7 +115,6 @@ require (
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
