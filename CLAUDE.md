@@ -63,3 +63,4 @@ If any of these paths don't exist yet in the repo, ask where they've been placed
 
 - Every change is committed with a Conventional Commits message (https://www.conventionalcommits.org/en/v1.0.0/) — `feat:`, `fix:`, `docs:`, `test:`, `chore:`, `ci:`, `refactor:`, etc., with a scope where it adds clarity (e.g. `feat(chat): add message search`).
 - Keep commits scoped to one logical change; don't bundle unrelated changes together to save a commit.
+- Commit finished, verified work into cohesive commits without waiting to be asked, and push to `origin` afterward.
