@@ -256,6 +256,15 @@ class FakeWsClient extends WsClient {
 
   void emit(WsEvent event) => _controller.add(event);
 
+  /// Records every sendTyping call (roomId, isTyping) so tests can assert
+  /// on the composer's typing-signal behavior without a real socket.
+  final List<(String, bool)> typingSent = [];
+
+  @override
+  void sendTyping(String roomId, bool isTyping) {
+    typingSent.add((roomId, isTyping));
+  }
+
   @override
   void dispose() {
     _controller.close();

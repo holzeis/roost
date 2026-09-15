@@ -152,6 +152,45 @@ void main() {
     expect(api.messagesByRoom['room-family']!.any((m) => m.body == 'hello from a test'), isTrue);
   });
 
+  testWidgets('Typing pings the room and stops once the message is sent (FR1.7)', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'writing something');
+    await tester.pump();
+
+    expect(api.ws.typingSent, contains(('room-family', true)));
+    expect(api.ws.typingSent.last, ('room-family', true));
+
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    expect(api.ws.typingSent.last, ('room-family', false));
+  });
+
+  testWidgets('The chat title shows a typing indicator that clears when typing stops (FR1.7)', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    api.ws.emit(const WsEvent('typing', {'roomId': 'room-family', 'userId': 'user-mom', 'typing': true}));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Mom is typing'), findsOneWidget);
+
+    api.ws.emit(const WsEvent('typing', {'roomId': 'room-family', 'userId': 'user-mom', 'typing': false}));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('is typing'), findsNothing);
+    // Falls back to the member-count subtitle once nobody is typing.
+    expect(find.text('3 members'), findsOneWidget);
+  });
+
   testWidgets('Long-pressing a message and picking an emoji adds a reaction', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 

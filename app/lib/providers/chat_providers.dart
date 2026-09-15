@@ -163,6 +163,14 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     await ref.read(apiClientProvider).ackReceipts(roomId, ids, 'seen');
   }
 
+  /// Signals this user's typing state to the room (FR1.7). The composer
+  /// calls this rather than reaching into wsClientProvider directly, so it
+  /// stays consistent with every other room action going through this
+  /// controller.
+  void notifyTyping(bool isTyping) {
+    ref.read(wsClientProvider).sendTyping(roomId, isTyping);
+  }
+
   Future<void> send(String body, {String? replyToMessageId}) async {
     // No local append here: the server broadcasts the new message back over
     // the WebSocket to every room member including the sender, so the
@@ -269,5 +277,51 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
       }
     }
     return message.copyWith(reactions: reactions);
+  }
+}
+
+/// Who's currently typing in a room (FR1.7), keyed by roomId. Purely
+/// derived from `typing` WS events — never fetched or persisted.
+final typingUsersProvider = NotifierProvider.family<TypingController, Set<String>, String>(
+  TypingController.new,
+);
+
+class TypingController extends FamilyNotifier<Set<String>, String> {
+  final Map<String, Timer> _timers = {};
+
+  /// How long a typer is shown after their last ping with no explicit stop
+  /// — covers a lost "stop" frame (app killed, connection dropped) without
+  /// the server needing to track or time anything out itself.
+  static const _timeout = Duration(seconds: 6);
+
+  @override
+  Set<String> build(String arg) {
+    final sub = ref.listen(wsEventsProvider, (previous, next) {
+      final event = next.valueOrNull;
+      if (event == null || event.type != 'typing') return;
+      if (event.payload['roomId'] != arg) return;
+      final userId = event.payload['userId'] as String?;
+      final typing = event.payload['typing'] as bool?;
+      if (userId == null || typing == null) return;
+
+      _timers.remove(userId)?.cancel();
+      if (typing) {
+        state = {...state, userId};
+        _timers[userId] = Timer(_timeout, () {
+          _timers.remove(userId);
+          state = {...state}..remove(userId);
+        });
+      } else {
+        state = {...state}..remove(userId);
+      }
+    });
+    ref.onDispose(() {
+      sub.close();
+      for (final timer in _timers.values) {
+        timer.cancel();
+      }
+      _timers.clear();
+    });
+    return const {};
   }
 }

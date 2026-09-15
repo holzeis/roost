@@ -70,6 +70,21 @@ class WsClient {
     return ApiMessage.fromJson(event.payload);
   }
 
+  /// Sends a typing signal to the server (FR1.7) — the one client->server
+  /// message this socket carries; everything else is server->client
+  /// fan-out. Best-effort: a dropped/reconnecting socket just means this
+  /// particular ping doesn't reach the room, not a failure worth surfacing.
+  void sendTyping(String roomId, bool isTyping) {
+    try {
+      _channel?.sink.add(jsonEncode({
+        'type': isTyping ? 'typing.start' : 'typing.stop',
+        'payload': {'roomId': roomId},
+      }));
+    } catch (_) {
+      // Ignored — see doc comment above.
+    }
+  }
+
   void dispose() {
     _closed = true;
     _reconnectTimer?.cancel();

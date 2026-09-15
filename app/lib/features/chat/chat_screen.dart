@@ -33,13 +33,18 @@ class ChatScreen extends ConsumerWidget {
         ? AsyncData<ApiRoom>(room!)
         : ref.watch(_roomProvider(roomId));
     final isGroup = roomAsync.valueOrNull?.isGroup ?? false;
+    final typingUsers = ref.watch(typingUsersProvider(roomId));
 
     return Scaffold(
       backgroundColor: chatWallpaperColor(context),
       appBar: AppBar(
         titleSpacing: 4,
         leading: const TablerBackButton(),
-        title: _ChatTitle(roomAsync: roomAsync, me: me, usersById: usersById),
+        title: _ChatTitle(
+            roomAsync: roomAsync,
+            me: me,
+            usersById: usersById,
+            typingUsers: typingUsers),
         actions: [
           IconButton(
             icon: const Icon(TablerIcons.search),
@@ -77,11 +82,29 @@ final _roomProvider = FutureProvider.family<ApiRoom, String>(
 
 class _ChatTitle extends StatelessWidget {
   const _ChatTitle(
-      {required this.roomAsync, required this.me, required this.usersById});
+      {required this.roomAsync,
+      required this.me,
+      required this.usersById,
+      required this.typingUsers});
 
   final AsyncValue<ApiRoom> roomAsync;
   final AsyncValue<ApiUser> me;
   final AsyncValue<Map<String, ApiContact>> usersById;
+  final Set<String> typingUsers;
+
+  /// FR1.7: "X is typing…" / "X and Y are typing…" / "Several people are
+  /// typing…", built from whichever room members (other than the caller)
+  /// are currently signaling typing. Empty when nobody is.
+  String _typingLabel(String? meId) {
+    final names = [
+      for (final id in typingUsers)
+        if (id != meId) usersById.valueOrNull?[id]?.displayName ?? 'Someone',
+    ];
+    if (names.isEmpty) return '';
+    if (names.length == 1) return '${names[0]} is typing…';
+    if (names.length == 2) return '${names[0]} and ${names[1]} are typing…';
+    return 'Several people are typing…';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -95,6 +118,7 @@ class _ChatTitle extends StatelessWidget {
           room.members.firstWhere((id) => id != meId, orElse: () => '');
       title = usersById.valueOrNull?[otherId]?.displayName ?? 'Direct message';
     }
+    final typingLabel = _typingLabel(me.valueOrNull?.id);
 
     return Row(
       children: [
@@ -111,7 +135,15 @@ class _ChatTitle extends StatelessWidget {
               Text(title,
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w600)),
-              if (room.isGroup)
+              if (typingLabel.isNotEmpty)
+                Text(
+                  typingLabel,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontStyle: FontStyle.italic,
+                      ),
+                )
+              else if (room.isGroup)
                 Text(
                   '${room.members.length} members',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -662,6 +694,10 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   bool _sending = false;
   bool _hasText = false;
 
+  bool _typingSignaled = false;
+  DateTime? _lastTypingPing;
+  Timer? _typingAutoStop;
+
   @override
   void initState() {
     super.initState();
@@ -671,10 +707,44 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   void _onTextChanged() {
     final hasText = _controller.text.trim().isNotEmpty;
     if (hasText != _hasText) setState(() => _hasText = hasText);
+    _notifyTyping(hasText);
+  }
+
+  /// FR1.7: throttles typing.start pings to at most one per 3 seconds while
+  /// there's text in the composer, and resets a 5-second local "auto-stop"
+  /// so a typing indicator doesn't stick around forever if the user just
+  /// stops typing without sending or clearing the field. Sending a stop is
+  /// immediate — no reason to throttle the one that matters most.
+  void _notifyTyping(bool isTyping) {
+    if (!isTyping) {
+      _typingAutoStop?.cancel();
+      _lastTypingPing = null;
+      if (_typingSignaled) {
+        _typingSignaled = false;
+        ref.read(messagesProvider(widget.roomId).notifier).notifyTyping(false);
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    final shouldPing = _lastTypingPing == null || now.difference(_lastTypingPing!) >= const Duration(seconds: 3);
+    if (shouldPing) {
+      _lastTypingPing = now;
+      _typingSignaled = true;
+      ref.read(messagesProvider(widget.roomId).notifier).notifyTyping(true);
+    }
+    _typingAutoStop?.cancel();
+    _typingAutoStop = Timer(const Duration(seconds: 5), () => _notifyTyping(false));
   }
 
   @override
   void dispose() {
+    // No explicit stop signal here — `ref` isn't safe to read from dispose()
+    // (Riverpod throws if the element is already tearing down), and it
+    // isn't needed: the receiving side's own timeout in TypingController
+    // (chat_providers.dart) clears a stale indicator a few seconds after
+    // the last ping regardless of whether an explicit stop ever arrives.
+    _typingAutoStop?.cancel();
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     super.dispose();
