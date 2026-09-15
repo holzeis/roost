@@ -63,6 +63,11 @@ type Message struct {
 	// ComputeMessageStatus. Meaningful only for the sender's own messages;
 	// clients should ignore it on messages from other users.
 	Status MessageStatus `json:"status,omitempty"`
+
+	// Location is the FR3.* subtype row for a Kind == MessageKindLocation
+	// message, attached at read time (never stored on the message row
+	// itself) — see AttachLocations.
+	Location *LocationShare `json:"location,omitempty"`
 }
 
 // MessageStatus is the sender-facing delivery/seen status of a message
@@ -151,6 +156,28 @@ func (l LocationShare) Active(now time.Time) bool {
 		return false
 	}
 	return now.Before(l.ExpiresAt)
+}
+
+// minShareTTL/maxShareTTL bound FR3.2's "small set of preset durations" (the
+// architecture overview's own example is 15 min / 1 hr / "until I arrive")
+// — generous enough to cover a long "until I arrive" share without allowing
+// an effectively-unbounded one a client could set by mistake or abuse.
+const (
+	minShareTTL = 1 * time.Minute
+	maxShareTTL = 12 * time.Hour
+)
+
+// ValidShareTTL reports whether d is a sane duration for a location share's
+// TTL (FR3.2).
+func ValidShareTTL(d time.Duration) bool {
+	return d >= minShareTTL && d <= maxShareTTL
+}
+
+// ValidCoordinate reports whether lat/lng are within the valid range for a
+// real-world position — a cheap sanity check on client input, not a
+// precision/format validator.
+func ValidCoordinate(lat, lng float64) bool {
+	return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
 }
 
 type Device struct {

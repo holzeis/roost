@@ -245,6 +245,88 @@ func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body st
 	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body, replyTo, forwarded))
 }
 
+// CreateLocationMessage implements FR3.1/3.2: creates a kind='location'
+// message and its location_shares subtype row in one transaction (same
+// tx.Begin/Rollback/Commit shape as CreateRoom), so there's never a location
+// message without a location row to go with it.
+func (s *Store) CreateLocationMessage(ctx context.Context, roomID, senderID string, lat, lng float64, ttl time.Duration) (models.Message, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Message{}, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const insertMessage = `
+		INSERT INTO messages (room_id, sender_id, kind) VALUES ($1, $2, 'location')
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+	msg, err := scanMessage(tx.QueryRow(ctx, insertMessage, roomID, senderID))
+	if err != nil {
+		return models.Message{}, err
+	}
+
+	expiresAt := time.Now().Add(ttl)
+	const insertShare = `INSERT INTO location_shares (message_id, lat, lng, expires_at) VALUES ($1, $2, $3, $4)`
+	if _, err := tx.Exec(ctx, insertShare, msg.ID, lat, lng, expiresAt); err != nil {
+		return models.Message{}, fmt.Errorf("store: insert location share: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return models.Message{}, fmt.Errorf("store: commit: %w", err)
+	}
+	msg.Location = &models.LocationShare{MessageID: msg.ID, Lat: lat, Lng: lng, ExpiresAt: expiresAt}
+	return msg, nil
+}
+
+func (s *Store) GetLocationShare(ctx context.Context, messageID string) (models.LocationShare, error) {
+	const q = `SELECT message_id, lat, lng, expires_at, ended_at FROM location_shares WHERE message_id = $1`
+	var l models.LocationShare
+	err := s.pool.QueryRow(ctx, q, messageID).Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.LocationShare{}, ErrNotFound
+	}
+	if err != nil {
+		return models.LocationShare{}, fmt.Errorf("store: get location share: %w", err)
+	}
+	return l, nil
+}
+
+// UpdateLocationPosition implements FR3.3. Callers are responsible for
+// checking ownership and that the share is still active before calling this
+// — same division of responsibility as EditMessageBody's edit-window check
+// above: kept out of the query so the handler can return a specific error.
+func (s *Store) UpdateLocationPosition(ctx context.Context, messageID string, lat, lng float64) (models.LocationShare, error) {
+	const q = `
+		UPDATE location_shares SET lat = $1, lng = $2 WHERE message_id = $3
+		RETURNING message_id, lat, lng, expires_at, ended_at`
+	var l models.LocationShare
+	err := s.pool.QueryRow(ctx, q, lat, lng, messageID).Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.LocationShare{}, ErrNotFound
+	}
+	if err != nil {
+		return models.LocationShare{}, fmt.Errorf("store: update location position: %w", err)
+	}
+	return l, nil
+}
+
+// EndLocationShare implements FR3.5. Idempotent — ending an already-ended
+// share just returns its existing ended_at rather than overwriting it or
+// erroring, since two racing "end" requests (e.g. a retry) shouldn't matter.
+func (s *Store) EndLocationShare(ctx context.Context, messageID string) (models.LocationShare, error) {
+	const q = `
+		UPDATE location_shares SET ended_at = COALESCE(ended_at, now()) WHERE message_id = $1
+		RETURNING message_id, lat, lng, expires_at, ended_at`
+	var l models.LocationShare
+	err := s.pool.QueryRow(ctx, q, messageID).Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.LocationShare{}, ErrNotFound
+	}
+	if err != nil {
+		return models.LocationShare{}, fmt.Errorf("store: end location share: %w", err)
+	}
+	return l, nil
+}
+
 // CreateMediaObject records a MinIO upload's pointer row (FR2.1/2.2). The
 // bytes themselves are already in MinIO by the time this is called — see
 // the upload handler in internal/api, which uploads first so a DB failure
@@ -523,6 +605,42 @@ func (s *Store) MarkReceipts(ctx context.Context, roomID, userID string, message
 		return fmt.Errorf("store: mark receipts: %w", err)
 	}
 	return nil
+}
+
+// AttachLocations populates each kind='location' message's Location field in
+// place (FR3.*), one batched query regardless of how many messages — same
+// pattern as AttachReactions/AttachStatus above.
+func (s *Store) AttachLocations(ctx context.Context, messages []models.Message) error {
+	ids := make([]string, 0, len(messages))
+	byID := make(map[string]*models.Message, len(messages))
+	for i := range messages {
+		if messages[i].Kind != models.MessageKindLocation {
+			continue
+		}
+		ids = append(ids, messages[i].ID)
+		byID[messages[i].ID] = &messages[i]
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const q = `SELECT message_id, lat, lng, expires_at, ended_at FROM location_shares WHERE message_id = ANY($1)`
+	rows, err := s.pool.Query(ctx, q, ids)
+	if err != nil {
+		return fmt.Errorf("store: attach locations: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var l models.LocationShare
+		if err := rows.Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt); err != nil {
+			return fmt.Errorf("store: scan location share: %w", err)
+		}
+		if m, ok := byID[l.MessageID]; ok {
+			m.Location = &l
+		}
+	}
+	return rows.Err()
 }
 
 func scanMessage(row pgx.Row) (models.Message, error) {

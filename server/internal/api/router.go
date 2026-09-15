@@ -54,6 +54,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/rooms/{roomID}/search", s.handleSearchMessages)
 			r.Post("/rooms/{roomID}/media", s.handleUploadMedia)
 			r.Post("/rooms/{roomID}/receipts", s.handleAckReceipts)
+			r.Post("/rooms/{roomID}/location", s.handleShareLocation)
 
 			r.Get("/media/{mediaID}", s.handleGetMedia)
 			r.Delete("/media/{mediaID}", s.handleDeleteMedia)
@@ -62,6 +63,8 @@ func (s *Server) Router() http.Handler {
 			r.Delete("/messages/{messageID}/reactions/{emoji}", s.handleRemoveReaction)
 			r.Patch("/messages/{messageID}", s.handleEditMessage)
 			r.Post("/messages/{messageID}/forward", s.handleForwardMessage)
+			r.Patch("/messages/{messageID}/location", s.handleUpdateLocation)
+			r.Post("/messages/{messageID}/location/end", s.handleEndLocationShare)
 
 			r.Get("/link-preview", s.handleLinkPreview)
 

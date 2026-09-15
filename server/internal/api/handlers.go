@@ -220,6 +220,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load message status")
 		return
 	}
+	if err := s.Store.AttachLocations(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load location shares")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -473,6 +477,10 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.AttachStatus(r.Context(), messages); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load message status")
+		return
+	}
+	if err := s.Store.AttachLocations(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load location shares")
 		return
 	}
 	writeJSON(w, http.StatusOK, messages)
@@ -755,6 +763,154 @@ func (s *Server) duplicateMedia(ctx context.Context, sourceMediaID, dstRoomID, u
 		return "", fmt.Errorf("record duplicated media: %w", err)
 	}
 	return dst.ID, nil
+}
+
+// handleShareLocation implements FR3.1/FR3.2: starts a live location share
+// as a new message of kind 'location'. ttlSeconds is the sender-chosen
+// duration from FR3.2's small preset set; validated server-side so a client
+// can't request an effectively-unbounded share.
+func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+
+	var body struct {
+		Lat        float64 `json:"lat"`
+		Lng        float64 `json:"lng"`
+		TTLSeconds int     `json:"ttlSeconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !models.ValidCoordinate(body.Lat, body.Lng) {
+		writeError(w, http.StatusBadRequest, "invalid coordinates")
+		return
+	}
+	ttl := time.Duration(body.TTLSeconds) * time.Second
+	if !models.ValidShareTTL(ttl) {
+		writeError(w, http.StatusBadRequest, "ttlSeconds is out of range")
+		return
+	}
+
+	msg, err := s.Store.CreateLocationMessage(r.Context(), roomID, userID, body.Lat, body.Lng, ttl)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create location share")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
+	}
+	writeJSON(w, http.StatusCreated, msg)
+}
+
+// locationShareForUpdate fetches messageID, verifies it's an active
+// location share belonging to userID, and returns it — shared by
+// handleUpdateLocation and handleEndLocationShare, mirroring how
+// messageRoomForReaction centralizes the lookup+authorization for reactions.
+func (s *Server) locationShareForUpdate(w http.ResponseWriter, r *http.Request, userID, messageID string) (models.Message, bool) {
+	message, err := s.Store.GetMessage(r.Context(), messageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "message not found")
+		return models.Message{}, false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return models.Message{}, false
+	}
+	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return models.Message{}, false
+	}
+	if message.SenderID != userID {
+		writeError(w, http.StatusForbidden, "only the sender can update this share")
+		return models.Message{}, false
+	}
+	if message.Kind != models.MessageKindLocation {
+		writeError(w, http.StatusBadRequest, "not a location share")
+		return models.Message{}, false
+	}
+
+	share, err := s.Store.GetLocationShare(r.Context(), messageID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up location share")
+		return models.Message{}, false
+	}
+	if !share.Active(time.Now()) {
+		writeError(w, http.StatusForbidden, "this share is no longer active")
+		return models.Message{}, false
+	}
+	return message, true
+}
+
+// handleUpdateLocation implements FR3.3: the sender's device posts its
+// latest position while a share is active.
+func (s *Server) handleUpdateLocation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+	message, ok := s.locationShareForUpdate(w, r, userID, messageID)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Lat float64 `json:"lat"`
+		Lng float64 `json:"lng"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !models.ValidCoordinate(body.Lat, body.Lng) {
+		writeError(w, http.StatusBadRequest, "invalid coordinates")
+		return
+	}
+
+	share, err := s.Store.UpdateLocationPosition(r.Context(), messageID, body.Lat, body.Lng)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not update location")
+		return
+	}
+	message.Location = &share
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: message})
+	}
+	writeJSON(w, http.StatusOK, message)
+}
+
+// handleEndLocationShare implements FR3.5: the sender ends their share
+// early, before its TTL elapses.
+func (s *Server) handleEndLocationShare(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+	message, ok := s.locationShareForUpdate(w, r, userID, messageID)
+	if !ok {
+		return
+	}
+
+	share, err := s.Store.EndLocationShare(r.Context(), messageID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not end location share")
+		return
+	}
+	message.Location = &share
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: message})
+	}
+	writeJSON(w, http.StatusOK, message)
 }
 
 // handleLinkPreview implements FR1.14: given a URL a client found in a text

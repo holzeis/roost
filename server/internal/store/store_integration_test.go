@@ -604,3 +604,150 @@ func TestStore_ForwardDuplicatesMedia(t *testing.T) {
 		t.Fatalf("expected source media to survive deleting its duplicate, got %v", err)
 	}
 }
+
+func TestStore_LocationShare_CreateAttachUpdateEnd(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-loc-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-loc-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	msg, err := s.CreateLocationMessage(ctx, room.ID, alice.ID, 52.5, 13.4, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("create location message: %v", err)
+	}
+	if msg.Kind != models.MessageKindLocation {
+		t.Fatalf("expected kind=location, got %v", msg.Kind)
+	}
+	if msg.Location == nil || msg.Location.Lat != 52.5 || msg.Location.Lng != 13.4 {
+		t.Fatalf("expected the create response to already carry the share, got %+v", msg.Location)
+	}
+
+	// AttachLocations must independently reproduce the same data on a
+	// freshly-fetched message (the path every list/search response uses).
+	fetched := []models.Message{{ID: msg.ID, Kind: models.MessageKindLocation}}
+	if err := s.AttachLocations(ctx, fetched); err != nil {
+		t.Fatalf("attach locations: %v", err)
+	}
+	share := fetched[0].Location
+	if share == nil || share.Lat != 52.5 || share.Lng != 13.4 || share.EndedAt != nil {
+		t.Fatalf("unexpected attached share: %+v", share)
+	}
+	if !share.Active(time.Now()) {
+		t.Fatal("expected a freshly created 15-minute share to be active")
+	}
+
+	updated, err := s.UpdateLocationPosition(ctx, msg.ID, 52.52, 13.41)
+	if err != nil {
+		t.Fatalf("update position: %v", err)
+	}
+	if updated.Lat != 52.52 || updated.Lng != 13.41 {
+		t.Fatalf("expected updated coordinates, got %+v", updated)
+	}
+
+	ended, err := s.EndLocationShare(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("end share: %v", err)
+	}
+	if ended.EndedAt == nil {
+		t.Fatal("expected EndedAt to be set after ending the share")
+	}
+	// Anchored to ended.EndedAt itself rather than time.Now() — the DB
+	// server's clock and this test process's clock can differ by tens of
+	// milliseconds, which is enough to flake a comparison made this close
+	// to the write (the same reason handleEditMessage's editWindow check
+	// tolerates only server-observed durations, not cross-clock instants).
+	if ended.Active(ended.EndedAt.Add(time.Second)) {
+		t.Fatal("expected an ended share to no longer be active shortly after ending")
+	}
+
+	// Ending an already-ended share is idempotent — the second call must not
+	// error or move EndedAt forward.
+	endedAgain, err := s.EndLocationShare(ctx, msg.ID)
+	if err != nil {
+		t.Fatalf("end already-ended share: %v", err)
+	}
+	if !endedAgain.EndedAt.Equal(*ended.EndedAt) {
+		t.Fatalf("expected EndedAt to stay the same, got %v then %v", ended.EndedAt, endedAgain.EndedAt)
+	}
+}
+
+func TestStore_LocationShare_MultipleActiveSharesInARoom(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-locg-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-locg-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	name := "Family"
+	room, err := s.CreateRoom(ctx, alice.ID, &name, true, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	// FR3.8: when multiple members share location in the same room, each
+	// share must come back independently correct from a single batch call.
+	aliceShare, err := s.CreateLocationMessage(ctx, room.ID, alice.ID, 10, 10, time.Hour)
+	if err != nil {
+		t.Fatalf("alice share: %v", err)
+	}
+	bobShare, err := s.CreateLocationMessage(ctx, room.ID, bob.ID, 20, 20, time.Hour)
+	if err != nil {
+		t.Fatalf("bob share: %v", err)
+	}
+
+	messages := []models.Message{
+		{ID: aliceShare.ID, Kind: models.MessageKindLocation},
+		{ID: bobShare.ID, Kind: models.MessageKindLocation},
+	}
+	if err := s.AttachLocations(ctx, messages); err != nil {
+		t.Fatalf("attach locations: %v", err)
+	}
+	if messages[0].Location == nil || messages[0].Location.Lat != 10 {
+		t.Fatalf("expected alice's own share at lat=10, got %+v", messages[0].Location)
+	}
+	if messages[1].Location == nil || messages[1].Location.Lat != 20 {
+		t.Fatalf("expected bob's own share at lat=20, got %+v", messages[1].Location)
+	}
+}
+
+func TestStore_LocationShare_GetLocationShareNotFound(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-locnf-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, true, nil)
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	// A plain text message has no location_shares row.
+	textMsg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "not a location", nil, false)
+	if err != nil {
+		t.Fatalf("create text message: %v", err)
+	}
+
+	if _, err := s.GetLocationShare(ctx, textMsg.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a message with no location share, got %v", err)
+	}
+}
