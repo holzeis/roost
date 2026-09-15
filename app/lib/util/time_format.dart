@@ -26,3 +26,16 @@ String _timeOfDay(DateTime dt) {
 const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 String _weekday(int weekday1to7) => _weekdayNames[weekday1to7 - 1];
+
+/// "How much longer" label for an active location share (FR3.6), e.g. "12m
+/// left" or "1h 5m left". A non-positive duration (already expired) reads
+/// as "Ending…" rather than a negative/zero time, since the client's own
+/// copy of `now` can lag the server's by the time this renders.
+String formatRemaining(Duration remaining) {
+  if (remaining.inSeconds <= 0) return 'Ending…';
+  final hours = remaining.inHours;
+  final minutes = remaining.inMinutes % 60;
+  if (hours > 0) return minutes > 0 ? '${hours}h ${minutes}m left' : '${hours}h left';
+  if (minutes > 0) return '${minutes}m left';
+  return '<1m left';
+}

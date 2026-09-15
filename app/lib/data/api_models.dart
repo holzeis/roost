@@ -83,6 +83,7 @@ class ApiMessage {
     this.replyTo,
     this.forwarded = false,
     this.status = 'sent',
+    this.location,
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) => ApiMessage(
@@ -106,6 +107,9 @@ class ApiMessage {
         // Absent means no recipient has acked yet (FR1.5/FR1.6) — the
         // server omits the field via `omitempty` rather than sending "sent".
         status: json['status'] as String? ?? 'sent',
+        location: json['location'] != null
+            ? ApiLocationShare.fromJson(json['location'] as Map<String, dynamic>)
+            : null,
       );
 
   final String id;
@@ -123,8 +127,17 @@ class ApiMessage {
   /// 'sent' | 'delivered' | 'seen' (FR1.5, FR1.6). Only meaningful for a
   /// message sent by the current user — recipients ignore it.
   final String status;
+  /// The FR3.* subtype for a `kind == 'location'` message. Null for every
+  /// other kind.
+  final ApiLocationShare? location;
 
-  ApiMessage copyWith({List<ApiReaction>? reactions, String? body, DateTime? editedAt, String? status}) =>
+  ApiMessage copyWith({
+    List<ApiReaction>? reactions,
+    String? body,
+    DateTime? editedAt,
+    String? status,
+    ApiLocationShare? location,
+  }) =>
       ApiMessage(
         id: id,
         roomId: roomId,
@@ -139,7 +152,35 @@ class ApiMessage {
         replyTo: replyTo,
         forwarded: forwarded,
         status: status ?? this.status,
+        location: location ?? this.location,
       );
+}
+
+/// The FR3.* live-location subtype attached to a `kind == 'location'`
+/// message, mirroring server/internal/models.LocationShare.
+class ApiLocationShare {
+  const ApiLocationShare({required this.lat, required this.lng, required this.expiresAt, this.endedAt});
+
+  factory ApiLocationShare.fromJson(Map<String, dynamic> json) => ApiLocationShare(
+        lat: (json['lat'] as num).toDouble(),
+        lng: (json['lng'] as num).toDouble(),
+        expiresAt: DateTime.parse(json['expiresAt'] as String),
+        endedAt: json['endedAt'] != null ? DateTime.parse(json['endedAt'] as String) : null,
+      );
+
+  final double lat;
+  final double lng;
+  final DateTime expiresAt;
+  final DateTime? endedAt;
+
+  /// Mirrors the server's LocationShare.Active(now) — used only to decide
+  /// what the client renders; the server is authoritative for whether it
+  /// actually accepts further updates.
+  bool isActive([DateTime? at]) {
+    final now = at ?? DateTime.now();
+    if (endedAt != null && !endedAt!.isAfter(now)) return false;
+    return now.isBefore(expiresAt);
+  }
 }
 
 /// A trimmed preview of another message, embedded in a reply (FR1.10).

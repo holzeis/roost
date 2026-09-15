@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../data/api_client.dart';
 import '../data/api_models.dart';
 import '../data/ws_client.dart';
+import '../features/location/location_service.dart';
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+
+final locationServiceProvider = Provider<LocationService>((ref) => LocationService());
 
 /// One WebSocket connection for the app's lifetime (docs/architecture-overview.md:
 /// "signaling and media are separate paths" — this carries chat signaling).
@@ -323,5 +327,66 @@ class TypingController extends FamilyNotifier<Set<String>, String> {
       _timers.clear();
     });
     return const {};
+  }
+}
+
+/// Whether *this* room has an outgoing live location share from the current
+/// user active right now (FR3.1-FR3.5) — the message id of that share, or
+/// null. Not `.autoDispose`, like typingUsersProvider — the whole point of
+/// background tracking is that it keeps running after the user navigates
+/// away from the chat screen, so nothing here should tear it down early.
+final locationShareProvider = NotifierProvider.family<LocationShareController, String?, String>(
+  LocationShareController.new,
+);
+
+class LocationShareController extends FamilyNotifier<String?, String> {
+  late final String roomId = arg;
+  StreamSubscription<Position>? _positionSub;
+  Timer? _ttlTimer;
+
+  @override
+  String? build(String arg) {
+    ref.onDispose(() {
+      _positionSub?.cancel();
+      _ttlTimer?.cancel();
+    });
+    return null;
+  }
+
+  /// Starts sharing (FR3.1/FR3.2): requests permission, posts the initial
+  /// fix, then keeps posting position updates as the device moves until the
+  /// TTL elapses (FR3.4) or end() is called (FR3.5). A no-op if a share in
+  /// this room is already active.
+  Future<void> start(Duration ttl) async {
+    if (state != null) return;
+    final service = ref.read(locationServiceProvider);
+    await service.requestPermission();
+    final initial = await service.getCurrentPosition();
+
+    final message = await ref
+        .read(apiClientProvider)
+        .shareLocation(roomId, lat: initial.latitude, lng: initial.longitude, ttl: ttl);
+    state = message.id;
+
+    _positionSub = service.watchPosition().listen((position) {
+      final messageId = state;
+      if (messageId == null) return;
+      unawaited(ref.read(apiClientProvider).updateLocation(messageId, lat: position.latitude, lng: position.longitude));
+    });
+    _ttlTimer = Timer(ttl, end);
+  }
+
+  /// Ends the active share, whether that's FR3.4's TTL timer firing or
+  /// FR3.5's manual "stop sharing" — both funnel through here. A no-op if
+  /// nothing is currently active.
+  Future<void> end() async {
+    final messageId = state;
+    if (messageId == null) return;
+    state = null;
+    await _positionSub?.cancel();
+    _positionSub = null;
+    _ttlTimer?.cancel();
+    _ttlTimer = null;
+    await ref.read(apiClientProvider).endLocationShare(messageId);
   }
 }

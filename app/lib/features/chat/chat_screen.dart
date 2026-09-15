@@ -16,6 +16,7 @@ import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
 import 'forward_sheet.dart';
 import 'link_preview_card.dart';
+import 'location_message.dart';
 import 'media_message.dart';
 import 'reply_preview.dart';
 
@@ -351,6 +352,7 @@ class _MessageRow extends ConsumerWidget {
     final timeLabel =
         TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
     final isMedia = message.kind == 'image' || message.kind == 'video';
+    final isLocation = message.kind == 'location';
 
     // Only the last bubble of a consecutive run from one sender gets the
     // "tail" (pointed) corner; earlier bubbles in the same run are fully
@@ -368,7 +370,7 @@ class _MessageRow extends ConsumerWidget {
     final bubble = Container(
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
-      padding: isMedia
+      padding: isMedia || isLocation
           ? const EdgeInsets.all(3)
           : const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
@@ -382,7 +384,7 @@ class _MessageRow extends ConsumerWidget {
         children: [
           if (message.forwarded)
             Padding(
-              padding: EdgeInsets.only(bottom: 2, left: isMedia ? 5 : 0),
+              padding: EdgeInsets.only(bottom: 2, left: isMedia || isLocation ? 5 : 0),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -405,7 +407,7 @@ class _MessageRow extends ConsumerWidget {
             ),
           if (message.replyTo != null)
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: isMedia ? 5 : 0),
+              padding: EdgeInsets.symmetric(horizontal: isMedia || isLocation ? 5 : 0),
               child: ReplyQuoteChip(
                 snippet: message.replyTo!,
                 senderName: _nameFor(message.replyTo!.senderId),
@@ -415,6 +417,8 @@ class _MessageRow extends ConsumerWidget {
             ),
           if (isMedia)
             MediaBubbleContent(message: message)
+          else if (isLocation)
+            LocationBubbleContent(message: message, roomId: roomId)
           else ...[
             if (showSenderLabel)
               Padding(
@@ -435,10 +439,7 @@ class _MessageRow extends ConsumerWidget {
                     height: 1.28,
                     color: fromMe ? scheme.onPrimary : scheme.onSurface),
                 children: [
-                  TextSpan(
-                      text: message.kind == 'location'
-                          ? 'Shared their location'
-                          : (message.body ?? '')),
+                  TextSpan(text: message.body ?? ''),
                   TextSpan(
                     text:
                         '${message.editedAt != null ? ' (edited)' : ''}  $timeLabel',
@@ -534,6 +535,7 @@ class _MessageRow extends ConsumerWidget {
   void _showMessageActions(BuildContext context, WidgetRef ref) {
     final isMedia = message.kind == 'image' || message.kind == 'video';
     final isText = message.kind == 'text';
+    final isLocation = message.kind == 'location';
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -575,14 +577,15 @@ class _MessageRow extends ConsumerWidget {
                     ReplyDraft(message);
               },
             ),
-            ListTile(
-              leading: const Icon(TablerIcons.arrowForwardUp),
-              title: const Text('Forward'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                showForwardSheet(context, ref, message);
-              },
-            ),
+            if (!isLocation)
+              ListTile(
+                leading: const Icon(TablerIcons.arrowForwardUp),
+                title: const Text('Forward'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  showForwardSheet(context, ref, message);
+                },
+              ),
             if (isText)
               ListTile(
                 leading: const Icon(TablerIcons.copy),
@@ -820,7 +823,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   Future<void> _onCameraTap() =>
       _pickAndSendMedia(video: false, source: ImageSource.camera);
 
-  void _showCameraOptions() {
+  void _showAttachOptions() {
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -854,11 +857,80 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                 _pickAndSendMedia(video: false, source: ImageSource.gallery);
               },
             ),
+            ListTile(
+              leading: const Icon(TablerIcons.mapPin),
+              title: const Text('Share location'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _showLocationTtlSheet();
+              },
+            ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
+  }
+
+  /// FR3.2: the sender picks a preset TTL before sharing starts. Presets
+  /// match docs/architecture-overview.md's own example (15 min / 1 hr /
+  /// "until I arrive" — the last implemented as a long bound since
+  /// expiresAt needs a concrete value either way; FR3.5's manual "Stop
+  /// sharing" is the expected way that preset actually ends).
+  void _showLocationTtlSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Share your location for…', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
+            ListTile(
+              title: const Text('15 minutes'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _startSharingLocation(const Duration(minutes: 15));
+              },
+            ),
+            ListTile(
+              title: const Text('1 hour'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _startSharingLocation(const Duration(hours: 1));
+              },
+            ),
+            ListTile(
+              title: const Text('Until I arrive'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _startSharingLocation(const Duration(hours: 8));
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startSharingLocation(Duration ttl) async {
+    try {
+      await ref.read(locationShareProvider(widget.roomId).notifier).start(ttl);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not share your location: $error')));
+      }
+    }
   }
 
   @override
@@ -912,7 +984,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                   // already mid-message.
                   if (!_hasText)
                     GestureDetector(
-                      onLongPress: _showCameraOptions,
+                      onLongPress: _showAttachOptions,
                       // No `tooltip:` here — IconButton wraps itself in a Tooltip
                       // when one is set, and Tooltip's own long-press-to-show
                       // recognizer competes with ours in the same gesture arena,

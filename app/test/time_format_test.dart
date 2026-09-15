@@ -31,4 +31,27 @@ void main() {
       expect(formatActivityTime(longAgo), '3/14/20');
     });
   });
+
+  group('formatRemaining', () {
+    test('formats minutes only', () {
+      expect(formatRemaining(const Duration(minutes: 12)), '12m left');
+    });
+
+    test('formats hours and minutes', () {
+      expect(formatRemaining(const Duration(hours: 1, minutes: 5)), '1h 5m left');
+    });
+
+    test('formats an exact hour without a minutes remainder', () {
+      expect(formatRemaining(const Duration(hours: 2)), '2h left');
+    });
+
+    test('formats under a minute', () {
+      expect(formatRemaining(const Duration(seconds: 30)), '<1m left');
+    });
+
+    test('formats zero or negative as ending', () {
+      expect(formatRemaining(Duration.zero), 'Ending…');
+      expect(formatRemaining(const Duration(seconds: -5)), 'Ending…');
+    });
+  });
 }

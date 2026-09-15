@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:geolocator/geolocator.dart';
 import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
+import 'package:roost/features/location/location_service.dart';
 
 /// In-memory stand-ins for the network layer, used by widget tests so they
 /// never make a real HTTP/WebSocket call. Overriding a method on a
@@ -220,6 +222,60 @@ class FakeApiClient extends ApiClient {
   @override
   String mediaUrl(String mediaId) => 'fake://media/$mediaId';
 
+  int _nextLocationMessageId = 1;
+
+  @override
+  Future<ApiMessage> shareLocation(String roomId, {required double lat, required double lng, required Duration ttl}) async {
+    final message = ApiMessage(
+      id: 'loc-${_nextLocationMessageId++}',
+      roomId: roomId,
+      senderId: me.id,
+      kind: 'location',
+      createdAt: DateTime.now(),
+      location: ApiLocationShare(lat: lat, lng: lng, expiresAt: DateTime.now().add(ttl)),
+    );
+    messagesByRoom.putIfAbsent(roomId, () => []).add(message);
+    ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(message))) as Map<String, dynamic>));
+    return message;
+  }
+
+  @override
+  Future<ApiMessage> updateLocation(String messageId, {required double lat, required double lng}) async {
+    for (final entry in messagesByRoom.entries) {
+      final index = entry.value.indexWhere((m) => m.id == messageId);
+      if (index == -1) continue;
+      final existing = entry.value[index];
+      final updated = existing.copyWith(
+        location: ApiLocationShare(lat: lat, lng: lng, expiresAt: existing.location!.expiresAt, endedAt: existing.location!.endedAt),
+      );
+      entry.value[index] = updated;
+      ws.emit(WsEvent('message.updated', jsonDecode(jsonEncode(_messageJson(updated))) as Map<String, dynamic>));
+      return updated;
+    }
+    throw ApiException(404, 'not found');
+  }
+
+  @override
+  Future<ApiMessage> endLocationShare(String messageId) async {
+    for (final entry in messagesByRoom.entries) {
+      final index = entry.value.indexWhere((m) => m.id == messageId);
+      if (index == -1) continue;
+      final existing = entry.value[index];
+      final updated = existing.copyWith(
+        location: ApiLocationShare(
+          lat: existing.location!.lat,
+          lng: existing.location!.lng,
+          expiresAt: existing.location!.expiresAt,
+          endedAt: existing.location!.endedAt ?? DateTime.now(),
+        ),
+      );
+      entry.value[index] = updated;
+      ws.emit(WsEvent('message.updated', jsonDecode(jsonEncode(_messageJson(updated))) as Map<String, dynamic>));
+      return updated;
+    }
+    throw ApiException(404, 'not found');
+  }
+
   Map<String, dynamic> _messageJson(ApiMessage m) => {
         'id': m.id,
         'roomId': m.roomId,
@@ -240,6 +296,14 @@ class FakeApiClient extends ApiClient {
               },
         'forwarded': m.forwarded,
         'status': m.status,
+        'location': m.location == null
+            ? null
+            : {
+                'lat': m.location!.lat,
+                'lng': m.location!.lng,
+                'expiresAt': m.location!.expiresAt.toIso8601String(),
+                'endedAt': m.location!.endedAt?.toIso8601String(),
+              },
       };
 }
 
@@ -270,4 +334,52 @@ class FakeWsClient extends WsClient {
     _controller.close();
     super.dispose();
   }
+}
+
+/// A controllable stand-in for LocationService (FR3.*), so
+/// LocationShareController can be tested without real GPS or platform
+/// permission dialogs. [emit] pushes a fake position; [permissionDenied] and
+/// [deniedForever] let a test simulate the user refusing access.
+class FakeLocationService implements LocationService {
+  bool permissionDenied = false;
+  bool deniedForever = false;
+  int requestPermissionCalls = 0;
+  Position initialPosition = testPosition(0, 0);
+  final _positionController = StreamController<Position>.broadcast();
+  bool watching = false;
+
+  /// Builds a Position fixture — public so tests can also use it to set
+  /// [initialPosition] before calling start().
+  static Position testPosition(double lat, double lng) => Position(
+        latitude: lat,
+        longitude: lng,
+        timestamp: DateTime.now(),
+        accuracy: 5,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
+
+  @override
+  Future<void> requestPermission() async {
+    requestPermissionCalls++;
+    if (deniedForever) throw const LocationPermissionDeniedException(true);
+    if (permissionDenied) throw const LocationPermissionDeniedException(false);
+  }
+
+  @override
+  Future<Position> getCurrentPosition() async => initialPosition;
+
+  @override
+  Stream<Position> watchPosition({int distanceFilterMeters = 30}) {
+    watching = true;
+    return _positionController.stream;
+  }
+
+  void emit(double lat, double lng) => _positionController.add(testPosition(lat, lng));
+
+  void dispose() => _positionController.close();
 }

@@ -74,13 +74,14 @@ FakeApiClient _seededApiClient() {
   return api;
 }
 
-Future<void> _pumpApp(WidgetTester tester, FakeApiClient api) async {
+Future<void> _pumpApp(WidgetTester tester, FakeApiClient api, {List<Override> extraOverrides = const []}) async {
   appRouter.go('/'); // appRouter is a module-level singleton; reset between tests.
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         apiClientProvider.overrideWithValue(api),
         wsClientProvider.overrideWithValue(api.ws),
+        ...extraOverrides,
       ],
       child: const RoostApp(),
     ),
@@ -330,6 +331,34 @@ void main() {
     // Still the double-check glyph — "seen" is distinguished by opacity,
     // not a different icon (see chat_screen.dart's _statusIconSpan).
     expect(find.byIcon(TablerIcons.checks), findsOneWidget);
+  });
+
+  testWidgets('Sharing a location posts a live share and the bubble shows it as active (FR3.1, FR3.2, FR3.6, FR3.7)',
+      (tester) async {
+    final api = _seededApiClient();
+    final location = FakeLocationService()..initialPosition = FakeLocationService.testPosition(52.5, 13.4);
+    await _pumpApp(tester, api, extraOverrides: [locationServiceProvider.overrideWithValue(location)]);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.byIcon(TablerIcons.camera));
+    await tester.pumpAndSettle();
+    expect(find.text('Share location'), findsOneWidget);
+    await tester.tap(find.text('Share location'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('15 minutes'), findsOneWidget);
+    expect(find.text('1 hour'), findsOneWidget);
+    expect(find.text('Until I arrive'), findsOneWidget);
+    await tester.tap(find.text('15 minutes'));
+    await tester.pumpAndSettle();
+
+    final shared = api.messagesByRoom['room-family']!.firstWhere((m) => m.kind == 'location');
+    expect(shared.location!.lat, 52.5);
+    expect(shared.location!.lng, 13.4);
+    expect(location.requestPermissionCalls, 1);
+    expect(find.textContaining('Live ·'), findsOneWidget);
   });
 
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {

@@ -6,6 +6,7 @@ import '../features/call/incoming_call_screen.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/home/home_screen.dart';
+import '../features/location/live_location_screen.dart';
 import '../features/new_group/new_group_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/search/search_screen.dart';
@@ -27,6 +28,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/chat/:roomId/search',
       builder: (context, state) => SearchScreen(roomId: state.pathParameters['roomId']!),
+    ),
+    GoRoute(
+      path: '/chat/:roomId/location',
+      builder: (context, state) => LiveLocationScreen(roomId: state.pathParameters['roomId']!),
     ),
     GoRoute(
       path: '/call/:roomId',

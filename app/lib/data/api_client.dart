@@ -186,6 +186,37 @@ class ApiClient {
     _checkOk(res);
   }
 
+  /// Starts a live location share in roomId (FR3.1/FR3.2). ttl is the
+  /// sender-chosen duration from a small preset set; the server validates
+  /// it's within a sane range.
+  Future<ApiMessage> shareLocation(String roomId, {required double lat, required double lng, required Duration ttl}) async {
+    final res = await _http.post(
+      _uri('/api/rooms/$roomId/location'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'lat': lat, 'lng': lng, 'ttlSeconds': ttl.inSeconds}),
+    );
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Posts the sender's latest position for an active share (FR3.3).
+  Future<ApiMessage> updateLocation(String messageId, {required double lat, required double lng}) async {
+    final res = await _http.patch(
+      _uri('/api/messages/$messageId/location'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'lat': lat, 'lng': lng}),
+    );
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Ends an active share before its TTL elapses (FR3.5).
+  Future<ApiMessage> endLocationShare(String messageId) async {
+    final res = await _http.post(_uri('/api/messages/$messageId/location/end'));
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<String> mintLiveKitToken(String roomId) async {
     final res = await _http.post(
       _uri('/api/livekit/token'),
