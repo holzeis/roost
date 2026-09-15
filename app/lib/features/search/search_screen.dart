@@ -71,14 +71,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           decoration: BoxDecoration(
             color: scheme.surface,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: scheme.onSurface.withOpacity(0.08)),
+            border: Border.all(color: scheme.onSurface.withValues(alpha: 0.08)),
           ),
           child: TextField(
             controller: _controller,
             autofocus: true,
             onChanged: _onChanged,
             decoration: InputDecoration(
-              prefixIcon: Icon(TablerIcons.search, size: 18, color: scheme.onSurface.withOpacity(0.5)),
+              prefixIcon: Icon(TablerIcons.search, size: 18, color: scheme.onSurface.withValues(alpha: 0.5)),
               isDense: true,
               border: InputBorder.none,
               hintText: 'Search messages',
@@ -105,7 +105,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.4,
-                    color: scheme.onSurface.withOpacity(0.45),
+                    color: scheme.onSurface.withValues(alpha: 0.45),
                   ),
                 ),
               ),
@@ -126,7 +126,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       ),
                       title: Text(
                         '$senderName · ${formatActivityTime(message.createdAt)}',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurface.withOpacity(0.6)),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurface.withValues(alpha: 0.6)),
                       ),
                       subtitle: _highlighted(message.body ?? '', _query, scheme),
                     );

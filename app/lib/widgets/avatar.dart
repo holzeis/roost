@@ -82,7 +82,7 @@ class InitialAvatar extends StatelessWidget {
               shape: BoxShape.circle,
               color: presenceOnline!
                   ? const Color(0xFF3FA360)
-                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.24),
+                  : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24),
               border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2.5),
             ),
           ),

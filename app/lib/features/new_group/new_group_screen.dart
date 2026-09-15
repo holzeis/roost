@@ -85,10 +85,10 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                           width: 52,
                           height: 52,
                           decoration: BoxDecoration(
-                            color: scheme.onSurface.withOpacity(0.08),
+                            color: scheme.onSurface.withValues(alpha: 0.08),
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(TablerIcons.users, color: scheme.onSurface.withOpacity(0.5)),
+                          child: Icon(TablerIcons.users, color: scheme.onSurface.withValues(alpha: 0.5)),
                         ),
                         Positioned(
                           right: -2,
@@ -112,7 +112,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                           fillColor: scheme.surface,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: scheme.onSurface.withOpacity(0.1)),
+                            borderSide: BorderSide(color: scheme.onSurface.withValues(alpha: 0.1)),
                           ),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         ),
@@ -152,7 +152,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: scheme.onSurface.withOpacity(0.45),
+                    color: scheme.onSurface.withValues(alpha: 0.45),
                   ),
                 ),
               ),
@@ -161,7 +161,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Text(
                     'Nobody else has connected yet.',
-                    style: TextStyle(color: scheme.onSurface.withOpacity(0.55)),
+                    style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.55)),
                   ),
                 ),
               for (final contact in contacts)

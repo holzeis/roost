@@ -163,7 +163,7 @@ class _ChatTitle extends StatelessWidget {
                         color: Theme.of(context)
                             .colorScheme
                             .onSurface
-                            .withOpacity(0.5),
+                            .withValues(alpha: 0.5),
                       ),
                 ),
             ],
@@ -258,7 +258,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
               'No messages yet. Say hello!',
               style: TextStyle(
                   color:
-                      Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+                      Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
             ),
           );
         }
@@ -325,7 +325,7 @@ WidgetSpan _statusIconSpan(String status, Color onPrimary) {
     alignment: PlaceholderAlignment.middle,
     child: Padding(
       padding: const EdgeInsets.only(left: 3),
-      child: Icon(icon, size: 12, color: onPrimary.withOpacity(seen ? 1 : 0.62)),
+      child: Icon(icon, size: 12, color: onPrimary.withValues(alpha: seen ? 1 : 0.62)),
     ),
   );
 }
@@ -407,7 +407,7 @@ class _MessageRow extends ConsumerWidget {
                   Icon(TablerIcons.arrowForwardUp,
                       size: 12,
                       color: (fromMe ? scheme.onPrimary : scheme.onSurface)
-                          .withOpacity(0.55)),
+                          .withValues(alpha: 0.55)),
                   const SizedBox(width: 3),
                   Text(
                     'Forwarded',
@@ -415,7 +415,7 @@ class _MessageRow extends ConsumerWidget {
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
                       color: (fromMe ? scheme.onPrimary : scheme.onSurface)
-                          .withOpacity(0.55),
+                          .withValues(alpha: 0.55),
                     ),
                   ),
                 ],
@@ -469,7 +469,7 @@ class _MessageRow extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 10.5,
                       color: (fromMe ? scheme.onPrimary : scheme.onSurface)
-                          .withOpacity(0.62),
+                          .withValues(alpha: 0.62),
                     ),
                   ),
                   if (fromMe) _statusIconSpan(message.status, scheme.onPrimary),
@@ -694,11 +694,11 @@ class _ReactionChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
           color: reaction.reactedByMe
-              ? scheme.primary.withOpacity(0.15)
-              : scheme.onSurface.withOpacity(0.06),
+              ? scheme.primary.withValues(alpha: 0.15)
+              : scheme.onSurface.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(999),
           border: reaction.reactedByMe
-              ? Border.all(color: scheme.primary.withOpacity(0.4))
+              ? Border.all(color: scheme.primary.withValues(alpha: 0.4))
               : null,
         ),
         child: Text('${reaction.emoji} ${reaction.count}',
@@ -1015,7 +1015,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                       // making onLongPress fire unreliably.
                       child: IconButton(
                         icon: Icon(TablerIcons.camera,
-                            color: scheme.onSurface.withOpacity(0.6)),
+                            color: scheme.onSurface.withValues(alpha: 0.6)),
                         onPressed: _onCameraTap,
                       ),
                     ),
@@ -1027,7 +1027,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                           color: scheme.surface,
                           borderRadius: BorderRadius.circular(22),
                           border: Border.all(
-                              color: scheme.onSurface.withOpacity(0.08)),
+                              color: scheme.onSurface.withValues(alpha: 0.08)),
                         ),
                         child: TextField(
                           controller: _controller,

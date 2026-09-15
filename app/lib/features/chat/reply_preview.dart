@@ -46,7 +46,7 @@ class ReplyQuoteChip extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: tint.withOpacity(0.1),
+          color: tint.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
           border: Border(left: BorderSide(color: tint, width: 3)),
         ),
@@ -68,7 +68,7 @@ class ReplyQuoteChip extends StatelessWidget {
               )),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12.5, color: tint.withOpacity(0.85)),
+              style: TextStyle(fontSize: 12.5, color: tint.withValues(alpha: 0.85)),
             ),
           ],
         ),
@@ -101,7 +101,7 @@ class ComposerDraftBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         border:
-            Border(top: BorderSide(color: scheme.onSurface.withOpacity(0.08))),
+            Border(top: BorderSide(color: scheme.onSurface.withValues(alpha: 0.08))),
       ),
       child: Row(
         children: [
@@ -125,14 +125,14 @@ class ComposerDraftBar extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: 12.5, color: scheme.onSurface.withOpacity(0.7)),
+                      fontSize: 12.5, color: scheme.onSurface.withValues(alpha: 0.7)),
                 ),
               ],
             ),
           ),
           IconButton(
             icon: Icon(Icons.close,
-                size: 18, color: scheme.onSurface.withOpacity(0.6)),
+                size: 18, color: scheme.onSurface.withValues(alpha: 0.6)),
             onPressed: onDiscard,
           ),
         ],

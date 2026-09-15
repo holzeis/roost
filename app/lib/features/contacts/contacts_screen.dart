@@ -24,7 +24,7 @@ class ContactsScreen extends ConsumerWidget {
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             leading: CircleAvatar(
               radius: 22,
-              backgroundColor: scheme.primary.withOpacity(0.12),
+              backgroundColor: scheme.primary.withValues(alpha: 0.12),
               child: Icon(TablerIcons.users, color: scheme.primary),
             ),
             title: Text(
@@ -41,7 +41,7 @@ class ContactsScreen extends ConsumerWidget {
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: scheme.onSurface.withOpacity(0.45),
+                color: scheme.onSurface.withValues(alpha: 0.45),
               ),
             ),
           ),
@@ -51,7 +51,7 @@ class ContactsScreen extends ConsumerWidget {
                     padding: const EdgeInsets.all(16),
                     child: Text(
                       'Nobody else has connected yet.',
-                      style: TextStyle(color: scheme.onSurface.withOpacity(0.55)),
+                      style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.55)),
                     ),
                   )
                 : Column(children: [for (final c in contacts) _ContactTile(contact: c)]),
@@ -90,7 +90,7 @@ class _ContactTile extends ConsumerWidget {
       subtitle: Text(
         contact.online ? 'Online' : 'Offline',
         style: TextStyle(
-          color: contact.online ? scheme.primary : scheme.onSurface.withOpacity(0.45),
+          color: contact.online ? scheme.primary : scheme.onSurface.withValues(alpha: 0.45),
           fontSize: 13,
         ),
       ),

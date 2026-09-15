@@ -50,7 +50,7 @@ class ChatBubbleStyle {
 
   static List<BoxShadow> shadow(Brightness brightness) => [
         BoxShadow(
-          color: Colors.black.withOpacity(brightness == Brightness.dark ? 0.28 : 0.06),
+          color: Colors.black.withValues(alpha: brightness == Brightness.dark ? 0.28 : 0.06),
           blurRadius: 3,
           offset: const Offset(0, 1),
         ),
@@ -108,7 +108,7 @@ class AppTheme {
           letterSpacing: -0.2,
         ),
       ),
-      dividerTheme: DividerThemeData(color: colorScheme.onSurface.withOpacity(0.08)),
+      dividerTheme: DividerThemeData(color: colorScheme.onSurface.withValues(alpha: 0.08)),
       textTheme: Typography.material2021().black.apply(bodyColor: colorScheme.onSurface),
       listTileTheme: const ListTileThemeData(minVerticalPadding: 10),
       splashFactory: InkSparkle.splashFactory,
@@ -117,7 +117,7 @@ class AppTheme {
         fillColor: colorScheme.surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: colorScheme.onSurface.withOpacity(0.12)),
+          borderSide: BorderSide(color: colorScheme.onSurface.withValues(alpha: 0.12)),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),

@@ -176,7 +176,7 @@ class _RoomTile extends StatelessWidget {
                     _lastMessagePreview(room),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withOpacity(0.55)),
+                    style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.55)),
                   ),
                 ],
               ),
@@ -184,7 +184,7 @@ class _RoomTile extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               timeLabel,
-              style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurface.withOpacity(0.45)),
+              style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurface.withValues(alpha: 0.45)),
             ),
           ],
         ),

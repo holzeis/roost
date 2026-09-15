@@ -38,7 +38,7 @@ class LinkPreviewCard extends ConsumerWidget {
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: fg.withOpacity(0.15)),
+            border: Border.all(color: fg.withValues(alpha: 0.15)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -65,7 +65,7 @@ class LinkPreviewCard extends ConsumerWidget {
                         style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
-                            color: fg.withOpacity(0.6)),
+                            color: fg.withValues(alpha: 0.6)),
                       ),
                     if (data.title != null)
                       Text(
@@ -85,7 +85,7 @@ class LinkPreviewCard extends ConsumerWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 12, color: fg.withOpacity(0.75)),
+                              fontSize: 12, color: fg.withValues(alpha: 0.75)),
                         ),
                       ),
                   ],
