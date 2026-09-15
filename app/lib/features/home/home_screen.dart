@@ -62,8 +62,8 @@ class HomeScreen extends ConsumerWidget {
         padding: const EdgeInsets.only(top: 4, bottom: 88),
         itemCount: roomList.length,
         separatorBuilder: (_, __) => Padding(
-          padding: const EdgeInsets.only(left: 84),
-          child: Divider(height: 1, color: Theme.of(context).dividerColor),
+          padding: const EdgeInsets.only(left: 84, right: 16),
+          child: Divider(height: 1, thickness: 0.5, color: Theme.of(context).dividerColor),
         ),
         itemBuilder: (context, index) => _RoomTile(
           room: roomList[index],
