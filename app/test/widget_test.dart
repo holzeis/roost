@@ -107,6 +107,31 @@ void main() {
     expect(find.text('Message'), findsOneWidget); // the composer's hint text
   });
 
+  testWidgets('Camera shortcut offers photo/video capture, separate from the gallery attach menu', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(TablerIcons.camera));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Take photo'), findsOneWidget);
+    expect(find.text('Record video'), findsOneWidget);
+    // Distinct from the attach ("+") menu's gallery pickers.
+    expect(find.text('Photo library'), findsNothing);
+    expect(find.text('Video library'), findsNothing);
+
+    await tester.tapAt(const Offset(200, 100)); // dismiss the sheet
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(TablerIcons.circlePlus));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Photo library'), findsOneWidget);
+    expect(find.text('Video library'), findsOneWidget);
+  });
+
   testWidgets('Sending a message posts it through the API client', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);

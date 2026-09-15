@@ -30,6 +30,14 @@ class ChatScreen extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 4,
         leading: const TablerBackButton(),
+        // Explicit hairline matching the composer's top border exactly (same
+        // color, same 0.5 width) — without this the only separation here was
+        // the AppBar/wallpaper background colors meeting, which reads as a
+        // different, softer line than the composer's actual drawn border.
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(height: 0.5, color: Theme.of(context).dividerColor),
+        ),
         title: _ChatTitle(roomAsync: roomAsync, me: me, usersById: usersById),
         actions: [
           IconButton(
@@ -445,9 +453,9 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
   }
 
-  Future<void> _pickAndSendMedia({required bool video}) async {
+  Future<void> _pickAndSendMedia({required bool video, ImageSource source = ImageSource.gallery}) async {
     final picker = ImagePicker();
-    final file = video ? await picker.pickVideo(source: ImageSource.gallery) : await picker.pickImage(source: ImageSource.gallery);
+    final file = video ? await picker.pickVideo(source: source) : await picker.pickImage(source: source);
     if (file == null) return;
 
     setState(() => _sending = true);
@@ -481,7 +489,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
           children: [
             ListTile(
               leading: const Icon(TablerIcons.photo),
-              title: const Text('Photo'),
+              title: const Text('Photo library'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _pickAndSendMedia(video: false);
@@ -489,10 +497,50 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
             ),
             ListTile(
               leading: const Icon(TablerIcons.video),
-              title: const Text('Video'),
+              title: const Text('Video library'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _pickAndSendMedia(video: true);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The dedicated camera shortcut (distinct from the attach menu's gallery
+  /// pickers): jumps straight into the device's own camera UI to capture and
+  /// share a new photo or video, per the user's request. image_picker's
+  /// camera source opens photo-capture and video-capture as two separate
+  /// flows (no combined native toggle like the attach menu doesn't need),
+  /// so this offers both as one tap each rather than guessing which the
+  /// user wants.
+  void _showCameraMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(TablerIcons.camera),
+              title: const Text('Take photo'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendMedia(video: false, source: ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(TablerIcons.video),
+              title: const Text('Record video'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendMedia(video: true, source: ImageSource.camera);
               },
             ),
             const SizedBox(height: 8),
@@ -509,7 +557,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
       padding: const EdgeInsets.fromLTRB(6, 8, 10, 8),
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor, width: 0.5)),
       ),
       child: SafeArea(
         top: false,
@@ -519,6 +567,11 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
             IconButton(
               icon: Icon(TablerIcons.circlePlus, color: scheme.onSurface.withOpacity(0.6)),
               onPressed: _showAttachMenu,
+            ),
+            IconButton(
+              icon: Icon(TablerIcons.camera, color: scheme.onSurface.withOpacity(0.6)),
+              tooltip: 'Camera',
+              onPressed: _showCameraMenu,
             ),
             Expanded(
               child: ConstrainedBox(
