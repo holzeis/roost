@@ -429,6 +429,102 @@ func (s *Store) AttachReactions(ctx context.Context, callerID string, messages [
 	return rows.Err()
 }
 
+// AttachStatus populates each message's Status field in place (FR1.5,
+// FR1.6): sent/delivered/seen, computed from message_receipts against how
+// many other members each message's room currently has. Two queries
+// regardless of message count, same shape as AttachReactions.
+func (s *Store) AttachStatus(ctx context.Context, messages []models.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]string, len(messages))
+	roomIDs := make([]string, 0, len(messages))
+	seenRoom := make(map[string]struct{}, len(messages))
+	byID := make(map[string]*models.Message, len(messages))
+	for i := range messages {
+		ids[i] = messages[i].ID
+		byID[messages[i].ID] = &messages[i]
+		if _, ok := seenRoom[messages[i].RoomID]; !ok {
+			seenRoom[messages[i].RoomID] = struct{}{}
+			roomIDs = append(roomIDs, messages[i].RoomID)
+		}
+	}
+
+	const memberCountQ = `SELECT room_id, COUNT(*) FROM room_members WHERE room_id = ANY($1) GROUP BY room_id`
+	memberRows, err := s.pool.Query(ctx, memberCountQ, roomIDs)
+	if err != nil {
+		return fmt.Errorf("store: attach status: room member counts: %w", err)
+	}
+	memberCounts := make(map[string]int, len(roomIDs))
+	for memberRows.Next() {
+		var roomID string
+		var count int
+		if err := memberRows.Scan(&roomID, &count); err != nil {
+			memberRows.Close()
+			return fmt.Errorf("store: scan room member count: %w", err)
+		}
+		memberCounts[roomID] = count
+	}
+	memberRows.Close()
+	if err := memberRows.Err(); err != nil {
+		return fmt.Errorf("store: attach status: room member counts: %w", err)
+	}
+
+	const receiptCountQ = `
+		SELECT message_id, COUNT(delivered_at), COUNT(seen_at)
+		FROM message_receipts
+		WHERE message_id = ANY($1)
+		GROUP BY message_id`
+	receiptRows, err := s.pool.Query(ctx, receiptCountQ, ids)
+	if err != nil {
+		return fmt.Errorf("store: attach status: receipt counts: %w", err)
+	}
+	receiptCounts := make(map[string][2]int, len(ids))
+	for receiptRows.Next() {
+		var messageID string
+		var delivered, seen int
+		if err := receiptRows.Scan(&messageID, &delivered, &seen); err != nil {
+			receiptRows.Close()
+			return fmt.Errorf("store: scan receipt count: %w", err)
+		}
+		receiptCounts[messageID] = [2]int{delivered, seen}
+	}
+	receiptRows.Close()
+	if err := receiptRows.Err(); err != nil {
+		return fmt.Errorf("store: attach status: receipt counts: %w", err)
+	}
+
+	for id, m := range byID {
+		recipients := memberCounts[m.RoomID] - 1 // everyone but the sender
+		counts := receiptCounts[id]
+		m.Status = models.ComputeMessageStatus(recipients, counts[0], counts[1])
+	}
+	return nil
+}
+
+// MarkReceipts records that userID has received (and, if seen is true, also
+// viewed) each of messageIDs, scoped to roomID so a member of some other
+// room can't write receipts for messages they don't belong to (message ids
+// not in roomID are silently ignored by the WHERE clause). seen implies
+// delivered; an existing, earlier timestamp is never overwritten.
+func (s *Store) MarkReceipts(ctx context.Context, roomID, userID string, messageIDs []string, seen bool) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	const q = `
+		INSERT INTO message_receipts (message_id, user_id, delivered_at, seen_at)
+		SELECT m.id, $2, now(), CASE WHEN $4 THEN now() END
+		FROM messages m
+		WHERE m.id = ANY($1) AND m.room_id = $3
+		ON CONFLICT (message_id, user_id) DO UPDATE SET
+			delivered_at = COALESCE(message_receipts.delivered_at, EXCLUDED.delivered_at),
+			seen_at      = COALESCE(message_receipts.seen_at, EXCLUDED.seen_at)`
+	if _, err := s.pool.Exec(ctx, q, messageIDs, userID, roomID, seen); err != nil {
+		return fmt.Errorf("store: mark receipts: %w", err)
+	}
+	return nil
+}
+
 func scanMessage(row pgx.Row) (models.Message, error) {
 	var m models.Message
 	var kind string

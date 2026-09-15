@@ -53,6 +53,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/rooms/{roomID}/messages", s.handleCreateMessage)
 			r.Get("/rooms/{roomID}/search", s.handleSearchMessages)
 			r.Post("/rooms/{roomID}/media", s.handleUploadMedia)
+			r.Post("/rooms/{roomID}/receipts", s.handleAckReceipts)
 
 			r.Get("/media/{mediaID}", s.handleGetMedia)
 			r.Delete("/media/{mediaID}", s.handleDeleteMedia)

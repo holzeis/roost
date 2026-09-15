@@ -130,6 +130,25 @@ Emoji reactions (FR1.9), one row per (message, user, emoji) triple.
 | `emoji` | text | |
 | `created_at` | timestamptz | |
 
+### message_receipts
+
+Per-recipient delivery/seen tracking (FR1.5, FR1.6), one row per (message, user) once that
+user has acknowledged the message. `seen_at` implies `delivered_at` — the store's upsert never
+sets one without the other. A message's overall status (`sent` | `delivered` | `seen`), shown
+to its sender, is computed at read time rather than stored: it's `seen` once every other member
+of the room has `seen_at` set, `delivered` once every other member has `delivered_at` set, else
+`sent` (see `models.ComputeMessageStatus`). "Every other member" is evaluated against
+`room_members` at read time, not snapshotted, so it reflects the room's membership as of now.
+
+| Column | Type | Notes |
+|---|---|---|
+| `message_id` | uuid, FK → `messages`, `ON DELETE CASCADE` | |
+| `user_id` | uuid, FK → `users`, `ON DELETE CASCADE` | |
+| `delivered_at` | timestamptz, nullable | |
+| `seen_at` | timestamptz, nullable | |
+
+Composite PK `(message_id, user_id)`.
+
 ### calls / call_participants
 
 One `calls` row per call attempt (FR4.1, FR4.2), linked back to the
@@ -149,8 +168,7 @@ actually joined vs. who was invited, for a future "who was on the call" view.
 
 ## Not yet modeled
 
-- Delivery/read receipts (FR1.5, FR1.6) and typing indicators (FR1.7) —
-  Should/Could priority, deferred; likely ephemeral (WebSocket-only) rather
-  than persisted, when built.
+- Typing indicators (FR1.7) — Could priority, deferred; likely ephemeral
+  (WebSocket-only) rather than persisted, when built.
 - Per-room "who's online" (FR6.5) is derived at runtime from the chat
   server's WebSocket hub (`server/internal/ws`), not stored.

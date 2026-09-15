@@ -57,6 +57,40 @@ type Message struct {
 	ReplyTo          *MessageSnippet `json:"replyTo,omitempty"`
 	// Forwarded marks a message created via the forward action (FR1.11).
 	Forwarded bool `json:"forwarded,omitempty"`
+
+	// Status is the sender-facing delivery/seen status (FR1.5, FR1.6),
+	// computed at read time by the store from message_receipts — see
+	// ComputeMessageStatus. Meaningful only for the sender's own messages;
+	// clients should ignore it on messages from other users.
+	Status MessageStatus `json:"status,omitempty"`
+}
+
+// MessageStatus is the sender-facing delivery/seen status of a message
+// (FR1.5, FR1.6).
+type MessageStatus string
+
+const (
+	MessageStatusSent      MessageStatus = "sent"
+	MessageStatusDelivered MessageStatus = "delivered"
+	MessageStatusSeen      MessageStatus = "seen"
+)
+
+// ComputeMessageStatus derives a message's overall status from how many of
+// its recipients (other room members, i.e. everyone but the sender) have
+// delivered/seen it. A message shows "delivered" or "seen" only once *all*
+// recipients have reached that state — a group message isn't "delivered"
+// just because the first person got it.
+func ComputeMessageStatus(recipients, delivered, seen int) MessageStatus {
+	if recipients <= 0 {
+		return MessageStatusSent
+	}
+	if seen >= recipients {
+		return MessageStatusSeen
+	}
+	if delivered >= recipients {
+		return MessageStatusDelivered
+	}
+	return MessageStatusSent
 }
 
 // MessageSnippet is a trimmed preview of another message, embedded in a

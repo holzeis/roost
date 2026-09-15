@@ -227,6 +227,162 @@ func TestStore_Reactions(t *testing.T) {
 	}
 }
 
+func TestStore_MessageReceipts_OneToOne(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-mr1-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-mr1-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "read this", nil, false)
+	if err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	assertStatus := func(want models.MessageStatus) {
+		t.Helper()
+		messages := []models.Message{{ID: msg.ID, RoomID: room.ID}}
+		if err := s.AttachStatus(ctx, messages); err != nil {
+			t.Fatalf("attach status: %v", err)
+		}
+		if got := messages[0].Status; got != want {
+			t.Fatalf("status = %v, want %v", got, want)
+		}
+	}
+
+	// Before bob has acked anything, the message is only sent.
+	assertStatus(models.MessageStatusSent)
+
+	if err := s.MarkReceipts(ctx, room.ID, bob.ID, []string{msg.ID}, false); err != nil {
+		t.Fatalf("mark delivered: %v", err)
+	}
+	assertStatus(models.MessageStatusDelivered)
+
+	if err := s.MarkReceipts(ctx, room.ID, bob.ID, []string{msg.ID}, true); err != nil {
+		t.Fatalf("mark seen: %v", err)
+	}
+	assertStatus(models.MessageStatusSeen)
+}
+
+func TestStore_MessageReceipts_GroupRequiresAllMembers(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-mrg-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-mrg-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	carol, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("carol-mrg-%d@github", run), "Carol")
+	if err != nil {
+		t.Fatalf("create carol: %v", err)
+	}
+	name := "Family"
+	room, err := s.CreateRoom(ctx, alice.ID, &name, true, []string{bob.ID, carol.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "group message", nil, false)
+	if err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	status := func() models.MessageStatus {
+		t.Helper()
+		messages := []models.Message{{ID: msg.ID, RoomID: room.ID}}
+		if err := s.AttachStatus(ctx, messages); err != nil {
+			t.Fatalf("attach status: %v", err)
+		}
+		return messages[0].Status
+	}
+
+	// Only one of the two recipients has it: not "delivered" yet.
+	if err := s.MarkReceipts(ctx, room.ID, bob.ID, []string{msg.ID}, false); err != nil {
+		t.Fatalf("bob mark delivered: %v", err)
+	}
+	if got := status(); got != models.MessageStatusSent {
+		t.Fatalf("status after only bob delivered = %v, want sent", got)
+	}
+
+	// The second recipient also has it: now "delivered".
+	if err := s.MarkReceipts(ctx, room.ID, carol.ID, []string{msg.ID}, false); err != nil {
+		t.Fatalf("carol mark delivered: %v", err)
+	}
+	if got := status(); got != models.MessageStatusDelivered {
+		t.Fatalf("status after both delivered = %v, want delivered", got)
+	}
+
+	// Only one of the two has seen it: still "delivered", not "seen".
+	if err := s.MarkReceipts(ctx, room.ID, bob.ID, []string{msg.ID}, true); err != nil {
+		t.Fatalf("bob mark seen: %v", err)
+	}
+	if got := status(); got != models.MessageStatusDelivered {
+		t.Fatalf("status after only bob saw it = %v, want delivered", got)
+	}
+
+	// Both have seen it: "seen".
+	if err := s.MarkReceipts(ctx, room.ID, carol.ID, []string{msg.ID}, true); err != nil {
+		t.Fatalf("carol mark seen: %v", err)
+	}
+	if got := status(); got != models.MessageStatusSeen {
+		t.Fatalf("status after both saw it = %v, want seen", got)
+	}
+}
+
+func TestStore_MessageReceipts_ScopedToRoom(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-mrs-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-mrs-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	roomA, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room a: %v", err)
+	}
+	roomB, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room b: %v", err)
+	}
+	msgInB, err := s.CreateTextMessage(ctx, roomB.ID, alice.ID, "belongs to room b", nil, false)
+	if err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	// Acking msgInB's id while scoped to roomA must not write a receipt —
+	// the WHERE m.room_id = $3 clause should exclude it.
+	if err := s.MarkReceipts(ctx, roomA.ID, bob.ID, []string{msgInB.ID}, false); err != nil {
+		t.Fatalf("mark receipts scoped to wrong room: %v", err)
+	}
+	messages := []models.Message{{ID: msgInB.ID, RoomID: roomB.ID}}
+	if err := s.AttachStatus(ctx, messages); err != nil {
+		t.Fatalf("attach status: %v", err)
+	}
+	if got := messages[0].Status; got != models.MessageStatusSent {
+		t.Fatalf("status = %v, want sent (receipt should not have been written)", got)
+	}
+}
+
 func TestStore_MediaMessages(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

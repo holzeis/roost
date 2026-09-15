@@ -216,6 +216,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load reply previews")
 		return
 	}
+	if err := s.Store.AttachStatus(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load message status")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -467,6 +471,10 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load reply previews")
 		return
 	}
+	if err := s.Store.AttachStatus(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load message status")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -531,6 +539,76 @@ func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request) {
 		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "reaction.removed", Payload: map[string]string{
 			"messageId": messageID, "userId": userID, "emoji": emoji,
 		}})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// maxReceiptAckBatch caps how many message ids a single ack call can cover —
+// generous for a client catching up after being offline, not a hard limit.
+const maxReceiptAckBatch = 200
+
+// handleAckReceipts implements FR1.5/FR1.6: the client reports that it has
+// received ("delivered") or actually displayed ("seen") a batch of messages
+// in roomID. Only the caller's own receipt is written; the resulting status
+// (visible to the messages' senders) is recomputed and broadcast only for
+// messages whose status actually changed, so an ack that doesn't move a
+// message past what every other member has already reached is silent.
+func (s *Server) handleAckReceipts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+
+	var body struct {
+		MessageIDs []string `json:"messageIds"`
+		Status     string   `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(body.MessageIDs) == 0 || len(body.MessageIDs) > maxReceiptAckBatch {
+		writeError(w, http.StatusBadRequest, "messageIds must have between 1 and 200 entries")
+		return
+	}
+	var seen bool
+	switch models.MessageStatus(body.Status) {
+	case models.MessageStatusDelivered:
+		seen = false
+	case models.MessageStatusSeen:
+		seen = true
+	default:
+		writeError(w, http.StatusBadRequest, `status must be "delivered" or "seen"`)
+		return
+	}
+
+	if err := s.Store.MarkReceipts(r.Context(), roomID, userID, body.MessageIDs, seen); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not record receipts")
+		return
+	}
+
+	messages := make([]models.Message, len(body.MessageIDs))
+	for i, id := range body.MessageIDs {
+		messages[i] = models.Message{ID: id, RoomID: roomID}
+	}
+	if err := s.Store.AttachStatus(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not recompute message status")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+		for _, m := range messages {
+			if m.Status == models.MessageStatusSent {
+				continue
+			}
+			s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.status", Payload: map[string]string{
+				"messageId": m.ID, "roomId": roomID, "status": string(m.Status),
+			}})
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
