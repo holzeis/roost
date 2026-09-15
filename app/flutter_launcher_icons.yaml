@@ -1,0 +1,14 @@
+# Generates native app icons from assets/logo/roost-logo.svg (rasterized to
+# assets/icon/*.png — see that directory's own .svg sources for how).
+# Run after changing the logo: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon_full.png"
+  # Android adaptive icon: solid slate-blue background layer + the house/
+  # speech-bubble mark alone (no background baked in) as the foreground,
+  # padded to a safe zone so OEM icon masks (circle, squircle, ...) don't
+  # clip it.
+  adaptive_icon_background: "#4A5C8A"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  remove_alpha_ios: true
