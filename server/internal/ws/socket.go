@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -30,13 +32,23 @@ func (s *socketConn) Send(ev Event) error {
 	return s.conn.WriteJSON(ev)
 }
 
+// MembershipChecker is the minimal store dependency Handler needs to
+// authorize inbound typing signals (FR1.7) — kept as an interface (like
+// Conn above) so the decision logic is unit-testable without a real
+// Store/DB. *store.Store already implements this via its existing
+// ListRoomMemberIDs method.
+type MembershipChecker interface {
+	ListRoomMemberIDs(ctx context.Context, roomID string) ([]string, error)
+}
+
 // Handler upgrades the connection, registers it with the hub for the
 // caller's identity (resolved by auth.Middleware upstream), and reads until
-// the client disconnects. Inbound messages beyond the initial upgrade are
-// currently just discarded — clients send state changes over the REST API
-// and receive fan-out over this socket; a client->server message protocol
-// (e.g. typing indicators) can be layered in here later.
-func Handler(hub *Hub) http.HandlerFunc {
+// the client disconnects. Most state changes still go over the REST API,
+// with fan-out over this socket — the one exception is the typing signal
+// (FR1.7), which is ephemeral enough (no persistence, best-effort delivery)
+// that round-tripping it through REST would be pure overhead; see
+// handleTypingSignal.
+func Handler(hub *Hub, membership MembershipChecker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, ok := session.UserFromContext(r.Context())
 		if !ok {
@@ -56,9 +68,70 @@ func Handler(hub *Hub) http.HandlerFunc {
 		defer hub.Unregister(user.ID, sc)
 
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, raw, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			if recipients, ev, ok := handleTypingSignal(r.Context(), membership, user.ID, raw); ok {
+				hub.SendToUsers(recipients, ev)
 			}
 		}
 	}
+}
+
+// handleTypingSignal decodes one inbound {"type": "typing.start"|"typing.stop",
+// "payload": {"roomId": "..."}} frame from userID and, if it's valid and
+// userID is actually a member of that room, returns the room's other
+// members and the Event to broadcast to them. ok is false for anything that
+// should be silently ignored: malformed JSON, an unrecognized type, a
+// missing roomId, a membership lookup failure, or userID not being a member
+// of the room it claims to be typing in (the authorization check — a client
+// can't spoof a typing signal for a room it doesn't belong to).
+func handleTypingSignal(ctx context.Context, membership MembershipChecker, userID string, raw []byte) (recipients []string, ev Event, ok bool) {
+	var inbound struct {
+		Type    string `json:"type"`
+		Payload struct {
+			RoomID string `json:"roomId"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &inbound); err != nil {
+		return nil, Event{}, false
+	}
+
+	var typing bool
+	switch inbound.Type {
+	case "typing.start":
+		typing = true
+	case "typing.stop":
+		typing = false
+	default:
+		return nil, Event{}, false
+	}
+	if inbound.Payload.RoomID == "" {
+		return nil, Event{}, false
+	}
+
+	memberIDs, err := membership.ListRoomMemberIDs(ctx, inbound.Payload.RoomID)
+	if err != nil {
+		return nil, Event{}, false
+	}
+	isMember := false
+	others := make([]string, 0, len(memberIDs))
+	for _, id := range memberIDs {
+		if id == userID {
+			isMember = true
+			continue
+		}
+		others = append(others, id)
+	}
+	if !isMember {
+		return nil, Event{}, false
+	}
+
+	ev = Event{Type: "typing", Payload: map[string]any{
+		"roomId": inbound.Payload.RoomID,
+		"userId": userID,
+		"typing": typing,
+	}}
+	return others, ev, true
 }

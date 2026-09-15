@@ -38,7 +38,7 @@ func (s *Server) Router() http.Handler {
 		r.Use(auth.Middleware(s.Resolver))
 		r.Use(s.resolveUser)
 
-		r.Get("/ws", ws.Handler(s.Hub))
+		r.Get("/ws", ws.Handler(s.Hub, s.Store))
 
 		r.Route("/api", func(r chi.Router) {
 			r.Get("/me", s.handleGetMe)

@@ -168,7 +168,8 @@ actually joined vs. who was invited, for a future "who was on the call" view.
 
 ## Not yet modeled
 
-- Typing indicators (FR1.7) — Could priority, deferred; likely ephemeral
-  (WebSocket-only) rather than persisted, when built.
+- Typing indicators (FR1.7) are implemented but intentionally unmodeled:
+  ephemeral, WebSocket-only signals (`server/internal/ws/socket.go`'s
+  `handleTypingSignal`) relayed between room members and never persisted.
 - Per-room "who's online" (FR6.5) is derived at runtime from the chat
   server's WebSocket hub (`server/internal/ws`), not stored.
