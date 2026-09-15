@@ -1,0 +1,101 @@
+# Plain manifest (no Helm) for a single-node Postgres instance — cluster-
+# internal only, never exposed to the tailnet; only chat-server talks to it
+# (see docs/architecture-overview.md's high-level architecture diagram).
+#
+# Expects a Secret named `postgres-password` (key: password), created
+# out-of-band, e.g.:
+#   kubectl create secret generic postgres-password -n roost \
+#     --from-literal=password='<pick a password>'
+# That same password must also be embedded in the `chat-server-db` secret's
+# `url` value that k8s/chat-server/deployment.yaml consumes (a full
+# postgres://... DSN) — Kubernetes has no way to derive one secret's value
+# from another, so keeping the two in sync is a manual step on every
+# rotation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: roost
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # avoids two pods briefly fighting over the same ReadWriteOnce PVC during a rollout
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine # matches docker-compose.yml
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "roost"
+            - name: POSTGRES_DB
+              value: "roost"
+            # A freshly-provisioned PVC's root often already contains a
+            # lost+found directory (common with local-path-provisioner and
+            # other CSI drivers), which makes postgres's initdb refuse to
+            # run ("data directory not empty") if pointed at the mount root
+            # directly — the official postgres image's own docs recommend
+            # this subdirectory workaround for exactly that reason.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-password
+                  key: password
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "roost"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "roost"]
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: roost
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: roost
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

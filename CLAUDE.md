@@ -51,7 +51,7 @@ If any of these paths don't exist yet in the repo, ask where they've been placed
 
 ## Deployment
 
-- Target deployment is a homelab k3s cluster. Maintain Kubernetes manifests (or Helm charts/values) under `k8s/` or `deploy/`, kept in sync with the services defined in `docker-compose.yml` and with the architecture doc's decision to use the Tailscale Kubernetes operator for exposing services on the tailnet.
+- Target deployment is a homelab k3s cluster. Maintain plain Kubernetes manifests (no Helm) under `k8s/` or `deploy/`, kept in sync with the services defined in `docker-compose.yml` and with the architecture doc's decision to use the Tailscale Kubernetes operator for exposing services on the tailnet.
 - The app and all its container images must run on both amd64 and arm64.
 
 ## CI/CD

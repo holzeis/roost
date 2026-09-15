@@ -1,0 +1,115 @@
+# Plain manifest (no Helm) for a single-node MinIO instance — cluster-
+# internal only; media uploads proxy through chat-server rather than
+# exposing MinIO to the tailnet directly (see docs/architecture-overview.md's
+# high-level architecture diagram). chat-server creates the `roost-media`
+# bucket itself on startup if missing (server/internal/storage/storage.go),
+# so no bucket-provisioning step is needed here.
+#
+# Reuses the same `chat-server-minio` secret (keys: access-key, secret-key)
+# that k8s/chat-server/deployment.yaml already expects, created out-of-band,
+# e.g.:
+#   kubectl create secret generic chat-server-minio -n roost \
+#     --from-literal=access-key='<pick a user>' \
+#     --from-literal=secret-key='<pick a password>'
+# One secret, one set of credentials, shared by both MinIO and chat-server —
+# simpler than the previous Helm setup, which needed the same credentials
+# duplicated under two different key-naming conventions (the bitnami chart's
+# own root-user/root-password vs. chat-server's access-key/secret-key).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: roost
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # avoids two pods briefly fighting over the same ReadWriteOnce PVC during a rollout
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          # minio/minio on Docker Hub now requires authentication to pull;
+          # quay.io is MinIO's recommended anonymous-pull mirror — matches
+          # docker-compose.yml.
+          image: quay.io/minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: chat-server-minio
+                  key: access-key
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chat-server-minio
+                  key: secret-key
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: roost
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Images/video persist indefinitely (FR2.4); sized for family-scale,
+      # grow as needed.
+      storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: roost
+spec:
+  selector:
+    app: minio
+  ports:
+    # Only the S3 API port is exposed — the admin console (9001) isn't
+    # needed by chat-server; port-forward to it locally if you want to poke
+    # around: kubectl port-forward -n roost svc/minio 9001:9001 and add
+    # 9001 here temporarily, or add it permanently if you want console
+    # access without port-forwarding.
+    - name: api
+      port: 9000
+      targetPort: 9000

@@ -1,32 +1,44 @@
 # Deploying Roost to k3s
 
 Mirrors the services in the root `docker-compose.yml`, targeting the
-homelab k3s cluster described in `docs/architecture-overview.md`.
+homelab k3s cluster described in `docs/architecture-overview.md`. Every
+service is a plain Kubernetes manifest — no Helm.
 
 ## Prerequisites
 
-- A k3s cluster with the [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) installed.
-- Helm, for the Postgres/MinIO/LiveKit charts (official charts are used
-  where available — only the chat server is fully custom, per the
-  architecture doc).
+- A k3s cluster with the [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) installed (needed for LiveKit's `LoadBalancer` exposure).
+
+## Secrets
+
+Created out-of-band (`kubectl create secret ...`, or a secrets manager) —
+never committed here. Each manifest's own header comment has the exact
+command; this table is the one-page summary. Where a secret is shared by
+two services, the same credential value has to be kept in sync manually —
+Kubernetes has no way to derive one secret's value from another.
+
+| Secret | Keys | Used by |
+|---|---|---|
+| `chat-server-tailscale` | `authkey` | chat-server (its own tailnet identity) |
+| `postgres-password` | `password` | postgres pod |
+| `chat-server-db` | `url` (full `postgres://...` DSN, embedding the same password as `postgres-password`) | chat-server |
+| `chat-server-minio` | `access-key`, `secret-key` | both minio pod and chat-server |
+| `livekit-config` | `config.yaml` (full LiveKit config, embedding the same key/secret pair as `chat-server-livekit`) | livekit pod |
+| `chat-server-livekit` | `api-key`, `api-secret` | chat-server (mints JWTs LiveKit must trust) |
 
 ## Order of operations
 
 ```sh
 kubectl apply -f k8s/namespace.yaml
 
-# Secrets referenced by the values files and Deployment below are created
-# out-of-band (kubectl create secret ..., or a secrets manager) — never
-# committed here. See each values file's comments for the expected keys.
+# create the secrets in the table above, then:
 
-helm install postgres bitnami/postgresql -n roost -f k8s/values/postgres-values.yaml
-helm install minio bitnami/minio -n roost -f k8s/values/minio-values.yaml
-helm install livekit livekit/livekit-server -n roost -f k8s/values/livekit-values.yaml
-
+kubectl apply -f k8s/postgres/
+kubectl apply -f k8s/minio/
+kubectl apply -f k8s/livekit/
 kubectl apply -f k8s/chat-server/
 ```
 
-## Why chat-server has no Helm chart or Service exposure
+## Why chat-server has no Service exposure
 
 It's the one fully custom component (architecture doc: "the chat server is
 the one fully custom-built core component"), and it joins the tailnet
@@ -36,6 +48,15 @@ tailnet itself" decision in `docs/architecture-overview.md` for why. That
 means `k8s/chat-server/deployment.yaml` needs a reusable Tailscale auth key
 (`chat-server-tailscale` secret, key `authkey`) rather than the operator
 managing its tailnet presence.
+
+## LiveKit's media port range
+
+`docker-compose.yml` exposes LiveKit's full `50000-50100` UDP range because
+Docker supports port ranges directly. Kubernetes Services don't — each port
+needs its own entry — so `k8s/livekit/deployment.yaml` narrows this to 20
+ports (`50000-50019`), enough for several concurrent family-scale calls.
+Widen it (both the container ports, the Service ports, and `livekit-config`'s
+`port_range_end`) if you need more concurrent call capacity.
 
 ## Image
 

@@ -11,6 +11,8 @@ metadata:
     app: chat-server
 spec:
   replicas: 1 # the WebSocket hub (server/internal/ws) is in-memory and per-pod; keep this at 1 until that's addressed
+  strategy:
+    type: Recreate # avoids two pods briefly fighting over the same ReadWriteOnce tsnet-state PVC during a rollout
   selector:
     matchLabels:
       app: chat-server

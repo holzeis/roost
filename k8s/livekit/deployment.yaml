@@ -1,0 +1,231 @@
+# Plain manifest (no Helm) for LiveKit. Unlike chat-server, LiveKit doesn't
+# need to resolve per-connection Tailscale identity itself (it trusts a
+# signed JWT minted by chat-server), so it's exposed the simple way — via
+# the Tailscale Kubernetes operator's LoadBalancer-class Service — rather
+# than embedding tsnet. Prerequisite: the Tailscale Kubernetes operator is
+# installed in the cluster (https://tailscale.com/kb/1236/kubernetes-operator).
+#
+# Stateless (no PVC) — nothing here needs to survive a pod restart.
+#
+# Config is supplied via LIVEKIT_CONFIG, a full YAML config file's contents
+# as a single env var value (a real livekit-server feature, not a Roost
+# convention) — sourced from a Secret since it embeds the API key/secret,
+# created out-of-band, e.g.:
+#   kubectl create secret generic livekit-config -n roost \
+#     --from-literal=config.yaml='
+#   keys:
+#     <same api-key as chat-server-livekit>: <same api-secret as chat-server-livekit>
+#   rtc:
+#     tcp_port: 7881
+#     port_range_start: 50000
+#     port_range_end: 50019
+#     use_external_ip: false
+#   '
+# The key/secret pair here must match k8s/chat-server/deployment.yaml's
+# `chat-server-livekit` secret (chat-server mints JWTs LiveKit must trust) —
+# same manual-sync caveat as the other secrets in this directory.
+#
+# Port range note: docker-compose.yml exposes the full 50000-50100 UDP range
+# for LiveKit's media ports because Docker supports port *ranges* directly.
+# Kubernetes Services don't — each port has to be listed individually — so
+# enumerating the full 101 ports here would make this file unreadable.
+# Narrowed to 20 ports (50000-50019), enough for several concurrent
+# family-scale calls; widen both this Service and livekit-config's
+# port_range_end together if you need more concurrent call capacity.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  namespace: roost
+  labels:
+    app: livekit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: livekit
+  template:
+    metadata:
+      labels:
+        app: livekit
+    spec:
+      containers:
+        - name: livekit
+          image: livekit/livekit-server:latest # matches docker-compose.yml
+          env:
+            - name: LIVEKIT_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-config
+                  key: config.yaml
+          ports:
+            - name: signaling
+              containerPort: 7880
+            - name: rtc-tcp
+              containerPort: 7881
+            - name: rtc-udp-0
+              containerPort: 50000
+              protocol: UDP
+            - name: rtc-udp-1
+              containerPort: 50001
+              protocol: UDP
+            - name: rtc-udp-2
+              containerPort: 50002
+              protocol: UDP
+            - name: rtc-udp-3
+              containerPort: 50003
+              protocol: UDP
+            - name: rtc-udp-4
+              containerPort: 50004
+              protocol: UDP
+            - name: rtc-udp-5
+              containerPort: 50005
+              protocol: UDP
+            - name: rtc-udp-6
+              containerPort: 50006
+              protocol: UDP
+            - name: rtc-udp-7
+              containerPort: 50007
+              protocol: UDP
+            - name: rtc-udp-8
+              containerPort: 50008
+              protocol: UDP
+            - name: rtc-udp-9
+              containerPort: 50009
+              protocol: UDP
+            - name: rtc-udp-10
+              containerPort: 50010
+              protocol: UDP
+            - name: rtc-udp-11
+              containerPort: 50011
+              protocol: UDP
+            - name: rtc-udp-12
+              containerPort: 50012
+              protocol: UDP
+            - name: rtc-udp-13
+              containerPort: 50013
+              protocol: UDP
+            - name: rtc-udp-14
+              containerPort: 50014
+              protocol: UDP
+            - name: rtc-udp-15
+              containerPort: 50015
+              protocol: UDP
+            - name: rtc-udp-16
+              containerPort: 50016
+              protocol: UDP
+            - name: rtc-udp-17
+              containerPort: 50017
+              protocol: UDP
+            - name: rtc-udp-18
+              containerPort: 50018
+              protocol: UDP
+            - name: rtc-udp-19
+              containerPort: 50019
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  namespace: roost
+  annotations:
+    tailscale.com/hostname: roost-livekit
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app: livekit
+  ports:
+    - name: signaling
+      port: 7880
+      targetPort: 7880
+    - name: rtc-tcp
+      port: 7881
+      targetPort: 7881
+    - name: rtc-udp-0
+      port: 50000
+      targetPort: 50000
+      protocol: UDP
+    - name: rtc-udp-1
+      port: 50001
+      targetPort: 50001
+      protocol: UDP
+    - name: rtc-udp-2
+      port: 50002
+      targetPort: 50002
+      protocol: UDP
+    - name: rtc-udp-3
+      port: 50003
+      targetPort: 50003
+      protocol: UDP
+    - name: rtc-udp-4
+      port: 50004
+      targetPort: 50004
+      protocol: UDP
+    - name: rtc-udp-5
+      port: 50005
+      targetPort: 50005
+      protocol: UDP
+    - name: rtc-udp-6
+      port: 50006
+      targetPort: 50006
+      protocol: UDP
+    - name: rtc-udp-7
+      port: 50007
+      targetPort: 50007
+      protocol: UDP
+    - name: rtc-udp-8
+      port: 50008
+      targetPort: 50008
+      protocol: UDP
+    - name: rtc-udp-9
+      port: 50009
+      targetPort: 50009
+      protocol: UDP
+    - name: rtc-udp-10
+      port: 50010
+      targetPort: 50010
+      protocol: UDP
+    - name: rtc-udp-11
+      port: 50011
+      targetPort: 50011
+      protocol: UDP
+    - name: rtc-udp-12
+      port: 50012
+      targetPort: 50012
+      protocol: UDP
+    - name: rtc-udp-13
+      port: 50013
+      targetPort: 50013
+      protocol: UDP
+    - name: rtc-udp-14
+      port: 50014
+      targetPort: 50014
+      protocol: UDP
+    - name: rtc-udp-15
+      port: 50015
+      targetPort: 50015
+      protocol: UDP
+    - name: rtc-udp-16
+      port: 50016
+      targetPort: 50016
+      protocol: UDP
+    - name: rtc-udp-17
+      port: 50017
+      targetPort: 50017
+      protocol: UDP
+    - name: rtc-udp-18
+      port: 50018
+      targetPort: 50018
+      protocol: UDP
+    - name: rtc-udp-19
+      port: 50019
+      targetPort: 50019
+      protocol: UDP
