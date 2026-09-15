@@ -41,17 +41,13 @@ class ApiClient {
   Future<List<ApiContact>> listUsers() async {
     final res = await _http.get(_uri('/api/users'));
     _checkOk(res);
-    return (jsonDecode(res.body) as List<dynamic>)
-        .map((e) => ApiContact.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _decodeList(res.body).map((e) => ApiContact.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<List<ApiRoom>> listRooms() async {
     final res = await _http.get(_uri('/api/rooms'));
     _checkOk(res);
-    return (jsonDecode(res.body) as List<dynamic>)
-        .map((e) => ApiRoom.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _decodeList(res.body).map((e) => ApiRoom.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<ApiRoom> getRoom(String roomId) async {
@@ -76,9 +72,7 @@ class ApiClient {
       'limit': '$limit',
     }));
     _checkOk(res);
-    return (jsonDecode(res.body) as List<dynamic>)
-        .map((e) => ApiMessage.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _decodeList(res.body).map((e) => ApiMessage.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<ApiMessage> sendTextMessage(String roomId, String body) async {
@@ -94,9 +88,7 @@ class ApiClient {
   Future<List<ApiMessage>> searchMessages(String roomId, String query) async {
     final res = await _http.get(_uri('/api/rooms/$roomId/search', {'q': query}));
     _checkOk(res);
-    return (jsonDecode(res.body) as List<dynamic>)
-        .map((e) => ApiMessage.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return _decodeList(res.body).map((e) => ApiMessage.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   /// Uploads an image or video and creates the chat message for it in one
@@ -153,6 +145,13 @@ class ApiClient {
     _checkOk(res);
     return (jsonDecode(res.body) as Map<String, dynamic>)['token'] as String;
   }
+
+  /// Go marshals a nil slice as JSON `null`, not `[]` — an empty list
+  /// response (e.g. a brand-new user with no rooms yet) decodes to Dart
+  /// `null`, which `as List<dynamic>` doesn't accept. The server also
+  /// initializes its slices to avoid ever sending `null` here, but this
+  /// stays defensive rather than relying on that alone.
+  List<dynamic> _decodeList(String body) => (jsonDecode(body) as List<dynamic>?) ?? const [];
 
   void _checkOk(http.Response res) {
     if (res.statusCode < 200 || res.statusCode >= 300) {

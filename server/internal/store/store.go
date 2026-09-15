@@ -54,7 +54,9 @@ func (s *Store) ListUsers(ctx context.Context) ([]models.User, error) {
 	}
 	defer rows.Close()
 
-	var users []models.User
+	// Initialized non-nil so an empty result marshals to JSON `[]`, not
+	// `null` — Dart's List casts on the client don't accept null.
+	users := []models.User{}
 	for rows.Next() {
 		var u models.User
 		if err := rows.Scan(&u.ID, &u.TailscaleID, &u.DisplayName, &u.AvatarMediaID, &u.CreatedAt, &u.UpdatedAt); err != nil {
@@ -161,7 +163,8 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 	}
 	defer rows.Close()
 
-	var rooms []models.Room
+	// Non-nil for the same reason as ListUsers above.
+	rooms := []models.Room{}
 	for rows.Next() {
 		var r models.Room
 		var lastKind *string
@@ -384,7 +387,8 @@ func (s *Store) ListMessages(ctx context.Context, roomID string, before time.Tim
 	}
 	defer rows.Close()
 
-	var messages []models.Message
+	// Non-nil for the same reason as ListUsers above.
+	messages := []models.Message{}
 	for rows.Next() {
 		var m models.Message
 		var kind string
@@ -411,7 +415,8 @@ func (s *Store) SearchMessages(ctx context.Context, roomID, query string) ([]mod
 	}
 	defer rows.Close()
 
-	var messages []models.Message
+	// Non-nil for the same reason as ListUsers above.
+	messages := []models.Message{}
 	for rows.Next() {
 		m, err := scanMessageRow(rows)
 		if err != nil {

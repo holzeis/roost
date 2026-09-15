@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -264,5 +265,51 @@ func TestStore_MediaMessages(t *testing.T) {
 	}
 	if _, err := s.GetMediaObject(ctx, media.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after deleting media object, got %v", err)
+	}
+}
+
+// TestStore_EmptyListsAreNeverNil guards against a real bug that shipped:
+// json.Marshal encodes a nil Go slice as `null`, which crashed the Dart
+// client's `as List<dynamic>` cast the first time a brand-new user (zero
+// rooms, zero messages) actually hit the API. `reflect` checks Go-level
+// nilness directly, since `len(x) == 0` is true for both nil and non-nil
+// empty slices but only one of them marshals to `[]`.
+func TestStore_EmptyListsAreNeverNil(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-empty-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+
+	rooms, err := s.ListRoomsForUser(ctx, alice.ID)
+	if err != nil {
+		t.Fatalf("list rooms for user: %v", err)
+	}
+	if reflect.ValueOf(rooms).IsNil() {
+		t.Fatal("ListRoomsForUser returned a nil slice for a user with no rooms; it must marshal to [] not null")
+	}
+
+	room, err := s.CreateRoom(ctx, alice.ID, nil, true, nil)
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	messages, err := s.ListMessages(ctx, room.ID, time.Time{}, 50)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if reflect.ValueOf(messages).IsNil() {
+		t.Fatal("ListMessages returned a nil slice for a room with no messages; it must marshal to [] not null")
+	}
+
+	found, err := s.SearchMessages(ctx, room.ID, "nonexistent")
+	if err != nil {
+		t.Fatalf("search messages: %v", err)
+	}
+	if reflect.ValueOf(found).IsNil() {
+		t.Fatal("SearchMessages returned a nil slice for no matches; it must marshal to [] not null")
 	}
 }
