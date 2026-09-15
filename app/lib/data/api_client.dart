@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'api_config.dart';
 import 'api_models.dart';
@@ -97,6 +98,41 @@ class ApiClient {
         .map((e) => ApiMessage.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  /// Uploads an image or video and creates the chat message for it in one
+  /// call (FR2.1/2.2) — see server/internal/api's handleUploadMedia.
+  Future<ApiMessage> uploadMedia(
+    String roomId, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+    required String kind,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/api/rooms/$roomId/media'))
+      ..fields['kind'] = kind
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(contentType)));
+    final streamed = await _http.send(request);
+    final res = await http.Response.fromStream(streamed);
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Downloads a media object's raw bytes (FR2.3: viewed inline or
+  /// downloaded — this backs both, the app decides what to do with them).
+  Future<List<int>> downloadMedia(String mediaId) async {
+    final res = await _http.get(_uri('/api/media/$mediaId'));
+    _checkOk(res);
+    return res.bodyBytes;
+  }
+
+  Future<void> deleteMedia(String mediaId) async {
+    final res = await _http.delete(_uri('/api/media/$mediaId'));
+    _checkOk(res);
+  }
+
+  /// The URL a widget can load a media object's bytes from directly (e.g.
+  /// Image.network) — same endpoint as downloadMedia, just not fetched here.
+  String mediaUrl(String mediaId) => '$_baseUrl/api/media/$mediaId';
 
   Future<void> addReaction(String messageId, String emoji) async {
     final res = await _http.put(_uri('/api/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}'));

@@ -75,6 +75,13 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
         case 'reaction.added':
         case 'reaction.removed':
           _applyReactionEvent(event.type, event.payload);
+        case 'message.deleted':
+          final deletedId = event.payload['messageId'] as String?;
+          final roomId = event.payload['roomId'] as String?;
+          if (deletedId == null || roomId != arg) return;
+          final current = state.valueOrNull;
+          if (current == null) return;
+          state = AsyncData(current.where((m) => m.id != deletedId).toList());
       }
     });
     ref.onDispose(sub.close);
@@ -89,6 +96,29 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     // the WebSocket to every room member including the sender, so the
     // listener above is the single source of truth for state updates.
     await ref.read(apiClientProvider).sendTextMessage(roomId, body);
+  }
+
+  /// Uploads an image or video (FR2.1/2.2). Same non-mutating pattern as
+  /// send: the server broadcasts the resulting message back over the socket.
+  Future<void> sendMedia({
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+    required String kind,
+  }) async {
+    await ref.read(apiClientProvider).uploadMedia(
+          roomId,
+          bytes: bytes,
+          filename: filename,
+          contentType: contentType,
+          kind: kind,
+        );
+  }
+
+  /// Deletes shared media (FR2.5). The server broadcasts message.deleted,
+  /// which removes it from state via the listener in build().
+  Future<void> deleteMedia(String mediaId) async {
+    await ref.read(apiClientProvider).deleteMedia(mediaId);
   }
 
   /// Adds or removes the caller's own reaction (FR1.9). Like send, this

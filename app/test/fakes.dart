@@ -95,6 +95,55 @@ class FakeApiClient extends ApiClient {
   @override
   Future<String> mintLiveKitToken(String roomId) async => 'fake-token';
 
+  final Map<String, List<int>> mediaBytesById = {};
+  int _nextMediaId = 1;
+
+  @override
+  Future<ApiMessage> uploadMedia(
+    String roomId, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+    required String kind,
+  }) async {
+    final mediaId = 'media-${_nextMediaId++}';
+    mediaBytesById[mediaId] = bytes;
+    final message = ApiMessage(
+      id: 'msg-${_nextMessageId++}',
+      roomId: roomId,
+      senderId: me.id,
+      kind: kind,
+      mediaId: mediaId,
+      createdAt: DateTime.now(),
+    );
+    messagesByRoom.putIfAbsent(roomId, () => []).add(message);
+    ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(message))) as Map<String, dynamic>));
+    return message;
+  }
+
+  @override
+  Future<List<int>> downloadMedia(String mediaId) async {
+    final bytes = mediaBytesById[mediaId];
+    if (bytes == null) throw ApiException(404, 'not found');
+    return bytes;
+  }
+
+  @override
+  Future<void> deleteMedia(String mediaId) async {
+    mediaBytesById.remove(mediaId);
+    for (final entry in messagesByRoom.entries) {
+      final matches = entry.value.where((m) => m.mediaId == mediaId);
+      if (matches.isEmpty) continue;
+      final message = matches.first;
+      entry.value.removeWhere((m) => m.mediaId == mediaId);
+      ws.emit(WsEvent('message.deleted', {'messageId': message.id, 'roomId': message.roomId}));
+      return;
+    }
+  }
+
+  @override
+  String mediaUrl(String mediaId) => 'fake://media/$mediaId';
+
   Map<String, dynamic> _messageJson(ApiMessage m) => {
         'id': m.id,
         'roomId': m.roomId,

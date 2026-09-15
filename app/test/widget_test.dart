@@ -59,7 +59,16 @@ FakeApiClient _seededApiClient() {
       body: 'On my way, leaving now',
       createdAt: DateTime.now(),
     ),
+    ApiMessage(
+      id: 'm3',
+      roomId: 'room-family',
+      senderId: 'me',
+      kind: 'image',
+      mediaId: 'media-1',
+      createdAt: DateTime.now(),
+    ),
   ];
+  api.mediaBytesById['media-1'] = const [1, 2, 3];
   return api;
 }
 
@@ -130,6 +139,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('👍 1'), findsNothing);
+  });
+
+  testWidgets('Image messages render inline and can be deleted', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // fake:// isn't a real network scheme, so Image.network fails to load
+    // and falls through to the error builder — confirming the message was
+    // routed to the media renderer at all (as opposed to the plain text one).
+    expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+
+    await tester.longPress(find.byIcon(Icons.broken_image_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Download'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.broken_image_outlined), findsNothing);
+    expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
   testWidgets('Contacts screen lists other users with presence', (tester) async {

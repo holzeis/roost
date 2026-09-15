@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mime/mime.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../widgets/avatar.dart';
+import 'media_message.dart';
 
 class ChatScreen extends ConsumerWidget {
   const ChatScreen({super.key, required this.roomId, this.room});
@@ -155,9 +158,13 @@ class _MessageRow extends ConsumerWidget {
     final align = fromMe ? MainAxisAlignment.end : MainAxisAlignment.start;
     final timeLabel = TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
 
+    final isMedia = message.kind == 'image' || message.kind == 'video';
+
     final bubble = Container(
       constraints: const BoxConstraints(maxWidth: 240),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: isMedia
+          ? const EdgeInsets.all(3)
+          : const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: fromMe ? scheme.primary : scheme.surface,
         borderRadius: BorderRadius.only(
@@ -167,25 +174,30 @@ class _MessageRow extends ConsumerWidget {
           bottomRight: Radius.circular(fromMe ? 2 : 8),
         ),
       ),
-      child: Text.rich(
-        TextSpan(
-          style: TextStyle(fontSize: 13, color: fromMe ? scheme.onPrimary : scheme.onSurface),
-          children: [
-            TextSpan(text: message.kind == 'location' ? 'Shared their location' : (message.body ?? '')),
-            TextSpan(
-              text: '  $timeLabel',
-              style: TextStyle(fontSize: 10, color: (fromMe ? scheme.onPrimary : scheme.onSurface).withOpacity(0.6)),
+      child: isMedia
+          ? MediaBubbleContent(message: message)
+          : Text.rich(
+              TextSpan(
+                style: TextStyle(fontSize: 13, color: fromMe ? scheme.onPrimary : scheme.onSurface),
+                children: [
+                  TextSpan(text: message.kind == 'location' ? 'Shared their location' : (message.body ?? '')),
+                  TextSpan(
+                    text: '  $timeLabel',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: (fromMe ? scheme.onPrimary : scheme.onSurface).withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-      ),
     );
 
     return Column(
       crossAxisAlignment: fromMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
         GestureDetector(
-          onLongPress: () => _showReactionPicker(context, ref),
+          onLongPress: () => _showMessageActions(context, ref),
           child: Row(
             mainAxisAlignment: align,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -216,25 +228,61 @@ class _MessageRow extends ConsumerWidget {
     );
   }
 
-  void _showReactionPicker(BuildContext context, WidgetRef ref) {
+  void _showMessageActions(BuildContext context, WidgetRef ref) {
+    final isMedia = message.kind == 'image' || message.kind == 'video';
     showModalBottomSheet<void>(
       context: context,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Wrap(
-            spacing: 16,
-            children: [
-              for (final emoji in _quickReactions)
-                InkWell(
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, emoji);
-                  },
-                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
-                ),
-            ],
-          ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Wrap(
+                spacing: 16,
+                children: [
+                  for (final emoji in _quickReactions)
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, emoji);
+                      },
+                      child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                    ),
+                ],
+              ),
+            ),
+            if (isMedia)
+              ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('Download'),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  final messenger = ScaffoldMessenger.of(context);
+                  try {
+                    final ext = message.kind == 'video' ? 'mp4' : 'jpg';
+                    final path = await downloadMediaToDisk(ref, message.mediaId!, '${message.id}.$ext');
+                    messenger.showSnackBar(SnackBar(content: Text('Saved to $path')));
+                  } catch (error) {
+                    messenger.showSnackBar(SnackBar(content: Text('Could not download: $error')));
+                  }
+                },
+              ),
+            if (isMedia && fromMe)
+              ListTile(
+                leading: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+                title: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  final messenger = ScaffoldMessenger.of(context);
+                  try {
+                    await ref.read(messagesProvider(roomId).notifier).deleteMedia(message.mediaId!);
+                  } catch (error) {
+                    messenger.showSnackBar(SnackBar(content: Text('Could not delete: $error')));
+                  }
+                },
+              ),
+          ],
         ),
       ),
     );
@@ -300,6 +348,59 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
   }
 
+  Future<void> _pickAndSendMedia({required bool video}) async {
+    final picker = ImagePicker();
+    final file = video ? await picker.pickVideo(source: ImageSource.gallery) : await picker.pickImage(source: ImageSource.gallery);
+    if (file == null) return;
+
+    setState(() => _sending = true);
+    try {
+      final bytes = await file.readAsBytes();
+      final contentType = file.mimeType ?? lookupMimeType(file.path) ?? (video ? 'video/mp4' : 'image/jpeg');
+      await ref.read(messagesProvider(widget.roomId).notifier).sendMedia(
+            bytes: bytes,
+            filename: file.name,
+            contentType: contentType,
+            kind: video ? 'video' : 'image',
+          );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not upload: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _showAttachMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_outlined),
+              title: const Text('Photo'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendMedia(video: false);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined),
+              title: const Text('Video'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendMedia(video: true);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -309,7 +410,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
       ),
       child: Row(
         children: [
-          IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () {}),
+          IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: _showAttachMenu),
           Expanded(
             child: TextField(
               controller: _controller,
