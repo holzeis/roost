@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
@@ -50,7 +51,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
+        leading: IconButton(icon: const Icon(TablerIcons.x), onPressed: () => Navigator.of(context).pop()),
         title: const Text('New group'),
         actions: [
           users.when(
@@ -87,7 +88,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                             color: scheme.onSurface.withOpacity(0.08),
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(Icons.group_outlined, color: scheme.onSurface.withOpacity(0.5)),
+                          child: Icon(TablerIcons.users, color: scheme.onSurface.withOpacity(0.5)),
                         ),
                         Positioned(
                           right: -2,
@@ -95,7 +96,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                           child: CircleAvatar(
                             radius: 10,
                             backgroundColor: scheme.primary,
-                            child: const Icon(Icons.camera_alt_outlined, size: 11, color: Colors.white),
+                            child: const Icon(TablerIcons.camera, size: 11, color: Colors.white),
                           ),
                         ),
                       ],

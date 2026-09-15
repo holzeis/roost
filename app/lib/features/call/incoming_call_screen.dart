@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'call_controls.dart';
 
@@ -54,7 +55,7 @@ class IncomingCallScreen extends StatelessWidget {
                   Column(
                     children: [
                       CallControlButton(
-                        icon: Icons.call_end,
+                        icon: TablerIcons.phoneX,
                         background: CallColors.danger,
                         iconColor: Colors.white,
                         onPressed: () => Navigator.of(context).pop(),
@@ -67,7 +68,7 @@ class IncomingCallScreen extends StatelessWidget {
                   Column(
                     children: [
                       CallControlButton(
-                        icon: Icons.call,
+                        icon: TablerIcons.phone,
                         background: CallColors.accept,
                         iconColor: Colors.white,
                         onPressed: () => context.pushReplacement('/call/$roomId'),

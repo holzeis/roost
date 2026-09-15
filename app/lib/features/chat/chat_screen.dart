@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/avatar.dart';
+import '../../widgets/back_button.dart';
 import 'media_message.dart';
 
 class ChatScreen extends ConsumerWidget {
@@ -26,15 +28,16 @@ class ChatScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: chatWallpaperColor(context),
       appBar: AppBar(
-        titleSpacing: 0,
+        titleSpacing: 4,
+        leading: const TablerBackButton(),
         title: _ChatTitle(roomAsync: roomAsync, me: me, usersById: usersById),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(TablerIcons.search),
             onPressed: () => context.push('/chat/$roomId/search'),
           ),
           IconButton(
-            icon: const Icon(Icons.videocam_outlined),
+            icon: const Icon(TablerIcons.video),
             onPressed: () => context.push('/call/$roomId?group=${room?.isGroup ?? false}'),
           ),
         ],
@@ -347,7 +350,7 @@ class _MessageRow extends ConsumerWidget {
             ),
             if (isMedia)
               ListTile(
-                leading: const Icon(Icons.download_outlined),
+                leading: const Icon(TablerIcons.download),
                 title: const Text('Download'),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
@@ -363,7 +366,7 @@ class _MessageRow extends ConsumerWidget {
               ),
             if (isMedia && fromMe)
               ListTile(
-                leading: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+                leading: Icon(TablerIcons.trash, color: Theme.of(context).colorScheme.error),
                 title: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
@@ -477,7 +480,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.photo_outlined),
+              leading: const Icon(TablerIcons.photo),
               title: const Text('Photo'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
@@ -485,7 +488,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.videocam_outlined),
+              leading: const Icon(TablerIcons.video),
               title: const Text('Video'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
@@ -514,7 +517,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             IconButton(
-              icon: Icon(Icons.add_circle_outline, color: scheme.onSurface.withOpacity(0.6)),
+              icon: Icon(TablerIcons.circlePlus, color: scheme.onSurface.withOpacity(0.6)),
               onPressed: _showAttachMenu,
             ),
             Expanded(
@@ -559,7 +562,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2, color: scheme.onPrimary),
                           )
-                        : Icon(Icons.send, color: scheme.onPrimary, size: 19),
+                        : Icon(TablerIcons.send, color: scheme.onPrimary, size: 19),
                   ),
                 ),
               ),

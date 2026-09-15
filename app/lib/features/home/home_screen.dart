@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
@@ -21,12 +22,12 @@ class HomeScreen extends ConsumerWidget {
         title: const Text('Roost'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(TablerIcons.search),
             onPressed: () {},
             tooltip: 'Search',
           ),
           IconButton(
-            icon: const Icon(Icons.person_outline),
+            icon: const Icon(TablerIcons.user),
             onPressed: () => context.push('/profile'),
             tooltip: 'Profile',
           ),
@@ -35,7 +36,7 @@ class HomeScreen extends ConsumerWidget {
       body: _buildBody(context, ref, rooms, me, usersById),
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push('/contacts'),
-        child: const Icon(Icons.edit_outlined),
+        child: const Icon(TablerIcons.edit),
       ),
     );
   }

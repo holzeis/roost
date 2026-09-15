@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/main.dart';
@@ -114,7 +115,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).last, 'hello from a test');
-    await tester.tap(find.byIcon(Icons.send));
+    await tester.tap(find.byIcon(TablerIcons.send));
     await tester.pumpAndSettle();
 
     expect(api.messagesByRoom['room-family']!.any((m) => m.body == 'hello from a test'), isTrue);
@@ -151,9 +152,9 @@ void main() {
     // fake:// isn't a real network scheme, so Image.network fails to load
     // and falls through to the error builder — confirming the message was
     // routed to the media renderer at all (as opposed to the plain text one).
-    expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+    expect(find.byIcon(TablerIcons.photoOff), findsOneWidget);
 
-    await tester.longPress(find.byIcon(Icons.broken_image_outlined));
+    await tester.longPress(find.byIcon(TablerIcons.photoOff));
     await tester.pumpAndSettle();
 
     expect(find.text('Download'), findsOneWidget);
@@ -162,14 +163,14 @@ void main() {
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.broken_image_outlined), findsNothing);
+    expect(find.byIcon(TablerIcons.photoOff), findsNothing);
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
   testWidgets('Contacts screen lists other users with presence', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
-    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.tap(find.byIcon(TablerIcons.edit));
     await tester.pumpAndSettle();
 
     expect(find.text('Mom'), findsOneWidget);
@@ -181,7 +182,7 @@ void main() {
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
-    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.tap(find.byIcon(TablerIcons.user));
     await tester.pumpAndSettle();
     expect(find.text('Profile'), findsWidgets);
     expect(find.text('Dev User'), findsOneWidget);

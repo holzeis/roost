@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../data/api_models.dart';
@@ -34,7 +35,7 @@ class MediaBubbleContent extends ConsumerWidget {
               child: const ColoredBox(
                 color: Colors.black87,
                 child: Center(
-                  child: Icon(Icons.play_circle_fill, color: Colors.white, size: 40),
+                  child: Icon(TablerIcons.playerPlayFilled, color: Colors.white, size: 40),
                 ),
               ),
             ),
@@ -61,7 +62,7 @@ class MediaBubbleContent extends ConsumerWidget {
           errorBuilder: (context, error, stack) => const SizedBox(
             width: 120,
             height: 120,
-            child: Center(child: Icon(Icons.broken_image_outlined)),
+            child: Center(child: Icon(TablerIcons.photoOff)),
           ),
         ),
       ),
@@ -127,7 +128,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
               onPressed: () => setState(() {
                 _controller.value.isPlaying ? _controller.pause() : _controller.play();
               }),
-              child: Icon(_controller.value.isPlaying ? Icons.pause : Icons.play_arrow),
+              child: Icon(_controller.value.isPlaying ? Icons.pause : TablerIcons.playerPlay),
             )
           : null,
     );

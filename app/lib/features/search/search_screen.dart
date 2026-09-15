@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../util/time_format.dart';
 import '../../widgets/avatar.dart';
+import '../../widgets/back_button.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key, required this.roomId});
@@ -63,6 +65,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const TablerBackButton(),
         title: Container(
           height: 40,
           decoration: BoxDecoration(
@@ -75,7 +78,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             autofocus: true,
             onChanged: _onChanged,
             decoration: InputDecoration(
-              prefixIcon: Icon(Icons.search, size: 18, color: scheme.onSurface.withOpacity(0.5)),
+              prefixIcon: Icon(TablerIcons.search, size: 18, color: scheme.onSurface.withOpacity(0.5)),
               isDense: true,
               border: InputBorder.none,
               hintText: 'Search messages',

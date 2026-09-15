@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'call_controls.dart';
 
@@ -36,19 +37,19 @@ class _CallScreenState extends State<CallScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   CallControlButton(
-                    icon: _micOn ? Icons.mic_none : Icons.mic_off,
+                    icon: _micOn ? TablerIcons.microphone : TablerIcons.microphoneOff,
                     onPressed: () => setState(() => _micOn = !_micOn),
                   ),
                   const SizedBox(width: 10),
                   CallControlButton(
-                    icon: _cameraOn ? Icons.videocam_outlined : Icons.videocam_off_outlined,
+                    icon: _cameraOn ? TablerIcons.video : TablerIcons.videoOff,
                     onPressed: () => setState(() => _cameraOn = !_cameraOn),
                   ),
                   const SizedBox(width: 10),
-                  CallControlButton(icon: Icons.cameraswitch_outlined, onPressed: () {}),
+                  CallControlButton(icon: TablerIcons.cameraRotate, onPressed: () {}),
                   const SizedBox(width: 10),
                   CallControlButton(
-                    icon: Icons.call_end,
+                    icon: TablerIcons.phoneX,
                     background: CallColors.danger,
                     iconColor: Colors.white,
                     onPressed: () => Navigator.of(context).pop(),
@@ -77,7 +78,7 @@ class _SoloParticipant extends StatelessWidget {
           height: 56,
           alignment: Alignment.center,
           decoration: const BoxDecoration(color: CallColors.controlButton, shape: BoxShape.circle),
-          child: const Icon(Icons.person_outline, color: CallColors.textSecondary, size: 24),
+          child: const Icon(TablerIcons.user, color: CallColors.textSecondary, size: 24),
         ),
         const SizedBox(height: 10),
         const Text('Family call', style: TextStyle(color: CallColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
@@ -141,7 +142,7 @@ class _ParticipantTile extends StatelessWidget {
         children: [
           Center(
             child: showCamera
-                ? const Icon(Icons.videocam_outlined, color: Color(0xFF6B6B63), size: 20)
+                ? const Icon(TablerIcons.video, color: Color(0xFF6B6B63), size: 20)
                 : Container(
                     width: 34,
                     height: 34,

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../widgets/avatar.dart';
+import '../../widgets/back_button.dart';
 
 class ContactsScreen extends ConsumerWidget {
   const ContactsScreen({super.key});
@@ -14,7 +16,7 @@ class ContactsScreen extends ConsumerWidget {
     final users = ref.watch(usersProvider);
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Contacts')),
+      appBar: AppBar(leading: const TablerBackButton(), title: const Text('Contacts')),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -23,7 +25,7 @@ class ContactsScreen extends ConsumerWidget {
             leading: CircleAvatar(
               radius: 22,
               backgroundColor: scheme.primary.withOpacity(0.12),
-              child: Icon(Icons.group_outlined, color: scheme.primary),
+              child: Icon(TablerIcons.users, color: scheme.primary),
             ),
             title: Text(
               'New group',

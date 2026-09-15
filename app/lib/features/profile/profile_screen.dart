@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../theme/theme_controller.dart';
+import '../../widgets/back_button.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -64,7 +66,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final me = ref.watch(meProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(leading: const TablerBackButton(), title: const Text('Profile')),
       body: ListView(
         children: [
           const SizedBox(height: 16),
@@ -91,7 +93,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   child: CircleAvatar(
                     radius: 10,
                     backgroundColor: Theme.of(context).colorScheme.primary,
-                    child: const Icon(Icons.camera_alt_outlined, size: 11, color: Colors.white),
+                    child: const Icon(TablerIcons.camera, size: 11, color: Colors.white),
                   ),
                 ),
               ],
@@ -115,15 +117,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
           const Divider(height: 24),
           ListTile(
-            leading: const Icon(Icons.wifi),
+            leading: const Icon(TablerIcons.wifi),
             title: const Text('Tailnet identity'),
             subtitle: Text(me.hasValue ? 'Resolved from your Tailscale connection' : 'Loading…'),
           ),
           ListTile(
-            leading: const Icon(Icons.dark_mode_outlined),
+            leading: const Icon(TablerIcons.moon),
             title: const Text('Theme'),
             subtitle: Text(_label(themeMode)),
-            trailing: const Icon(Icons.expand_more),
+            trailing: const Icon(TablerIcons.chevronDown),
             onTap: () => _pickThemeMode(context, ref),
           ),
         ],
