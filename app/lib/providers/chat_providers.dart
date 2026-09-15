@@ -53,6 +53,12 @@ class RoomsController extends AsyncNotifier<List<ApiRoom>> {
   }
 }
 
+/// Cached per URL — a link preview never changes for the lifetime of the
+/// provider container, so refetching on every rebuild would be wasteful.
+final linkPreviewProvider = FutureProvider.family<ApiLinkPreview?, String>(
+  (ref, url) => ref.watch(apiClientProvider).fetchLinkPreview(url),
+);
+
 final messagesProvider = AsyncNotifierProvider.family<MessagesController, List<ApiMessage>, String>(
   MessagesController.new,
 );
@@ -75,6 +81,12 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
         case 'reaction.added':
         case 'reaction.removed':
           _applyReactionEvent(event.type, event.payload);
+        case 'message.updated':
+          final updated = ref.read(wsClientProvider).messageFrom(event);
+          if (updated == null || updated.roomId != arg) return;
+          final current = state.valueOrNull;
+          if (current == null) return;
+          state = AsyncData([for (final m in current) if (m.id == updated.id) updated else m]);
         case 'message.deleted':
           final deletedId = event.payload['messageId'] as String?;
           final roomId = event.payload['roomId'] as String?;
@@ -91,11 +103,11 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     return history.reversed.toList();
   }
 
-  Future<void> send(String body) async {
+  Future<void> send(String body, {String? replyToMessageId}) async {
     // No local append here: the server broadcasts the new message back over
     // the WebSocket to every room member including the sender, so the
     // listener above is the single source of truth for state updates.
-    await ref.read(apiClientProvider).sendTextMessage(roomId, body);
+    await ref.read(apiClientProvider).sendTextMessage(roomId, body, replyToMessageId: replyToMessageId);
   }
 
   /// Uploads an image or video (FR2.1/2.2). Same non-mutating pattern as
@@ -105,6 +117,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     required String filename,
     required String contentType,
     required String kind,
+    String? replyToMessageId,
   }) async {
     await ref.read(apiClientProvider).uploadMedia(
           roomId,
@@ -112,7 +125,23 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
           filename: filename,
           contentType: contentType,
           kind: kind,
+          replyToMessageId: replyToMessageId,
         );
+  }
+
+  /// Edits one of the caller's own text messages (FR1.13). Like send, this
+  /// doesn't mutate state directly — the server broadcasts message.updated
+  /// back over the WebSocket, handled by the listener in build().
+  Future<void> editMessage(String messageId, String body) async {
+    await ref.read(apiClientProvider).editMessage(messageId, body);
+  }
+
+  /// Forwards a message into a (possibly different) room (FR1.11). Unlike
+  /// send/sendMedia, the target room may not be this controller's own room,
+  /// so there's nothing here for *this* controller to update — the target
+  /// room's own MessagesController (if it's alive) picks up the broadcast.
+  Future<void> forwardMessage(String messageId, String toRoomId) async {
+    await ref.read(apiClientProvider).forwardMessage(messageId, toRoomId);
   }
 
   /// Deletes shared media (FR2.5). The server broadcasts message.deleted,

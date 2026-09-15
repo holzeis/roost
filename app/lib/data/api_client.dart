@@ -75,14 +75,48 @@ class ApiClient {
     return _decodeList(res.body).map((e) => ApiMessage.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<ApiMessage> sendTextMessage(String roomId, String body) async {
+  Future<ApiMessage> sendTextMessage(String roomId, String body, {String? replyToMessageId}) async {
     final res = await _http.post(
       _uri('/api/rooms/$roomId/messages'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'body': body, if (replyToMessageId != null) 'replyToMessageId': replyToMessageId}),
+    );
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Edits a text message's body (FR1.13) — the server enforces the
+  /// sender-only, within-1-minute rule; this just surfaces its response/error.
+  Future<ApiMessage> editMessage(String messageId, String body) async {
+    final res = await _http.patch(
+      _uri('/api/messages/$messageId'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'body': body}),
     );
     _checkOk(res);
     return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Forwards a message into another room (FR1.11). The server duplicates
+  /// media rather than sharing the original file.
+  Future<ApiMessage> forwardMessage(String messageId, String toRoomId) async {
+    final res = await _http.post(
+      _uri('/api/messages/$messageId/forward'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'roomId': toRoomId}),
+    );
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Fetches Open Graph metadata for a URL (FR1.14). Returns null rather
+  /// than throwing on a 404 (no preview available) — that's an ordinary,
+  /// expected outcome for most URLs, not an error worth surfacing.
+  Future<ApiLinkPreview?> fetchLinkPreview(String url) async {
+    final res = await _http.get(_uri('/api/link-preview', {'url': url}));
+    if (res.statusCode == 404) return null;
+    _checkOk(res);
+    return ApiLinkPreview.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
   Future<List<ApiMessage>> searchMessages(String roomId, String query) async {
@@ -99,10 +133,12 @@ class ApiClient {
     required String filename,
     required String contentType,
     required String kind,
+    String? replyToMessageId,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/api/rooms/$roomId/media'))
       ..fields['kind'] = kind
       ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(contentType)));
+    if (replyToMessageId != null) request.fields['replyToMessageId'] = replyToMessageId;
     final streamed = await _http.send(request);
     final res = await http.Response.fromStream(streamed);
     _checkOk(res);

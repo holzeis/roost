@@ -77,7 +77,11 @@ class ApiMessage {
     this.body,
     this.mediaId,
     required this.createdAt,
+    this.editedAt,
     this.reactions = const [],
+    this.replyToMessageId,
+    this.replyTo,
+    this.forwarded = false,
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) => ApiMessage(
@@ -88,10 +92,16 @@ class ApiMessage {
         body: json['body'] as String?,
         mediaId: json['mediaId'] as String?,
         createdAt: DateTime.parse(json['createdAt'] as String),
+        editedAt: json['editedAt'] != null ? DateTime.parse(json['editedAt'] as String) : null,
         reactions: (json['reactions'] as List<dynamic>?)
                 ?.map((e) => ApiReaction.fromJson(e as Map<String, dynamic>))
                 .toList() ??
             const [],
+        replyToMessageId: json['replyToMessageId'] as String?,
+        replyTo: json['replyTo'] != null
+            ? ApiMessageSnippet.fromJson(json['replyTo'] as Map<String, dynamic>)
+            : null,
+        forwarded: json['forwarded'] as bool? ?? false,
       );
 
   final String id;
@@ -101,18 +111,43 @@ class ApiMessage {
   final String? body;
   final String? mediaId;
   final DateTime createdAt;
+  final DateTime? editedAt;
   final List<ApiReaction> reactions;
+  final String? replyToMessageId;
+  final ApiMessageSnippet? replyTo;
+  final bool forwarded;
 
-  ApiMessage copyWith({List<ApiReaction>? reactions}) => ApiMessage(
+  ApiMessage copyWith({List<ApiReaction>? reactions, String? body, DateTime? editedAt}) => ApiMessage(
         id: id,
         roomId: roomId,
         senderId: senderId,
         kind: kind,
-        body: body,
+        body: body ?? this.body,
         mediaId: mediaId,
         createdAt: createdAt,
+        editedAt: editedAt ?? this.editedAt,
         reactions: reactions ?? this.reactions,
+        replyToMessageId: replyToMessageId,
+        replyTo: replyTo,
+        forwarded: forwarded,
       );
+}
+
+/// A trimmed preview of another message, embedded in a reply (FR1.10).
+class ApiMessageSnippet {
+  const ApiMessageSnippet({required this.id, required this.senderId, required this.kind, this.body});
+
+  factory ApiMessageSnippet.fromJson(Map<String, dynamic> json) => ApiMessageSnippet(
+        id: json['id'] as String,
+        senderId: json['senderId'] as String,
+        kind: json['kind'] as String,
+        body: json['body'] as String?,
+      );
+
+  final String id;
+  final String senderId;
+  final String kind;
+  final String? body;
 }
 
 class ApiReaction {
@@ -127,4 +162,23 @@ class ApiReaction {
   final String emoji;
   final int count;
   final bool reactedByMe;
+}
+
+/// Open Graph metadata for a URL found in a text message (FR1.14).
+class ApiLinkPreview {
+  const ApiLinkPreview({required this.url, this.title, this.description, this.imageUrl, this.siteName});
+
+  factory ApiLinkPreview.fromJson(Map<String, dynamic> json) => ApiLinkPreview(
+        url: json['url'] as String,
+        title: json['title'] as String?,
+        description: json['description'] as String?,
+        imageUrl: json['imageUrl'] as String?,
+        siteName: json['siteName'] as String?,
+      );
+
+  final String url;
+  final String? title;
+  final String? description;
+  final String? imageUrl;
+  final String? siteName;
 }

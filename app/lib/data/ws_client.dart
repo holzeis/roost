@@ -66,7 +66,7 @@ class WsClient {
   }
 
   ApiMessage? messageFrom(WsEvent event) {
-    if (event.type != 'message.created') return null;
+    if (event.type != 'message.created' && event.type != 'message.updated') return null;
     return ApiMessage.fromJson(event.payload);
   }
 

@@ -61,7 +61,7 @@ class FakeApiClient extends ApiClient {
       List.of(messagesByRoom[roomId] ?? const []);
 
   @override
-  Future<ApiMessage> sendTextMessage(String roomId, String body) async {
+  Future<ApiMessage> sendTextMessage(String roomId, String body, {String? replyToMessageId}) async {
     final message = ApiMessage(
       id: 'msg-${_nextMessageId++}',
       roomId: roomId,
@@ -69,10 +69,73 @@ class FakeApiClient extends ApiClient {
       kind: 'text',
       body: body,
       createdAt: DateTime.now(),
+      replyToMessageId: replyToMessageId,
+      replyTo: replyToMessageId != null ? _snippetFor(replyToMessageId) : null,
     );
     messagesByRoom.putIfAbsent(roomId, () => []).add(message);
     ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(message))) as Map<String, dynamic>));
     return message;
+  }
+
+  @override
+  Future<ApiMessage> editMessage(String messageId, String body) async {
+    for (final entry in messagesByRoom.entries) {
+      final index = entry.value.indexWhere((m) => m.id == messageId);
+      if (index == -1) continue;
+      final updated = entry.value[index].copyWith(body: body, editedAt: DateTime.now());
+      entry.value[index] = updated;
+      ws.emit(WsEvent('message.updated', jsonDecode(jsonEncode(_messageJson(updated))) as Map<String, dynamic>));
+      return updated;
+    }
+    throw ApiException(404, 'not found');
+  }
+
+  @override
+  Future<ApiMessage> forwardMessage(String messageId, String toRoomId) async {
+    ApiMessage? original;
+    for (final list in messagesByRoom.values) {
+      final matches = list.where((m) => m.id == messageId);
+      if (matches.isNotEmpty) {
+        original = matches.first;
+        break;
+      }
+    }
+    if (original == null) throw ApiException(404, 'not found');
+
+    String? newMediaId;
+    if (original.mediaId != null) {
+      newMediaId = 'media-${_nextMediaId++}';
+      mediaBytesById[newMediaId] = List.of(mediaBytesById[original.mediaId] ?? const []);
+    }
+    final forwarded = ApiMessage(
+      id: 'msg-${_nextMessageId++}',
+      roomId: toRoomId,
+      senderId: me.id,
+      kind: original.kind,
+      body: original.body,
+      mediaId: newMediaId,
+      createdAt: DateTime.now(),
+      forwarded: true,
+    );
+    messagesByRoom.putIfAbsent(toRoomId, () => []).add(forwarded);
+    ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(forwarded))) as Map<String, dynamic>));
+    return forwarded;
+  }
+
+  Map<String, ApiLinkPreview> linkPreviewsByUrl = {};
+
+  @override
+  Future<ApiLinkPreview?> fetchLinkPreview(String url) async => linkPreviewsByUrl[url];
+
+  ApiMessageSnippet? _snippetFor(String messageId) {
+    for (final list in messagesByRoom.values) {
+      final matches = list.where((m) => m.id == messageId);
+      if (matches.isNotEmpty) {
+        final m = matches.first;
+        return ApiMessageSnippet(id: m.id, senderId: m.senderId, kind: m.kind, body: m.body);
+      }
+    }
+    return null;
   }
 
   @override
@@ -105,6 +168,7 @@ class FakeApiClient extends ApiClient {
     required String filename,
     required String contentType,
     required String kind,
+    String? replyToMessageId,
   }) async {
     final mediaId = 'media-${_nextMediaId++}';
     mediaBytesById[mediaId] = bytes;
@@ -115,6 +179,8 @@ class FakeApiClient extends ApiClient {
       kind: kind,
       mediaId: mediaId,
       createdAt: DateTime.now(),
+      replyToMessageId: replyToMessageId,
+      replyTo: replyToMessageId != null ? _snippetFor(replyToMessageId) : null,
     );
     messagesByRoom.putIfAbsent(roomId, () => []).add(message);
     ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(message))) as Map<String, dynamic>));
@@ -152,6 +218,17 @@ class FakeApiClient extends ApiClient {
         'body': m.body,
         'mediaId': m.mediaId,
         'createdAt': m.createdAt.toIso8601String(),
+        'editedAt': m.editedAt?.toIso8601String(),
+        'replyToMessageId': m.replyToMessageId,
+        'replyTo': m.replyTo == null
+            ? null
+            : {
+                'id': m.replyTo!.id,
+                'senderId': m.replyTo!.senderId,
+                'kind': m.replyTo!.kind,
+                'body': m.replyTo!.body,
+              },
+        'forwarded': m.forwarded,
       };
 }
 
