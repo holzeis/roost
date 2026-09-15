@@ -276,6 +276,60 @@ class FakeApiClient extends ApiClient {
     throw ApiException(404, 'not found');
   }
 
+  int _nextCallMessageId = 1;
+
+  @override
+  Future<ApiMessage> startCall(String roomId) async {
+    final message = ApiMessage(
+      id: 'callmsg-$_nextCallMessageId',
+      roomId: roomId,
+      senderId: me.id,
+      kind: 'call',
+      createdAt: DateTime.now(),
+      call: ApiCall(id: 'call-${_nextCallMessageId++}', status: 'ringing', startedAt: DateTime.now()),
+    );
+    messagesByRoom.putIfAbsent(roomId, () => []).add(message);
+    ws.emit(WsEvent('message.created', jsonDecode(jsonEncode(_messageJson(message))) as Map<String, dynamic>));
+    return message;
+  }
+
+  /// Records of every acceptCall/declineCall/leaveCall call, so tests can
+  /// assert on which action a widget took without inspecting call status
+  /// alone (accept doesn't change the fake's call status, matching the
+  /// real server's "LiveKit's own join event is what others observe").
+  final List<(String action, String callId)> callActions = [];
+
+  @override
+  Future<void> acceptCall(String callId) async {
+    callActions.add(('accept', callId));
+  }
+
+  @override
+  Future<void> declineCall(String callId) async {
+    callActions.add(('decline', callId));
+    _finalizeCall(callId, 'declined');
+  }
+
+  @override
+  Future<void> leaveCall(String callId) async {
+    callActions.add(('leave', callId));
+    _finalizeCall(callId, 'missed');
+  }
+
+  void _finalizeCall(String callId, String status) {
+    for (final entry in messagesByRoom.entries) {
+      final index = entry.value.indexWhere((m) => m.call?.id == callId);
+      if (index == -1) continue;
+      final existing = entry.value[index];
+      final updated = existing.copyWith(
+        call: ApiCall(id: existing.call!.id, status: status, startedAt: existing.call!.startedAt, endedAt: DateTime.now()),
+      );
+      entry.value[index] = updated;
+      ws.emit(WsEvent('message.updated', jsonDecode(jsonEncode(_messageJson(updated))) as Map<String, dynamic>));
+      return;
+    }
+  }
+
   Map<String, dynamic> _messageJson(ApiMessage m) => {
         'id': m.id,
         'roomId': m.roomId,
@@ -303,6 +357,14 @@ class FakeApiClient extends ApiClient {
                 'lng': m.location!.lng,
                 'expiresAt': m.location!.expiresAt.toIso8601String(),
                 'endedAt': m.location!.endedAt?.toIso8601String(),
+              },
+        'call': m.call == null
+            ? null
+            : {
+                'id': m.call!.id,
+                'status': m.call!.status,
+                'startedAt': m.call!.startedAt.toIso8601String(),
+                'endedAt': m.call!.endedAt?.toIso8601String(),
               },
       };
 }

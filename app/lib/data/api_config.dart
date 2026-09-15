@@ -16,3 +16,14 @@ const apiBaseUrl = String.fromEnvironment(
 
 /// The same host, as a ws:// URL, for the /ws endpoint.
 String get wsBaseUrl => apiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws');
+
+/// Where LiveKit is (FR4.*) — the chat server only mints a token; the app
+/// connects to LiveKit's own SFU directly (see
+/// docs/architecture-overview.md's "chat server brokers signaling, never
+/// touches media"). Defaults to docker-compose.yml's LiveKit port mapping,
+/// overridable the same way as [apiBaseUrl]:
+///   flutter run --dart-define=LIVEKIT_URL=ws://10.0.2.2:7880
+const livekitUrl = String.fromEnvironment(
+  'LIVEKIT_URL',
+  defaultValue: 'ws://localhost:7880',
+);

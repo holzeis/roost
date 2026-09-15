@@ -84,6 +84,7 @@ class ApiMessage {
     this.forwarded = false,
     this.status = 'sent',
     this.location,
+    this.call,
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) => ApiMessage(
@@ -110,6 +111,7 @@ class ApiMessage {
         location: json['location'] != null
             ? ApiLocationShare.fromJson(json['location'] as Map<String, dynamic>)
             : null,
+        call: json['call'] != null ? ApiCall.fromJson(json['call'] as Map<String, dynamic>) : null,
       );
 
   final String id;
@@ -130,6 +132,9 @@ class ApiMessage {
   /// The FR3.* subtype for a `kind == 'location'` message. Null for every
   /// other kind.
   final ApiLocationShare? location;
+  /// The FR4.* subtype for a `kind == 'call'` message. Null for every other
+  /// kind.
+  final ApiCall? call;
 
   ApiMessage copyWith({
     List<ApiReaction>? reactions,
@@ -137,6 +142,7 @@ class ApiMessage {
     DateTime? editedAt,
     String? status,
     ApiLocationShare? location,
+    ApiCall? call,
   }) =>
       ApiMessage(
         id: id,
@@ -153,7 +159,29 @@ class ApiMessage {
         forwarded: forwarded,
         status: status ?? this.status,
         location: location ?? this.location,
+        call: call ?? this.call,
       );
+}
+
+/// The FR4.* subtype attached to a `kind == 'call'` message, mirroring
+/// server/internal/models.Call.
+class ApiCall {
+  const ApiCall({required this.id, required this.status, required this.startedAt, this.endedAt});
+
+  factory ApiCall.fromJson(Map<String, dynamic> json) => ApiCall(
+        id: json['id'] as String,
+        status: json['status'] as String,
+        startedAt: DateTime.parse(json['startedAt'] as String),
+        endedAt: json['endedAt'] != null ? DateTime.parse(json['endedAt'] as String) : null,
+      );
+
+  final String id;
+  /// 'ringing' | 'completed' | 'missed' | 'declined'.
+  final String status;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+
+  Duration? get duration => endedAt?.difference(startedAt);
 }
 
 /// The FR3.* live-location subtype attached to a `kind == 'location'`

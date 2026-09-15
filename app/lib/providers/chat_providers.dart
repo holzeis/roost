@@ -32,6 +32,14 @@ final usersByIdProvider = Provider<AsyncValue<Map<String, ApiContact>>>((ref) {
   return ref.watch(usersProvider).whenData((users) => {for (final u in users) u.id: u});
 });
 
+/// A single room's details (name, isGroup, members) — used wherever a
+/// screen is reached without already having an ApiRoom in hand (e.g.
+/// IncomingCallScreen, reached from a global listener rather than by
+/// tapping a room in a list that already had one).
+final roomProvider = FutureProvider.family<ApiRoom, String>(
+  (ref, roomId) => ref.watch(apiClientProvider).getRoom(roomId),
+);
+
 final roomsProvider = AsyncNotifierProvider<RoomsController, List<ApiRoom>>(RoomsController.new);
 
 class RoomsController extends AsyncNotifier<List<ApiRoom>> {
@@ -389,4 +397,61 @@ class LocationShareController extends FamilyNotifier<String?, String> {
     _ttlTimer = null;
     await ref.read(apiClientProvider).endLocationShare(messageId);
   }
+}
+
+/// A call ringing right now that the current user hasn't answered or
+/// declined yet, or null. Deliberately global (not `.family` by room) —
+/// unlike reactions/location/status, an incoming call has to be shown
+/// regardless of which screen is open (could be the home screen, a
+/// different chat, anywhere) — see RoostApp's listener in lib/main.dart,
+/// which is what actually navigates to the incoming-call screen.
+final incomingCallProvider = NotifierProvider<IncomingCallController, IncomingCallInfo?>(
+  IncomingCallController.new,
+);
+
+class IncomingCallInfo {
+  const IncomingCallInfo({required this.roomId, required this.messageId});
+  final String roomId;
+  final String messageId;
+}
+
+class IncomingCallController extends Notifier<IncomingCallInfo?> {
+  @override
+  IncomingCallInfo? build() {
+    final sub = ref.listen(wsEventsProvider, (previous, next) {
+      final event = next.valueOrNull;
+      if (event == null) return;
+      final payload = event.payload;
+      switch (event.type) {
+        case 'message.created':
+          if (payload['kind'] != 'call') return;
+          final roomId = payload['roomId'] as String?;
+          final messageId = payload['id'] as String?;
+          final senderId = payload['senderId'] as String?;
+          if (roomId == null || messageId == null || senderId == null) return;
+          // meProvider may not have resolved yet this early (e.g. right at
+          // app start, before the initial getMe() REST call lands) — await
+          // it rather than reading synchronously, same as
+          // MessagesController._ackDelivered above, so a call arriving in
+          // that window isn't silently dropped.
+          unawaited(ref.read(meProvider.future).then((me) {
+            if (senderId == me.id) return;
+            state = IncomingCallInfo(roomId: roomId, messageId: messageId);
+          }));
+        case 'message.updated':
+          // The call was answered elsewhere, declined, or ended before this
+          // device acted on it — stop showing it as incoming.
+          final current = state;
+          if (current == null || payload['id'] != current.messageId) return;
+          final call = payload['call'] as Map<String, dynamic>?;
+          if (call != null && call['status'] != 'ringing') state = null;
+      }
+    });
+    ref.onDispose(sub.close);
+    return null;
+  }
+
+  /// Explicitly dismisses the incoming call (the user accepted or declined
+  /// it locally) without waiting for a message.updated round-trip.
+  void dismiss() => state = null;
 }

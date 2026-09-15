@@ -37,14 +37,16 @@ final appRouter = GoRouter(
       path: '/call/:roomId',
       builder: (context, state) => CallScreen(
         roomId: state.pathParameters['roomId']!,
+        messageId: state.uri.queryParameters['messageId']!,
         isGroup: state.uri.queryParameters['group'] == 'true',
+        audioOnly: state.uri.queryParameters['audioOnly'] == 'true',
       ),
     ),
     GoRoute(
       path: '/call/:roomId/incoming',
       builder: (context, state) => IncomingCallScreen(
         roomId: state.pathParameters['roomId']!,
-        callerName: state.uri.queryParameters['caller'] ?? 'Unknown',
+        messageId: state.uri.queryParameters['messageId']!,
       ),
     ),
   ],

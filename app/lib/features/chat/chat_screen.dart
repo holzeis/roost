@@ -14,6 +14,7 @@ import '../../providers/chat_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
+import 'call_message.dart';
 import 'forward_sheet.dart';
 import 'link_preview_card.dart';
 import 'location_message.dart';
@@ -32,7 +33,7 @@ class ChatScreen extends ConsumerWidget {
     final usersById = ref.watch(usersByIdProvider);
     final roomAsync = room != null
         ? AsyncData<ApiRoom>(room!)
-        : ref.watch(_roomProvider(roomId));
+        : ref.watch(roomProvider(roomId));
     final isGroup = roomAsync.valueOrNull?.isGroup ?? false;
     final typingUsers = ref.watch(typingUsersProvider(roomId));
 
@@ -53,8 +54,7 @@ class ChatScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(TablerIcons.video),
-            onPressed: () =>
-                context.push('/call/$roomId?group=${room?.isGroup ?? false}'),
+            onPressed: () => _startCall(context, ref, roomId, isGroup),
           ),
         ],
       ),
@@ -77,9 +77,21 @@ class ChatScreen extends ConsumerWidget {
   }
 }
 
-final _roomProvider = FutureProvider.family<ApiRoom, String>(
-  (ref, roomId) => ref.watch(apiClientProvider).getRoom(roomId),
-);
+/// FR4.1/FR4.2: begins a call and jumps straight to CallScreen — unlike an
+/// accepting callee (see IncomingCallScreen), the caller never goes through
+/// the incoming-call screen for their own call.
+Future<void> _startCall(BuildContext context, WidgetRef ref, String roomId, bool isGroup) async {
+  try {
+    final message = await ref.read(apiClientProvider).startCall(roomId);
+    if (context.mounted) {
+      context.push('/call/$roomId?messageId=${message.id}&group=$isGroup');
+    }
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not start call: $error')));
+    }
+  }
+}
 
 class _ChatTitle extends StatelessWidget {
   const _ChatTitle(
@@ -278,6 +290,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
               padding: EdgeInsets.only(bottom: isLastInGroup ? 10 : 2),
               child: _MessageRow(
                 roomId: widget.roomId,
+                isGroup: widget.isGroup,
                 message: message,
                 fromMe: message.senderId == widget.meId,
                 senderName: senderName,
@@ -320,6 +333,7 @@ WidgetSpan _statusIconSpan(String status, Color onPrimary) {
 class _MessageRow extends ConsumerWidget {
   const _MessageRow({
     required this.roomId,
+    required this.isGroup,
     required this.message,
     required this.fromMe,
     required this.senderName,
@@ -332,6 +346,7 @@ class _MessageRow extends ConsumerWidget {
   });
 
   final String roomId;
+  final bool isGroup;
   final ApiMessage message;
   final bool fromMe;
   final String senderName;
@@ -353,6 +368,7 @@ class _MessageRow extends ConsumerWidget {
         TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
     final isMedia = message.kind == 'image' || message.kind == 'video';
     final isLocation = message.kind == 'location';
+    final isCall = message.kind == 'call';
 
     // Only the last bubble of a consecutive run from one sender gets the
     // "tail" (pointed) corner; earlier bubbles in the same run are fully
@@ -419,6 +435,13 @@ class _MessageRow extends ConsumerWidget {
             MediaBubbleContent(message: message)
           else if (isLocation)
             LocationBubbleContent(message: message, roomId: roomId)
+          else if (isCall)
+            CallBubbleContent(
+              message: message,
+              roomId: roomId,
+              isGroup: isGroup,
+              textColor: fromMe ? scheme.onPrimary : scheme.onSurface,
+            )
           else ...[
             if (showSenderLabel)
               Padding(
@@ -536,6 +559,7 @@ class _MessageRow extends ConsumerWidget {
     final isMedia = message.kind == 'image' || message.kind == 'video';
     final isText = message.kind == 'text';
     final isLocation = message.kind == 'location';
+    final isCall = message.kind == 'call';
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -577,7 +601,7 @@ class _MessageRow extends ConsumerWidget {
                     ReplyDraft(message);
               },
             ),
-            if (!isLocation)
+            if (!isLocation && !isCall)
               ListTile(
                 leading: const Icon(TablerIcons.arrowForwardUp),
                 title: const Text('Forward'),

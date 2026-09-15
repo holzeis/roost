@@ -227,6 +227,33 @@ class ApiClient {
     return (jsonDecode(res.body) as Map<String, dynamic>)['token'] as String;
   }
 
+  /// Starts a call in roomId (FR4.1/FR4.2), ringing every other member.
+  Future<ApiMessage> startCall(String roomId) async {
+    final res = await _http.post(_uri('/api/rooms/$roomId/calls'));
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Joins an active call (FR4.5).
+  Future<void> acceptCall(String callId) async {
+    final res = await _http.post(_uri('/api/calls/$callId/accept'));
+    _checkOk(res);
+  }
+
+  /// Declines a call (FR4.5) — ends it immediately in a 1:1 room, a no-op
+  /// on the call record in a group room (other invitees may still answer).
+  Future<void> declineCall(String callId) async {
+    final res = await _http.post(_uri('/api/calls/$callId/decline'));
+    _checkOk(res);
+  }
+
+  /// Leaves/ends a call (FR4.5) — the same action whether hanging up
+  /// mid-call or giving up on an unanswered one.
+  Future<void> leaveCall(String callId) async {
+    final res = await _http.post(_uri('/api/calls/$callId/leave'));
+    _checkOk(res);
+  }
+
   /// Go marshals a nil slice as JSON `null`, not `[]` — an empty list
   /// response (e.g. a brand-new user with no rooms yet) decodes to Dart
   /// `null`, which `as List<dynamic>` doesn't accept. The server also
