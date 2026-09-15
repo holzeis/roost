@@ -1,2 +1,4 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
+// See Debug.xcconfig's comment — same Google Maps API key include.
+#include? "../Runner/Config.xcconfig"

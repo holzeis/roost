@@ -23,6 +23,13 @@ if (flutterVersionName == null) {
     flutterVersionName = "1.0"
 }
 
+// Maps SDK for Android key (FR3.7) — read from the developer's own
+// local.properties (gitignored, per-machine) rather than committed anywhere.
+// See README.md's "Google Maps API keys" section for where to get one and
+// add it. Empty (not missing) so the manifest placeholder substitution below
+// always has a value to substitute, even before a key is configured.
+def mapsApiKey = localProperties.getProperty("MAPS_API_KEY", "")
+
 android {
     namespace = "me.holzeis.roost.roost"
     compileSdk = flutter.compileSdkVersion
@@ -42,6 +49,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
+        manifestPlaceholders += [MAPS_API_KEY: mapsApiKey]
     }
 
     buildTypes {

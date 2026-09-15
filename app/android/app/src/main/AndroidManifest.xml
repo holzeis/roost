@@ -5,10 +5,29 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Live location sharing (FR3.*). ACCESS_BACKGROUND_LOCATION lets
+         sharing continue while the app is backgrounded/the phone is locked;
+         on Android 10+ the user grants this separately ("Allow all the
+         time") from the initial foreground grant, via system settings —
+         geolocator's permission request walks the user through both steps.
+         FOREGROUND_SERVICE_LOCATION (Android 14+) is required to actually
+         run the foreground service that keeps background updates alive. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <application
         android:label="roost"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Maps SDK for Android key (FR3.7) — value comes from
+             android/local.properties' MAPS_API_KEY (gitignored, per-developer;
+             see build.gradle and README.md's "Google Maps API keys" section).
+             Never committed here. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

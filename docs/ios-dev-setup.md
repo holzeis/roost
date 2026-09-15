@@ -49,6 +49,26 @@ real APNs delivery to a simulator, so wake-from-push flows need a physical
 iPhone with a Tailscale connection and a development provisioning profile.
 For local UI/chat/call-control development, the Simulator is sufficient.
 
+## Testing location sharing (FR3.*)
+
+The Simulator has no real GPS, but Xcode can feed it a simulated position:
+with the app running, **Debug ▸ Location** in the Simulator menu bar (or a
+custom GPX route) lets you start a share and watch position updates land.
+That's enough to exercise the foreground flow — starting a share, seeing the
+map bubble, ending it early, watching the TTL expire.
+
+True background behavior (the location keeps updating while the app is
+backgrounded/the phone is locked — see `docs/architecture-overview.md`'s
+note on this) needs a real device with a granted "Always" location
+permission: the Simulator doesn't meaningfully suspend/resume apps the way
+a physical device does, so background delivery isn't a reliable signal
+there. Same caveat as CallKit above — local UI development is fine on the
+Simulator, but the behavior this feature is actually *for* needs a physical
+iPhone.
+
+See the root [`README.md`](../README.md#google-maps-api-keys) for setting up
+a Maps API key — without one the map renders as blank grey tiles.
+
 ## Talking to a local chat server
 
 The Simulator runs on your Mac's network namespace, so `docker-compose.yml`'s

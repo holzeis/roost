@@ -1,2 +1,6 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+// Google Maps API key (FR3.7) — gitignored, per-developer. See
+// ../Runner/Config.xcconfig.example and README.md's "Google Maps API keys"
+// section. Optional include (?) so a build still works before it's created.
+#include? "../Runner/Config.xcconfig"

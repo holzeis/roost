@@ -41,6 +41,25 @@ flutter run
 See [`docs/ios-dev-setup.md`](docs/ios-dev-setup.md) for iOS Simulator setup
 specifics.
 
+### Google Maps API keys
+
+Live location sharing (FR3.*) renders maps via each platform's native Maps
+SDK, which needs its own API key — get one per platform from
+[Google Cloud Console](https://console.cloud.google.com/) (enable "Maps SDK
+for Android" / "Maps SDK for iOS"), and never commit the real key anywhere:
+
+- **Android**: add a line to `app/android/local.properties` (already
+  gitignored, created for you by the Flutter tooling on first run):
+  ```
+  MAPS_API_KEY=your-android-key-here
+  ```
+- **iOS**: copy `app/ios/Runner/Config.xcconfig.example` to
+  `app/ios/Runner/Config.xcconfig` (gitignored) and fill in
+  `GOOGLE_MAPS_API_KEY`.
+
+Without a real key, the app still builds and runs — maps just render blank
+grey tiles instead of imagery.
+
 ## Testing
 
 ```sh

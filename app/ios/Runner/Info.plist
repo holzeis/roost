@@ -51,5 +51,15 @@
 	<string>Roost needs access to your camera to share photos and video in chat and calls.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Roost needs access to your microphone for voice and video calls.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Roost uses your location to share it with people in a chat, for as long as you choose to share it.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Roost uses your location to keep sharing it with people in a chat while the app is in the background, for as long as you choose to share it.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>GMSApiKey</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
 </dict>
 </plist>
