@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../util/time_format.dart';
+import '../../widgets/avatar.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key, required this.roomId});
@@ -62,14 +63,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: TextField(
-          controller: _controller,
-          autofocus: true,
-          onChanged: _onChanged,
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search, size: 18),
-            isDense: true,
-            hintText: 'Search messages',
+        title: Container(
+          height: 40,
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: scheme.onSurface.withOpacity(0.08)),
+          ),
+          child: TextField(
+            controller: _controller,
+            autofocus: true,
+            onChanged: _onChanged,
+            decoration: InputDecoration(
+              prefixIcon: Icon(Icons.search, size: 18, color: scheme.onSurface.withOpacity(0.5)),
+              isDense: true,
+              border: InputBorder.none,
+              hintText: 'Search messages',
+              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            ),
           ),
         ),
       ),
@@ -84,8 +95,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text('${results.length} results', style: Theme.of(context).textTheme.labelSmall),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                child: Text(
+                  '${results.length} result${results.length == 1 ? '' : 's'}',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                    color: scheme.onSurface.withOpacity(0.45),
+                  ),
+                ),
               ),
               Expanded(
                 child: ListView.separated(
@@ -96,13 +115,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     final senderName =
                         message.senderId == meId ? 'Me' : (usersById[message.senderId]?.displayName ?? '?');
                     return ListTile(
-                      leading: CircleAvatar(
-                        radius: 13,
-                        child: Text(senderName.isNotEmpty ? senderName[0].toUpperCase() : '?', style: const TextStyle(fontSize: 10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                      leading: InitialAvatar(
+                        initial: senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
+                        seed: senderName,
+                        size: 38,
                       ),
                       title: Text(
                         '$senderName · ${formatActivityTime(message.createdAt)}',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurface.withOpacity(0.6)),
                       ),
                       subtitle: _highlighted(message.body ?? '', _query, scheme),
                     );

@@ -6,6 +6,7 @@ import 'package:mime/mime.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../theme/app_theme.dart';
 import '../../widgets/avatar.dart';
 import 'media_message.dart';
 
@@ -20,8 +21,10 @@ class ChatScreen extends ConsumerWidget {
     final me = ref.watch(meProvider);
     final usersById = ref.watch(usersByIdProvider);
     final roomAsync = room != null ? AsyncData<ApiRoom>(room!) : ref.watch(_roomProvider(roomId));
+    final isGroup = roomAsync.valueOrNull?.isGroup ?? false;
 
     return Scaffold(
+      backgroundColor: chatWallpaperColor(context),
       appBar: AppBar(
         titleSpacing: 0,
         title: _ChatTitle(roomAsync: roomAsync, me: me, usersById: usersById),
@@ -40,7 +43,12 @@ class ChatScreen extends ConsumerWidget {
         children: [
           Expanded(
             child: me.hasValue
-                ? _MessageList(roomId: roomId, meId: me.value!.id, usersById: usersById.valueOrNull ?? const {})
+                ? _MessageList(
+                    roomId: roomId,
+                    meId: me.value!.id,
+                    usersById: usersById.valueOrNull ?? const {},
+                    isGroup: isGroup,
+                  )
                 : const Center(child: CircularProgressIndicator()),
           ),
           _MessageComposer(roomId: roomId),
@@ -75,16 +83,21 @@ class _ChatTitle extends StatelessWidget {
 
     return Row(
       children: [
-        InitialAvatar(initial: title.isNotEmpty ? title[0].toUpperCase() : '?', size: 26),
-        const SizedBox(width: 8),
+        InitialAvatar(initial: title.isNotEmpty ? title[0].toUpperCase() : '?', seed: title, size: 34),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               if (room.isGroup)
-                Text('${room.members.length} members', style: Theme.of(context).textTheme.labelSmall),
+                Text(
+                  '${room.members.length} members',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                      ),
+                ),
             ],
           ),
         ),
@@ -94,11 +107,17 @@ class _ChatTitle extends StatelessWidget {
 }
 
 class _MessageList extends ConsumerWidget {
-  const _MessageList({required this.roomId, required this.meId, required this.usersById});
+  const _MessageList({
+    required this.roomId,
+    required this.meId,
+    required this.usersById,
+    required this.isGroup,
+  });
 
   final String roomId;
   final String meId;
   final Map<String, ApiContact> usersById;
+  final bool isGroup;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -109,25 +128,41 @@ class _MessageList extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       data: (messages) {
         if (messages.isEmpty) {
-          return const Center(child: Text('No messages yet. Say hello!'));
+          return Center(
+            child: Text(
+              'No messages yet. Say hello!',
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
+            ),
+          );
         }
+        // `messages` is oldest-first; the list itself renders newest-at-
+        // bottom via reverse:true, so we walk it newest-first here too.
         final reversed = messages.reversed.toList();
         return ListView.builder(
           reverse: true,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
           itemCount: reversed.length,
           itemBuilder: (context, index) {
             final message = reversed[index];
-            final senderName = message.senderId == meId
-                ? 'Me'
-                : (usersById[message.senderId]?.displayName ?? '?');
+            // Chronologically-next/-previous, i.e. the neighbors on screen
+            // above/below since this list is newest-first.
+            final older = index + 1 < reversed.length ? reversed[index + 1] : null;
+            final newer = index > 0 ? reversed[index - 1] : null;
+            final isFirstInGroup = older == null || older.senderId != message.senderId;
+            final isLastInGroup = newer == null || newer.senderId != message.senderId;
+
+            final senderName =
+                message.senderId == meId ? 'Me' : (usersById[message.senderId]?.displayName ?? '?');
             return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: EdgeInsets.only(bottom: isLastInGroup ? 10 : 2),
               child: _MessageRow(
                 roomId: roomId,
                 message: message,
                 fromMe: message.senderId == meId,
                 senderName: senderName,
+                isFirstInGroup: isFirstInGroup,
+                isLastInGroup: isLastInGroup,
+                showSenderLabel: isGroup && message.senderId != meId && isFirstInGroup,
               ),
             );
           },
@@ -145,52 +180,97 @@ class _MessageRow extends ConsumerWidget {
     required this.message,
     required this.fromMe,
     required this.senderName,
+    required this.isFirstInGroup,
+    required this.isLastInGroup,
+    required this.showSenderLabel,
   });
 
   final String roomId;
   final ApiMessage message;
   final bool fromMe;
   final String senderName;
+  final bool isFirstInGroup;
+  final bool isLastInGroup;
+  final bool showSenderLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final align = fromMe ? MainAxisAlignment.end : MainAxisAlignment.start;
     final timeLabel = TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
-
     final isMedia = message.kind == 'image' || message.kind == 'video';
 
+    // Only the last bubble of a consecutive run from one sender gets the
+    // "tail" (pointed) corner; earlier bubbles in the same run are fully
+    // rounded, reading as one continuous group — the same grouping cue
+    // WhatsApp/Telegram use instead of repeating the tail on every bubble.
+    final tail = isLastInGroup ? ChatBubbleStyle.tailRadius : ChatBubbleStyle.radius;
+    final borderRadius = BorderRadius.only(
+      topLeft: ChatBubbleStyle.radius,
+      topRight: ChatBubbleStyle.radius,
+      bottomLeft: fromMe ? ChatBubbleStyle.radius : tail,
+      bottomRight: fromMe ? tail : ChatBubbleStyle.radius,
+    );
+
     final bubble = Container(
-      constraints: const BoxConstraints(maxWidth: 240),
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
       padding: isMedia
           ? const EdgeInsets.all(3)
-          : const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          : const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
         color: fromMe ? scheme.primary : scheme.surface,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(8),
-          topRight: const Radius.circular(8),
-          bottomLeft: Radius.circular(fromMe ? 8 : 2),
-          bottomRight: Radius.circular(fromMe ? 2 : 8),
-        ),
+        borderRadius: borderRadius,
+        boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
       ),
       child: isMedia
           ? MediaBubbleContent(message: message)
-          : Text.rich(
-              TextSpan(
-                style: TextStyle(fontSize: 13, color: fromMe ? scheme.onPrimary : scheme.onSurface),
-                children: [
-                  TextSpan(text: message.kind == 'location' ? 'Shared their location' : (message.body ?? '')),
-                  TextSpan(
-                    text: '  $timeLabel',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: (fromMe ? scheme.onPrimary : scheme.onSurface).withOpacity(0.6),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showSenderLabel)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      senderName,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: colorForAvatarSeed(senderName),
+                      ),
                     ),
                   ),
-                ],
-              ),
+                Text.rich(
+                  TextSpan(
+                    style: TextStyle(fontSize: 14.5, height: 1.28, color: fromMe ? scheme.onPrimary : scheme.onSurface),
+                    children: [
+                      TextSpan(text: message.kind == 'location' ? 'Shared their location' : (message.body ?? '')),
+                      TextSpan(
+                        text: '  $timeLabel',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: (fromMe ? scheme.onPrimary : scheme.onSurface).withOpacity(0.62),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
+    );
+
+    final avatarSlot = SizedBox(
+      width: 26,
+      child: (!fromMe && isLastInGroup)
+          ? Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: InitialAvatar(
+                initial: senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
+                seed: senderName,
+                size: 22,
+              ),
+            )
+          : null,
     );
 
     return Column(
@@ -201,27 +281,33 @@ class _MessageRow extends ConsumerWidget {
           child: Row(
             mainAxisAlignment: align,
             crossAxisAlignment: CrossAxisAlignment.end,
-            children: fromMe
-                ? [bubble]
-                : [
-                    InitialAvatar(initial: senderName.isNotEmpty ? senderName[0].toUpperCase() : '?', size: 20),
-                    const SizedBox(width: 6),
-                    bubble,
-                  ],
+            children: fromMe ? [bubble] : [avatarSlot, bubble],
           ),
         ),
         if (message.reactions.isNotEmpty)
           Padding(
-            padding: EdgeInsets.only(left: fromMe ? 0 : 26, top: 4),
-            child: Wrap(
-              spacing: 4,
-              children: [
-                for (final reaction in message.reactions)
-                  _ReactionChip(
-                    reaction: reaction,
-                    onTap: () => ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, reaction.emoji),
-                  ),
-              ],
+            padding: EdgeInsets.only(left: fromMe ? 0 : 32, top: 2, right: fromMe ? 4 : 0),
+            child: Transform.translate(
+              offset: const Offset(0, -7),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+                decoration: BoxDecoration(
+                  color: chatWallpaperColor(context),
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
+                ),
+                child: Wrap(
+                  spacing: 3,
+                  children: [
+                    for (final reaction in message.reactions)
+                      _ReactionChip(
+                        reaction: reaction,
+                        onTap: () =>
+                            ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, reaction.emoji),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
       ],
@@ -232,6 +318,9 @@ class _MessageRow extends ConsumerWidget {
     final isMedia = message.kind == 'image' || message.kind == 'video';
     showModalBottomSheet<void>(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -247,7 +336,11 @@ class _MessageRow extends ConsumerWidget {
                         Navigator.of(sheetContext).pop();
                         ref.read(messagesProvider(roomId).notifier).toggleReaction(message.id, emoji);
                       },
-                      child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                      borderRadius: BorderRadius.circular(24),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                      ),
                     ),
                 ],
               ),
@@ -282,6 +375,7 @@ class _MessageRow extends ConsumerWidget {
                   }
                 },
               ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -299,13 +393,13 @@ class _ReactionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
           color: reaction.reactedByMe ? scheme.primary.withOpacity(0.15) : scheme.onSurface.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(999),
           border: reaction.reactedByMe ? Border.all(color: scheme.primary.withOpacity(0.4)) : null,
         ),
         child: Text('${reaction.emoji} ${reaction.count}', style: const TextStyle(fontSize: 12)),
@@ -375,6 +469,9 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   void _showAttachMenu() {
     showModalBottomSheet<void>(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -395,6 +492,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                 _pickAndSendMedia(video: true);
               },
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -403,32 +501,71 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(6, 8, 10, 8),
       decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
         border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
       ),
-      child: Row(
-        children: [
-          IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: _showAttachMenu),
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              onSubmitted: (_) => _send(),
-              decoration: const InputDecoration(
-                hintText: 'Message',
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            IconButton(
+              icon: Icon(Icons.add_circle_outline, color: scheme.onSurface.withOpacity(0.6)),
+              onPressed: _showAttachMenu,
+            ),
+            Expanded(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 42),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: scheme.onSurface.withOpacity(0.08)),
+                  ),
+                  child: TextField(
+                    controller: _controller,
+                    minLines: 1,
+                    maxLines: 5,
+                    textCapitalization: TextCapitalization.sentences,
+                    onSubmitted: (_) => _send(),
+                    decoration: const InputDecoration(
+                      hintText: 'Message',
+                      isDense: true,
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-          IconButton(
-            icon: _sending
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : Icon(Icons.send, color: Theme.of(context).colorScheme.primary),
-            onPressed: _send,
-          ),
-        ],
+            const SizedBox(width: 6),
+            Material(
+              color: scheme.primary,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _send,
+                child: SizedBox(
+                  width: 42,
+                  height: 42,
+                  child: Center(
+                    child: _sending
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: scheme.onPrimary),
+                          )
+                        : Icon(Icons.send, color: scheme.onPrimary, size: 19),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

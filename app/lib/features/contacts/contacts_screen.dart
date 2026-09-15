@@ -12,33 +12,45 @@ class ContactsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final users = ref.watch(usersProvider);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Contacts')),
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
           ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             leading: CircleAvatar(
-              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              child: Icon(Icons.group_outlined, color: Theme.of(context).colorScheme.primary),
+              radius: 22,
+              backgroundColor: scheme.primary.withOpacity(0.12),
+              child: Icon(Icons.group_outlined, color: scheme.primary),
             ),
             title: Text(
               'New group',
-              style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w500),
+              style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600, fontSize: 15),
             ),
             onTap: () => context.push('/contacts/new-group'),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('On the tailnet', style: TextStyle(fontSize: 11)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+            child: Text(
+              'ON THE TAILNET',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: scheme.onSurface.withOpacity(0.45),
+              ),
             ),
           ),
           users.when(
             data: (contacts) => contacts.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('Nobody else has connected yet.'),
+                ? Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Nobody else has connected yet.',
+                      style: TextStyle(color: scheme.onSurface.withOpacity(0.55)),
+                    ),
                   )
                 : Column(children: [for (final c in contacts) _ContactTile(contact: c)]),
             error: (error, _) => Padding(
@@ -63,20 +75,29 @@ class _ContactTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       leading: InitialAvatar(
         initial: contact.displayName.isNotEmpty ? contact.displayName[0].toUpperCase() : '?',
+        seed: contact.displayName,
+        size: 48,
         presenceOnline: contact.online,
       ),
-      title: Text(contact.displayName),
-      subtitle: Text(contact.online ? 'Online' : 'Offline'),
+      title: Text(contact.displayName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+      subtitle: Text(
+        contact.online ? 'Online' : 'Offline',
+        style: TextStyle(
+          color: contact.online ? scheme.primary : scheme.onSurface.withOpacity(0.45),
+          fontSize: 13,
+        ),
+      ),
       onTap: () async {
         final messenger = ScaffoldMessenger.of(context);
         final router = GoRouter.of(context);
         try {
-          // Reuses an existing 1:1 room if one already exists server-side
-          // would be nicer, but for now this always starts a fresh one —
-          // good enough until room de-duplication is added.
+          // The server reuses an existing 1:1 room between the same two
+          // users instead of creating a duplicate every time (FR1.1).
           final room = await ref
               .read(roomsProvider.notifier)
               .createRoom(isGroup: false, memberIds: [contact.id]);

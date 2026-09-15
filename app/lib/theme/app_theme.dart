@@ -29,6 +29,38 @@ class RoostColors {
   static const darkOnAccent = Color(0xFF0B1220);
   static const darkSuccess = Color(0xFF4BBF78);
   static const darkDanger = Color(0xFFEF5A5F);
+
+  // A touch darker/warmer than the scaffold background — the chat screen's
+  // wallpaper behind the message bubbles, the same trick WhatsApp uses to
+  // give the conversation area its own depth instead of blending into the
+  // app chrome above it.
+  static const lightChatWallpaper = Color(0xFFEAE7DE);
+  static const darkChatWallpaper = Color(0xFF0E0E0D);
+}
+
+/// Chat-bubble constants shared by the message list — kept here rather than
+/// hardcoded in chat_screen.dart since the reaction-badge overlay math
+/// (media_message.dart, chat_screen.dart) needs to agree with the bubble's
+/// own corner radius.
+class ChatBubbleStyle {
+  ChatBubbleStyle._();
+
+  static const radius = Radius.circular(16);
+  static const tailRadius = Radius.circular(4);
+
+  static List<BoxShadow> shadow(Brightness brightness) => [
+        BoxShadow(
+          color: Colors.black.withOpacity(brightness == Brightness.dark ? 0.28 : 0.06),
+          blurRadius: 3,
+          offset: const Offset(0, 1),
+        ),
+      ];
+}
+
+Color chatWallpaperColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? RoostColors.darkChatWallpaper
+      : RoostColors.lightChatWallpaper;
 }
 
 class AppTheme {
@@ -67,10 +99,19 @@ class AppTheme {
         backgroundColor: scaffoldBg,
         foregroundColor: colorScheme.onSurface,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: colorScheme.onSurface,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+        ),
       ),
-      dividerTheme: DividerThemeData(color: colorScheme.onSurface.withOpacity(0.12)),
+      dividerTheme: DividerThemeData(color: colorScheme.onSurface.withOpacity(0.08)),
       textTheme: Typography.material2021().black.apply(bodyColor: colorScheme.onSurface),
+      listTileTheme: const ListTileThemeData(minVerticalPadding: 10),
+      splashFactory: InkSparkle.splashFactory,
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colorScheme.surface,

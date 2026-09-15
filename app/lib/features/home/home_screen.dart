@@ -59,8 +59,12 @@ class HomeScreen extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () => ref.read(roomsProvider.notifier).refresh(),
       child: ListView.separated(
+        padding: const EdgeInsets.only(top: 4, bottom: 88),
         itemCount: roomList.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, __) => Padding(
+          padding: const EdgeInsets.only(left: 84),
+          child: Divider(height: 1, color: Theme.of(context).dividerColor),
+        ),
         itemBuilder: (context, index) => _RoomTile(
           room: roomList[index],
           meId: me.value!.id,
@@ -135,20 +139,55 @@ class _RoomTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final name = roomDisplayName(room, meId, usersById);
-    return ListTile(
-      leading: InitialAvatar(initial: name.isNotEmpty ? name[0].toUpperCase() : '?'),
-      title: Text(name, style: theme.textTheme.titleSmall),
-      subtitle: Text(
-        _lastMessagePreview(room),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Text(
-        formatActivityTime(room.lastMessageAt ?? room.createdAt),
-        style: theme.textTheme.labelSmall,
-      ),
+    final timeLabel = formatActivityTime(room.lastMessageAt ?? room.createdAt);
+
+    // No unread badge here: the server doesn't track per-user read state
+    // yet (FR1.5/1.6 are deferred — see docs/data-model.md's "not yet
+    // modeled" section), and a badge with no real data behind it would just
+    // be a lie dressed up as UI polish.
+    return InkWell(
       onTap: () => context.push('/chat/${room.id}', extra: room),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            InitialAvatar(
+              initial: name.isNotEmpty ? name[0].toUpperCase() : '?',
+              seed: name,
+              size: 52,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _lastMessagePreview(room),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withOpacity(0.55)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              timeLabel,
+              style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurface.withOpacity(0.45)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
