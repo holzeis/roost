@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'package:roost/data/api_models.dart';
+import 'package:roost/data/ws_client.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
 import 'package:roost/router/app_router.dart';
@@ -264,6 +265,32 @@ void main() {
     expect(find.text('Dad'), findsOneWidget);
     expect(find.text('Online'), findsOneWidget);
     expect(find.text('Offline'), findsOneWidget);
+  });
+
+  testWidgets('An own message shows a status tick that updates on a message.status event (FR1.5, FR1.6)', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // m2 ('On my way, leaving now') is the only text message from 'me' in
+    // the seeded history; m3 is an image and doesn't render a status tick.
+    expect(find.byIcon(TablerIcons.check), findsOneWidget);
+    expect(find.byIcon(TablerIcons.checks), findsNothing);
+
+    api.ws.emit(const WsEvent('message.status', {'messageId': 'm2', 'roomId': 'room-family', 'status': 'delivered'}));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(TablerIcons.check), findsNothing);
+    expect(find.byIcon(TablerIcons.checks), findsOneWidget);
+
+    api.ws.emit(const WsEvent('message.status', {'messageId': 'm2', 'roomId': 'room-family', 'status': 'seen'}));
+    await tester.pumpAndSettle();
+
+    // Still the double-check glyph — "seen" is distinguished by opacity,
+    // not a different icon (see chat_screen.dart's _statusIconSpan).
+    expect(find.byIcon(TablerIcons.checks), findsOneWidget);
   });
 
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {

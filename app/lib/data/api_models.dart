@@ -82,6 +82,7 @@ class ApiMessage {
     this.replyToMessageId,
     this.replyTo,
     this.forwarded = false,
+    this.status = 'sent',
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) => ApiMessage(
@@ -102,6 +103,9 @@ class ApiMessage {
             ? ApiMessageSnippet.fromJson(json['replyTo'] as Map<String, dynamic>)
             : null,
         forwarded: json['forwarded'] as bool? ?? false,
+        // Absent means no recipient has acked yet (FR1.5/FR1.6) — the
+        // server omits the field via `omitempty` rather than sending "sent".
+        status: json['status'] as String? ?? 'sent',
       );
 
   final String id;
@@ -116,8 +120,12 @@ class ApiMessage {
   final String? replyToMessageId;
   final ApiMessageSnippet? replyTo;
   final bool forwarded;
+  /// 'sent' | 'delivered' | 'seen' (FR1.5, FR1.6). Only meaningful for a
+  /// message sent by the current user — recipients ignore it.
+  final String status;
 
-  ApiMessage copyWith({List<ApiReaction>? reactions, String? body, DateTime? editedAt}) => ApiMessage(
+  ApiMessage copyWith({List<ApiReaction>? reactions, String? body, DateTime? editedAt, String? status}) =>
+      ApiMessage(
         id: id,
         roomId: roomId,
         senderId: senderId,
@@ -130,6 +138,7 @@ class ApiMessage {
         replyToMessageId: replyToMessageId,
         replyTo: replyTo,
         forwarded: forwarded,
+        status: status ?? this.status,
       );
 }
 

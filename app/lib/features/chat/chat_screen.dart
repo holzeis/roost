@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -146,6 +148,42 @@ class _MessageList extends ConsumerStatefulWidget {
 
 class _MessageListState extends ConsumerState<_MessageList> {
   final _itemScrollController = ItemScrollController();
+  final _itemPositionsListener = ItemPositionsListener.create();
+  Timer? _seenDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemPositionsListener.itemPositions.addListener(_onPositionsChanged);
+  }
+
+  @override
+  void dispose() {
+    _itemPositionsListener.itemPositions.removeListener(_onPositionsChanged);
+    _seenDebounce?.cancel();
+    super.dispose();
+  }
+
+  /// Debounced FR1.6 seen-tracking: whenever the visible window of the
+  /// (reversed, newest-first) list settles, ack any visible message from
+  /// someone else as seen. Debounced rather than acked on every scroll
+  /// frame since positions fire continuously while flinging the list.
+  void _onPositionsChanged() {
+    _seenDebounce?.cancel();
+    _seenDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      final reversed =
+          (ref.read(messagesProvider(widget.roomId)).valueOrNull ?? const <ApiMessage>[])
+              .reversed
+              .toList();
+      final visibleIds = [
+        for (final position in _itemPositionsListener.itemPositions.value)
+          if (position.index >= 0 && position.index < reversed.length)
+            reversed[position.index].id,
+      ];
+      unawaited(ref.read(messagesProvider(widget.roomId).notifier).ackSeen(visibleIds));
+    });
+  }
 
   /// Scrolls back to a message by id, e.g. when a reply quote is tapped
   /// (FR1.10). A silent no-op if it isn't in the currently loaded window
@@ -185,6 +223,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
         return ScrollablePositionedList.builder(
           reverse: true,
           itemScrollController: _itemScrollController,
+          itemPositionsListener: _itemPositionsListener,
           padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
           itemCount: reversed.length,
           itemBuilder: (context, index) {
@@ -227,6 +266,23 @@ class _MessageListState extends ConsumerState<_MessageList> {
 }
 
 const _quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+/// Sent/delivered/seen tick (FR1.5, FR1.6), rendered next to the timestamp
+/// on the sender's own message bubbles only. Delivered and seen both use
+/// the double-check glyph (TablerIcons.checks) — seen is distinguished by
+/// full opacity rather than a separate color, so it still reads clearly on
+/// the primary-colored fromMe bubble in both themes.
+WidgetSpan _statusIconSpan(String status, Color onPrimary) {
+  final seen = status == 'seen';
+  final icon = status == 'sent' ? TablerIcons.check : TablerIcons.checks;
+  return WidgetSpan(
+    alignment: PlaceholderAlignment.middle,
+    child: Padding(
+      padding: const EdgeInsets.only(left: 3),
+      child: Icon(icon, size: 12, color: onPrimary.withOpacity(seen ? 1 : 0.62)),
+    ),
+  );
+}
 
 class _MessageRow extends ConsumerWidget {
   const _MessageRow({
@@ -360,6 +416,7 @@ class _MessageRow extends ConsumerWidget {
                           .withOpacity(0.62),
                     ),
                   ),
+                  if (fromMe) _statusIconSpan(message.status, scheme.onPrimary),
                 ],
               ),
             ),

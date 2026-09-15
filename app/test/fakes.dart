@@ -155,6 +155,16 @@ class FakeApiClient extends ApiClient {
     ws.emit(WsEvent('reaction.removed', {'messageId': messageId, 'userId': me.id, 'emoji': emoji}));
   }
 
+  /// Records every ackReceipts call (roomId, messageIds, status) so tests
+  /// can assert on the client's auto-ack behavior without a real server.
+  final List<(String, List<String>, String)> receiptAcks = [];
+
+  @override
+  Future<void> ackReceipts(String roomId, List<String> messageIds, String status) async {
+    if (messageIds.isEmpty) return;
+    receiptAcks.add((roomId, List.of(messageIds), status));
+  }
+
   @override
   Future<String> mintLiveKitToken(String roomId) async => 'fake-token';
 
@@ -229,6 +239,7 @@ class FakeApiClient extends ApiClient {
                 'body': m.replyTo!.body,
               },
         'forwarded': m.forwarded,
+        'status': m.status,
       };
 }
 

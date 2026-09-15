@@ -172,6 +172,20 @@ class ApiClient {
     _checkOk(res);
   }
 
+  /// Acks a batch of messages in roomId as delivered or seen (FR1.5,
+  /// FR1.6) — status is 'delivered' or 'seen'. The server records the
+  /// caller's own receipt and broadcasts an updated message.status event to
+  /// the room over the WebSocket if that moves the message's overall status.
+  Future<void> ackReceipts(String roomId, List<String> messageIds, String status) async {
+    if (messageIds.isEmpty) return;
+    final res = await _http.post(
+      _uri('/api/rooms/$roomId/receipts'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'messageIds': messageIds, 'status': status}),
+    );
+    _checkOk(res);
+  }
+
   Future<String> mintLiveKitToken(String roomId) async {
     final res = await _http.post(
       _uri('/api/livekit/token'),

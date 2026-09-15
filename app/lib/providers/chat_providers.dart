@@ -98,6 +98,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
           final current = state.valueOrNull ?? const <ApiMessage>[];
           if (current.any((m) => m.id == message.id)) return;
           state = AsyncData([...current, message]);
+          unawaited(_ackDelivered([message]));
         case 'reaction.added':
         case 'reaction.removed':
           _applyReactionEvent(event.type, event.payload);
@@ -114,13 +115,52 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
           final current = state.valueOrNull;
           if (current == null) return;
           state = AsyncData(current.where((m) => m.id != deletedId).toList());
+        case 'message.status':
+          final messageId = event.payload['messageId'] as String?;
+          final status = event.payload['status'] as String?;
+          final roomIdForEvent = event.payload['roomId'] as String?;
+          if (messageId == null || status == null || roomIdForEvent != arg) return;
+          final current = state.valueOrNull;
+          if (current == null) return;
+          state = AsyncData([
+            for (final m in current) if (m.id == messageId) m.copyWith(status: status) else m,
+          ]);
       }
     });
     ref.onDispose(sub.close);
 
     // Server returns newest-first; the chat screen renders oldest-first.
     final history = await ref.read(apiClientProvider).listMessages(arg);
-    return history.reversed.toList();
+    final ordered = history.reversed.toList();
+    unawaited(_ackDelivered(ordered));
+    return ordered;
+  }
+
+  /// Acks messages from other senders as delivered (FR1.5) the moment this
+  /// client actually has them — either from the initial history fetch or a
+  /// live message.created push. Best-effort: a failure here just means the
+  /// status ticks lag, not that the message itself was lost.
+  Future<void> _ackDelivered(Iterable<ApiMessage> messages) async {
+    final meId = (await ref.read(meProvider.future)).id;
+    final ids = [for (final m in messages) if (m.senderId != meId) m.id];
+    if (ids.isEmpty) return;
+    await ref.read(apiClientProvider).ackReceipts(roomId, ids, 'delivered');
+  }
+
+  /// Acks messages from other senders as seen (FR1.6) once the chat screen
+  /// has them visible in the viewport. Called by the screen's own
+  /// viewport-visibility tracking, not automatically.
+  Future<void> ackSeen(List<String> messageIds) async {
+    if (messageIds.isEmpty) return;
+    final meId = ref.read(meProvider).valueOrNull?.id;
+    final current = state.valueOrNull;
+    if (meId == null || current == null) return;
+    final ids = [
+      for (final id in messageIds)
+        if (current.any((m) => m.id == id && m.senderId != meId && m.status != 'seen')) id,
+    ];
+    if (ids.isEmpty) return;
+    await ref.read(apiClientProvider).ackReceipts(roomId, ids, 'seen');
   }
 
   Future<void> send(String body, {String? replyToMessageId}) async {
