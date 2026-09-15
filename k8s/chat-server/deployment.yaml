@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: chat-server
-          image: ghcr.io/REPLACE_ME/roost-chat-server:latest # set by CI on release; see .github/workflows/ci.yml
+          image: ghcr.io/holzeis/roost-chat-server:latest # set by CI on release; see .github/workflows/ci.yml
           env:
             - name: TSNET_HOSTNAME
               value: "roost-chat"

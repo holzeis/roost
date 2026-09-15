@@ -63,6 +63,6 @@ Widen it (both the container ports, the Service ports, and `livekit-config`'s
 ## Image
 
 `k8s/chat-server/deployment.yaml` references
-`ghcr.io/REPLACE_ME/roost-chat-server:latest` — replace with the real image
-path once CI is pushing images (see `.github/workflows/ci.yml`), and prefer
-a pinned tag over `:latest` for anything beyond local testing.
+`ghcr.io/holzeis/roost-chat-server:latest` — prefer a pinned tag over
+`:latest` for anything beyond local testing once CI is pushing images (see
+`.github/workflows/ci.yml`).
