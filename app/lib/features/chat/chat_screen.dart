@@ -422,9 +422,22 @@ class _MessageComposer extends ConsumerStatefulWidget {
 class _MessageComposerState extends ConsumerState<_MessageComposer> {
   final _controller = TextEditingController();
   bool _sending = false;
+  bool _hasText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    final hasText = _controller.text.trim().isNotEmpty;
+    if (hasText != _hasText) setState(() => _hasText = hasText);
+  }
 
   @override
   void dispose() {
+    _controller.removeListener(_onTextChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -469,47 +482,17 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
   }
 
-  void _showAttachMenu() {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(TablerIcons.photo),
-              title: const Text('Photo library'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _pickAndSendMedia(video: false);
-              },
-            ),
-            ListTile(
-              leading: const Icon(TablerIcons.video),
-              title: const Text('Video library'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _pickAndSendMedia(video: true);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
+  /// One merged camera shortcut, replacing the separate "+" attach menu and
+  /// camera button. A plain tap jumps straight into the device's own camera
+  /// for a photo — "directly open the camera" as asked — since that's the
+  /// single most common action and there's no way to inject a "video" or
+  /// "gallery" control into the native camera capture screen itself (iOS's
+  /// camera picker UI isn't customizable from Flutter). Long-pressing
+  /// surfaces the alternatives (record video, or pick from the gallery
+  /// instead) without slowing down the common one-tap case.
+  Future<void> _onCameraTap() => _pickAndSendMedia(video: false, source: ImageSource.camera);
 
-  /// The dedicated camera shortcut (distinct from the attach menu's gallery
-  /// pickers): jumps straight into the device's own camera UI to capture and
-  /// share a new photo or video, per the user's request. image_picker's
-  /// camera source opens photo-capture and video-capture as two separate
-  /// flows (no combined native toggle like the attach menu doesn't need),
-  /// so this offers both as one tap each rather than guessing which the
-  /// user wants.
-  void _showCameraMenu() {
+  void _showCameraOptions() {
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -535,6 +518,14 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                 _pickAndSendMedia(video: true, source: ImageSource.camera);
               },
             ),
+            ListTile(
+              leading: const Icon(TablerIcons.photo),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pickAndSendMedia(video: false, source: ImageSource.gallery);
+              },
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -553,15 +544,21 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              icon: Icon(TablerIcons.circlePlus, color: scheme.onSurface.withOpacity(0.6)),
-              onPressed: _showAttachMenu,
-            ),
-            IconButton(
-              icon: Icon(TablerIcons.camera, color: scheme.onSurface.withOpacity(0.6)),
-              tooltip: 'Camera',
-              onPressed: _showCameraMenu,
-            ),
+            // Hidden while composing text, matching WhatsApp/Telegram —
+            // there's nothing to shortcut to the camera for once you're
+            // already mid-message.
+            if (!_hasText)
+              GestureDetector(
+                onLongPress: _showCameraOptions,
+                // No `tooltip:` here — IconButton wraps itself in a Tooltip
+                // when one is set, and Tooltip's own long-press-to-show
+                // recognizer competes with ours in the same gesture arena,
+                // making onLongPress fire unreliably.
+                child: IconButton(
+                  icon: Icon(TablerIcons.camera, color: scheme.onSurface.withOpacity(0.6)),
+                  onPressed: _onCameraTap,
+                ),
+              ),
             Expanded(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 42),
@@ -576,6 +573,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                     minLines: 1,
                     maxLines: 5,
                     textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _send(),
                     decoration: const InputDecoration(
                       hintText: 'Message',
@@ -587,28 +585,11 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                 ),
               ),
             ),
-            const SizedBox(width: 6),
-            Material(
-              color: scheme.primary,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _send,
-                child: SizedBox(
-                  width: 42,
-                  height: 42,
-                  child: Center(
-                    child: _sending
-                        ? SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: scheme.onPrimary),
-                          )
-                        : Icon(TablerIcons.send, color: scheme.onPrimary, size: 19),
-                  ),
-                ),
+            if (_sending)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
               ),
-            ),
           ],
         ),
       ),

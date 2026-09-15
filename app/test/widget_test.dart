@@ -107,40 +107,45 @@ void main() {
     expect(find.text('Message'), findsOneWidget); // the composer's hint text
   });
 
-  testWidgets('Camera shortcut offers photo/video capture, separate from the gallery attach menu', (tester) async {
+  testWidgets('Camera shortcut hides while typing and long-press offers video/gallery alternatives', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(TablerIcons.camera));
+    expect(find.byIcon(TablerIcons.camera), findsOneWidget);
+
+    // Long-press surfaces the alternatives without invoking the (unmockable
+    // in a widget test) native camera/gallery pickers.
+    await tester.longPress(find.byIcon(TablerIcons.camera));
     await tester.pumpAndSettle();
 
     expect(find.text('Take photo'), findsOneWidget);
     expect(find.text('Record video'), findsOneWidget);
-    // Distinct from the attach ("+") menu's gallery pickers.
-    expect(find.text('Photo library'), findsNothing);
-    expect(find.text('Video library'), findsNothing);
+    expect(find.text('Choose from gallery'), findsOneWidget);
 
     await tester.tapAt(const Offset(200, 100)); // dismiss the sheet
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(TablerIcons.circlePlus));
-    await tester.pumpAndSettle();
+    // Typing hides the camera shortcut entirely (nothing to shortcut to
+    // mid-message), matching WhatsApp/Telegram.
+    await tester.enterText(find.byType(TextField).last, 'hi');
+    await tester.pump();
 
-    expect(find.text('Photo library'), findsOneWidget);
-    expect(find.text('Video library'), findsOneWidget);
+    expect(find.byIcon(TablerIcons.camera), findsNothing);
   });
 
-  testWidgets('Sending a message posts it through the API client', (tester) async {
+  testWidgets('There is no send button; hitting the keyboard\'s send action sends the message', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
+    expect(find.byIcon(TablerIcons.send), findsNothing);
+
     await tester.enterText(find.byType(TextField).last, 'hello from a test');
-    await tester.tap(find.byIcon(TablerIcons.send));
+    await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pumpAndSettle();
 
     expect(api.messagesByRoom['room-family']!.any((m) => m.body == 'hello from a test'), isTrue);
