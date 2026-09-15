@@ -38,6 +38,16 @@ class WsClient {
   void _connectOnce() {
     final channel = WebSocketChannel.connect(Uri.parse('$_baseUrl/ws'));
     _channel = channel;
+
+    // channel.stream's onError doesn't reliably catch a failure to
+    // establish the connection in the first place (e.g. the server isn't
+    // up yet) — that surfaces through `ready` instead. Without this, a
+    // refused connection prints as an unhandled exception instead of
+    // quietly triggering a reconnect.
+    channel.ready.catchError((Object _) {
+      _scheduleReconnect();
+    });
+
     channel.stream.listen(
       (raw) {
         final decoded = jsonDecode(raw as String) as Map<String, dynamic>;
