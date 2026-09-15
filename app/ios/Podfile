@@ -1,5 +1,8 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '12.0'
+# Matches docs/architecture-overview.md's NFR ("Current iOS ... capable of
+# CallKit/ConnectionService and background push (iOS 16.4+)") — also happens
+# to be well above what flutter_webrtc (13.0) and google_maps_flutter_ios
+# (14.0) each require, so it won't need bumping again for the next plugin.
+platform :ios, '16.4'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
