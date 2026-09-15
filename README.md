@@ -41,6 +41,22 @@ flutter run
 See [`docs/ios-dev-setup.md`](docs/ios-dev-setup.md) for iOS Simulator setup
 specifics.
 
+### Android build setup
+
+Building for Android needs a **JDK 17** (Gradle 9.3.1 + AGP 9.1.0, as used
+by `app/android/`, won't run under JDK 11; JDK 21+ needs a newer Gradle than
+that). Flutter prioritizes Android Studio's own bundled JDK over `JAVA_HOME`
+when picking which one to use, so setting `JAVA_HOME` alone often has no
+effect — and `/usr/libexec/java_home` won't find a Homebrew JDK installed
+keg-only (it silently falls back to another installed JVM instead of
+failing, so don't rely on it here). Point Flutter at the JDK 17 install path
+directly instead:
+
+```sh
+brew install openjdk@17
+flutter config --jdk-dir=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+```
+
 ### Google Maps API keys
 
 Live location sharing (FR3.*) renders maps via each platform's native Maps

@@ -37,7 +37,7 @@ dependencies:
   cupertino_icons: ^1.0.6
   flutter_riverpod: ^2.6.1
   go_router: ^15.1.2
-  livekit_client: ^2.3.6
+  livekit_client: ^2.13.0
   web_socket_channel: ^3.0.3
   google_maps_flutter: ^2.10.1
   geolocator: ^13.0.2
@@ -105,3 +105,27 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/custom-fonts/#from-packages
+
+# connectivity_plus is a transitive dependency of livekit_client (which
+# declares connectivity_plus: ^7.0.0) — pinned to the oldest version in that
+# range rather than pub's default newest-match. connectivity_plus 7.1.0
+# added iOS satellite-connectivity detection whose Swift code references
+# NWPath.isUltraConstrained (an iOS 26 API); it's guarded at runtime with
+# `#available(iOS 26.0, *)` but the symbol still has to exist in the SDK
+# being compiled against, and this machine's Xcode only bundles the iOS 18.5
+# SDK, so it fails to compile at all rather than just skipping at runtime.
+# Roost never calls connectivity_plus directly (it's internal to
+# livekit_client's own connection-quality/reconnect handling), so pinning
+# below 7.1.0 costs nothing functionally here. Remove this override once
+# either this machine's Xcode bundles the iOS 26 SDK, or connectivity_plus
+# fixes the underlying compile-time-vs-runtime availability gap upstream.
+#
+# device_info_plus: same class of problem — 12.4.0 added an
+# isiOSAppOnVision (visionOS) check whose Objective-C references a
+# NSProcessInfo selector that likewise doesn't exist in this Xcode's SDK.
+# Pinned to 12.3.0, the floor of livekit_client's own device_info_plus
+# constraint (>=12.3.0 <14.0.0) and the last version before that check.
+# Same removal condition as connectivity_plus above.
+dependency_overrides:
+  connectivity_plus: 7.0.0
+  device_info_plus: 12.3.0
