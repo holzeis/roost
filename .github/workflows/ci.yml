@@ -71,8 +71,6 @@ jobs:
     needs: [server-test, server-build-matrix]
     permissions:
       contents: read
-      security-events: write # for the SARIF upload below, scoped to just this job
-      actions: read # codeql-action/upload-sarif needs this on private repos to read check-suite info
       packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -81,8 +79,12 @@ jobs:
       # Scan before push: a single-platform (amd64) build loaded into the
       # local docker daemon, separate from the real multi-arch build below
       # (a multi-platform buildx build can't be --load'ed locally at all).
-      # Report-only for now (exit-code: '0') — it surfaces findings in the
-      # repo's Security tab without blocking the pipeline; flip to '1' once
+      # Printed straight to the job log rather than uploaded as SARIF to the
+      # repo's Security tab — that upload needs GitHub Advanced Security,
+      # which isn't available on a private repo without a paid plan/GHAS
+      # add-on (confirmed: it failed with "Code scanning is not enabled for
+      # this repository", not a permissions issue — no permissions block
+      # fixes that). Report-only for now (exit-code: '0'); flip to '1' once
       # you've triaged the baseline and want new critical/high CVEs to
       # actually fail a build.
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -93,14 +95,9 @@ jobs:
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: roost-chat-server:scan
-          format: sarif
-          output: trivy-results.sarif
+          format: table
           exit-code: "0"
           severity: "CRITICAL,HIGH"
-      - uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
       # Reverted from a separate GHCR_PAT secret (added in 2e3ff67 to work
       # around a permissions error) back to the ephemeral per-run
       # GITHUB_TOKEN now that packages: write is granted explicitly above —
