@@ -30,9 +30,27 @@ spec:
       labels:
         app: postgres
     spec:
+      automountServiceAccountToken: false # this pod never talks to the k8s API
+      securityContext:
+        runAsNonRoot: true
+        # 999 is the official postgres:16-alpine image's baked-in `postgres`
+        # user/group. Setting this in the pod securityContext (rather than
+        # relying on the image's own USER) skips the entrypoint's root-only
+        # setup phase entirely, so fsGroup below is what makes the mounted
+        # PVC actually writable by uid 999 — the standard recipe for running
+        # this image non-root on Kubernetes.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16-alpine # matches docker-compose.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 5432
           env:

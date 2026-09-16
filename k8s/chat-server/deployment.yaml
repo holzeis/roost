@@ -21,9 +21,32 @@ spec:
       labels:
         app: chat-server
     spec:
+      automountServiceAccountToken: false # this pod never talks to the k8s API
+      securityContext:
+        runAsNonRoot: true
+        # 65532 is distroless's baked-in "nonroot" uid/gid (see the
+        # server/Dockerfile's `FROM gcr.io/distroless/static-debian12:nonroot`
+        # and `USER nonroot:nonroot`) — set explicitly here too so it's
+        # enforced by the cluster, not just left as an image default.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: chat-server
           image: ghcr.io/holzeis/roost-chat-server:latest # set by CI on release; see .github/workflows/ci.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Safe here specifically: this is a static Go binary (no shell,
+            # no package manager, nothing to install at runtime) that only
+            # writes to /var/lib/tsnet, which is its own PVC mount and stays
+            # writable regardless of this setting. tsnet also runs its
+            # network stack in userspace (no TUN device), so it needs no
+            # elevated capabilities either.
+            readOnlyRootFilesystem: true
           env:
             - name: TSNET_HOSTNAME
               value: "roost-chat"

@@ -34,12 +34,24 @@ spec:
       labels:
         app: minio
     spec:
+      automountServiceAccountToken: false # this pod never talks to the k8s API
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: minio
           # minio/minio on Docker Hub now requires authentication to pull;
           # quay.io is MinIO's recommended anonymous-pull mirror — matches
           # docker-compose.yml.
           image: quay.io/minio/minio:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           args: ["server", "/data", "--console-address", ":9001"]
           ports:
             - name: api
@@ -47,6 +59,12 @@ spec:
             - name: console
               containerPort: 9001
           env:
+            # An arbitrary non-root uid (1000) has no /etc/passwd entry, so
+            # $HOME isn't set and would otherwise default to an unwritable
+            # "/" — MinIO writes its own local config/state under $HOME, so
+            # it needs pointing at somewhere writable (the emptyDir below).
+            - name: HOME
+              value: /home/minio-user
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
@@ -60,6 +78,8 @@ spec:
           volumeMounts:
             - name: minio-data
               mountPath: /data
+            - name: minio-home
+              mountPath: /home/minio-user
           readinessProbe:
             httpGet:
               path: /minio/health/ready
@@ -82,6 +102,8 @@ spec:
         - name: minio-data
           persistentVolumeClaim:
             claimName: minio-data
+        - name: minio-home
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

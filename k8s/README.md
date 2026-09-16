@@ -66,3 +66,34 @@ Widen it (both the container ports, the Service ports, and `livekit-config`'s
 `ghcr.io/holzeis/roost-chat-server:latest` — prefer a pinned tag over
 `:latest` for anything beyond local testing once CI is pushing images (see
 `.github/workflows/ci.yml`).
+
+## Hardening
+
+Every pod sets `runAsNonRoot: true` with an explicit non-root `runAsUser`/
+`runAsGroup` (not just relying on whatever a base image's `USER` happens to
+default to), drops all Linux capabilities, disables privilege escalation,
+and sets the `RuntimeDefault` seccomp profile — Kubernetes' baseline
+"restricted" posture. `automountServiceAccountToken: false` everywhere too,
+since none of these pods call the Kubernetes API.
+
+- **chat-server** gets the strongest treatment (`readOnlyRootFilesystem:
+  true`) since it's our own distroless static binary with nothing to write
+  outside its PVC-mounted tsnet state.
+- **postgres** uses uid/gid `999`, the official `postgres:16-alpine` image's
+  own baked-in user — `fsGroup: 999` is what makes the PVC-mounted data
+  directory writable by it once the container is forced non-root from pod
+  start (that skips the image entrypoint's usual root-only setup phase).
+- **minio** runs as an arbitrary uid `1000`; since that has no `/etc/passwd`
+  entry, `$HOME` needs pointing somewhere writable explicitly (an `emptyDir`
+  mounted at `/home/minio-user`) or MinIO fails trying to write its local
+  config there.
+- **livekit**'s uid `1000` is a generic non-root choice, not verified
+  against that image's actual internals the way postgres's `999` is — if it
+  fails to start with a permissions error, check what uid/gid the image
+  itself expects.
+
+Not done here, worth adding later: `NetworkPolicy`s restricting which pods
+can talk to which (right now anything in the `roost` namespace can reach
+postgres/minio's ports), and Pod Security Standards enforcement at the
+namespace level (`pod-security.kubernetes.io/enforce: restricted` on
+`k8s/namespace.yaml`) so a future manifest can't silently regress this.

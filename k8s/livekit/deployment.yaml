@@ -49,9 +49,27 @@ spec:
       labels:
         app: livekit
     spec:
+      automountServiceAccountToken: false # this pod never talks to the k8s API
+      securityContext:
+        runAsNonRoot: true
+        # 1000 is a generic non-root uid, not something verified against
+        # livekit-server's actual image internals (unlike postgres's 999,
+        # which is that image's own documented user) — this container has no
+        # volumes and only needs to read LIVEKIT_CONFIG from an env var and
+        # bind non-privileged ports, so any uid should work, but if it fails
+        # to start with a permissions error, check what uid/gid the image
+        # itself expects and use that instead.
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: livekit
           image: livekit/livekit-server:latest # matches docker-compose.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: LIVEKIT_CONFIG
               valueFrom:
