@@ -375,12 +375,41 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
+// safeInlineMediaContentTypes are the content types handleGetMedia will
+// ever echo back verbatim — the client-supplied Content-Type on upload
+// (handleUploadMedia) is stored as-is and otherwise untrusted, so serving
+// it back unfiltered would let an uploader store arbitrary bytes under an
+// arbitrary Content-Type (e.g. text/html, or image/svg+xml, which browsers
+// execute embedded <script> in) and have it render as active content for
+// anyone who opens the media URL directly — a stored-XSS path. Deliberately
+// excludes image/svg+xml for that reason. Anything not on this list is
+// still served (FR2.4 never rejects/deletes an upload), just as a forced
+// download instead of inline-renderable content.
+var safeInlineMediaContentTypes = map[string]bool{
+	"image/jpeg":       true,
+	"image/png":        true,
+	"image/gif":        true,
+	"image/webp":       true,
+	"image/heic":       true,
+	"image/heif":       true,
+	"video/mp4":        true,
+	"video/quicktime":  true,
+	"video/webm":       true,
+	"video/x-matroska": true,
+	"video/3gpp":       true,
+}
+
 // handleGetMedia streams a media object's bytes back, for both inline
-// display and download (FR2.3). Any authenticated (tailnet) user can fetch
-// any media object by ID: per "trust follows the network", there's no
-// separate per-object ACL to check, consistent with family-scale simplicity
-// over building out a full authorization graph for a rarely-guessed UUID.
+// display and download (FR2.3). Requires the caller to be a member of the
+// room the media's message belongs to — forwarded media is always a
+// duplicated, independent copy with its own message (FR1.11), never shared
+// by reference across rooms, so a media object always belongs to exactly
+// one room and this check is unambiguous.
 func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	mediaID := chi.URLParam(r, "mediaID")
 	obj, err := s.Store.GetMediaObject(r.Context(), mediaID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -392,6 +421,15 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	message, err := s.Store.GetMessageByMediaID(r.Context(), mediaID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up the message for this media")
+		return
+	}
+	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return
+	}
+
 	reader, err := s.Media.Get(r.Context(), obj.ObjectKey)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "media not found")
@@ -399,7 +437,13 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer reader.Close()
 
-	w.Header().Set("Content-Type", obj.ContentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff") // belt-and-braces: never let a browser re-sniff this into something more dangerous than what's set below
+	if safeInlineMediaContentTypes[obj.ContentType] {
+		w.Header().Set("Content-Type", obj.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment")
+	}
 	w.Header().Set("Content-Length", strconv.FormatInt(obj.SizeBytes, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable") // FR2.4: media never changes once uploaded
 	_, _ = io.Copy(w, reader)
@@ -602,13 +646,28 @@ func (s *Server) handleAckReceipts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.Store.MarkReceipts(r.Context(), roomID, userID, body.MessageIDs, seen); err != nil {
+	// A caller only belongs to roomID, but body.MessageIDs is otherwise
+	// unverified — filter to just the IDs that really belong to this room
+	// before anything else touches them, so a real message ID from a room
+	// this caller isn't in can't leak that room's receipt state back to
+	// them (see FilterMessageIDsInRoom's doc comment).
+	messageIDs, err := s.Store.FilterMessageIDsInRoom(r.Context(), roomID, body.MessageIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not validate message ids")
+		return
+	}
+	if len(messageIDs) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if err := s.Store.MarkReceipts(r.Context(), roomID, userID, messageIDs, seen); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not record receipts")
 		return
 	}
 
-	messages := make([]models.Message, len(body.MessageIDs))
-	for i, id := range body.MessageIDs {
+	messages := make([]models.Message, len(messageIDs))
+	for i, id := range messageIDs {
 		messages[i] = models.Message{ID: id, RoomID: roomID}
 	}
 	if err := s.Store.AttachStatus(r.Context(), messages); err != nil {

@@ -383,6 +383,51 @@ func TestStore_MessageReceipts_ScopedToRoom(t *testing.T) {
 	}
 }
 
+// TestStore_FilterMessageIDsInRoom guards against a real bug: a handler that
+// builds a models.Message{ID: id, RoomID: <caller's own room>} stand-in for
+// a caller-supplied ID, without first checking the ID really belongs to
+// that room, would let AttachStatus read and re-broadcast another room's
+// real receipt state. FilterMessageIDsInRoom is what handleAckReceipts now
+// uses to reject those IDs before they reach AttachStatus at all.
+func TestStore_FilterMessageIDsInRoom(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-fmi-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-fmi-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	roomA, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room a: %v", err)
+	}
+	roomB, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room b: %v", err)
+	}
+	msgInA, err := s.CreateTextMessage(ctx, roomA.ID, alice.ID, "belongs to room a", nil, false)
+	if err != nil {
+		t.Fatalf("create message in room a: %v", err)
+	}
+	msgInB, err := s.CreateTextMessage(ctx, roomB.ID, alice.ID, "belongs to room b", nil, false)
+	if err != nil {
+		t.Fatalf("create message in room b: %v", err)
+	}
+
+	got, err := s.FilterMessageIDsInRoom(ctx, roomA.ID, []string{msgInA.ID, msgInB.ID, "not-a-real-id"})
+	if err != nil {
+		t.Fatalf("filter message ids in room: %v", err)
+	}
+	if len(got) != 1 || got[0] != msgInA.ID {
+		t.Fatalf("got %v, want only [%s] (room b's and the bogus id must be excluded)", got, msgInA.ID)
+	}
+}
+
 func TestStore_MediaMessages(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

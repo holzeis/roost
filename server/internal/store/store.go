@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -745,6 +746,48 @@ func (s *Store) AttachStatus(ctx context.Context, messages []models.Message) err
 		m.Status = models.ComputeMessageStatus(recipients, counts[0], counts[1])
 	}
 	return nil
+}
+
+// FilterMessageIDsInRoom returns the subset of messageIDs that actually
+// belong to roomID. Callers that take a caller-supplied roomID and a
+// caller-supplied list of message IDs (like handleAckReceipts) must use
+// this before doing anything else with those IDs — otherwise a member of
+// room A could reference a real message ID from room B they don't belong
+// to, and a naive `models.Message{ID: id, RoomID: roomID}` stand-in would
+// let AttachStatus read and re-broadcast room B's real receipt state under
+// room A's cover, even though MarkReceipts' own room_id scoping already
+// stops the write itself.
+func (s *Store) FilterMessageIDsInRoom(ctx context.Context, roomID string, messageIDs []string) ([]string, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	// id is a uuid column, so a malformed (non-UUID) caller-supplied string
+	// would otherwise fail the whole query with a Postgres cast error
+	// instead of just being excluded like any other non-matching id.
+	validIDs := make([]string, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		if _, err := uuid.Parse(id); err == nil {
+			validIDs = append(validIDs, id)
+		}
+	}
+	if len(validIDs) == 0 {
+		return nil, nil
+	}
+	const q = `SELECT id FROM messages WHERE id = ANY($1) AND room_id = $2`
+	rows, err := s.pool.Query(ctx, q, validIDs, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("store: filter message ids in room: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: scan filtered message id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // MarkReceipts records that userID has received (and, if seen is true, also
