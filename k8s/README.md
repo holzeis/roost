@@ -92,8 +92,13 @@ since none of these pods call the Kubernetes API.
   fails to start with a permissions error, check what uid/gid the image
   itself expects.
 
+`k8s/namespace.yaml` also enforces the Pod Security Standards "restricted"
+profile at admission time (`pod-security.kubernetes.io/enforce: restricted`)
+— any future pod spec in this namespace that doesn't meet the bar above gets
+rejected outright, not just flagged. The Tailscale operator's own proxy
+pods run in its own namespace (`tailscale` by default), not `roost`, so
+this doesn't affect them.
+
 Not done here, worth adding later: `NetworkPolicy`s restricting which pods
 can talk to which (right now anything in the `roost` namespace can reach
-postgres/minio's ports), and Pod Security Standards enforcement at the
-namespace level (`pod-security.kubernetes.io/enforce: restricted` on
-`k8s/namespace.yaml`) so a future manifest can't silently regress this.
+postgres/minio's ports, PSS doesn't govern network traffic).

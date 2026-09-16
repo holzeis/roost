@@ -2,3 +2,15 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: roost
+  labels:
+    # Pod Security Standards, enforced at admission time — every pod spec in
+    # this namespace must meet the "restricted" profile (non-root, no added
+    # capabilities, no privilege escalation, seccomp set, no hostPath/
+    # hostNetwork/hostPID/hostIPC, etc.), matching the securityContext
+    # already set on every Deployment under k8s/. `enforce` is what actually
+    # blocks a non-compliant pod; `audit`/`warn` are redundant with it today
+    # but cost nothing and keep surfacing violations in logs/kubectl output
+    # if this ever gets loosened. See k8s/README.md's Hardening section.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
