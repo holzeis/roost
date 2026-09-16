@@ -73,6 +73,7 @@ jobs:
     permissions:
       contents: read
       security-events: write # for the SARIF upload below, scoped to just this job
+      packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -100,12 +101,20 @@ jobs:
         if: always()
         with:
           sarif_file: trivy-results.sarif
+      # Reverted from a separate GHCR_PAT secret (added in 2e3ff67 to work
+      # around a permissions error) back to the ephemeral per-run
+      # GITHUB_TOKEN now that packages: write is granted explicitly above —
+      # a long-lived PAT is a bigger standing credential than this needs. If
+      # this still fails with a permissions error, check Settings > Actions
+      # > General > Workflow permissions on the repo — an org/repo-level
+      # "read only" default can still restrict what GITHUB_TOKEN gets
+      # issued with regardless of what's declared here.
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: github.event_name == 'push'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT  }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: server
