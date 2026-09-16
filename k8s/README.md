@@ -38,6 +38,7 @@ kubectl apply -f k8s/postgres/
 kubectl apply -f k8s/minio/
 kubectl apply -f k8s/livekit/
 kubectl apply -f k8s/chat-server/
+kubectl apply -f k8s/network-policies.yaml
 ```
 
 ## Why chat-server has no Service exposure
@@ -99,6 +100,15 @@ rejected outright, not just flagged. The Tailscale operator's own proxy
 pods run in its own namespace (`tailscale` by default), not `roost`, so
 this doesn't affect them.
 
-Not done here, worth adding later: `NetworkPolicy`s restricting which pods
-can talk to which (right now anything in the `roost` namespace can reach
-postgres/minio's ports, PSS doesn't govern network traffic).
+`k8s/network-policies.yaml` adds a default-deny-ingress policy plus explicit
+allows: only chat-server can reach postgres/minio, and only the Tailscale
+operator's own proxy pod (a different namespace) can reach livekit.
+
+**Important**: NetworkPolicy objects only do anything if your cluster's CNI
+actually enforces them. k3s's default CNI, Flannel, does **not** — it's a
+pure overlay network with no policy engine, so these manifests would apply
+successfully via `kubectl` and then silently do nothing. Check with
+`kubectl get pods -n kube-system` for a policy controller (Calico,
+Cilium, kube-router) — if there isn't one, either swap k3s's CNI (`k3s
+server --flannel-backend=none` plus installing Calico/Cilium separately) or
+add a lightweight policy-only companion like kube-router alongside Flannel.
