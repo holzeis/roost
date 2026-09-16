@@ -73,6 +73,7 @@ jobs:
     permissions:
       contents: read
       security-events: write # for the SARIF upload below, scoped to just this job
+      actions: read # codeql-action/upload-sarif needs this on private repos to read check-suite info
       packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
