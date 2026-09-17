@@ -7,9 +7,8 @@ on:
     branches: [main]
   pull_request:
 
-# Least-privilege default: nothing here needs to write anything via
-# GITHUB_TOKEN (the GHCR push authenticates with a separate PAT, not this
-# token) — every job only checks out the repo.
+# Least-privilege default; jobs that need more (server-image, for the GHCR
+# push) grant it explicitly in their own permissions block.
 permissions:
   contents: read
 
@@ -72,6 +71,7 @@ jobs:
     needs: [server-test, server-build-matrix]
     permissions:
       contents: read
+      packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -98,19 +98,19 @@ jobs:
           format: table
           exit-code: "0"
           severity: "CRITICAL,HIGH"
-      # GITHUB_TOKEN (even with packages: write granted) hit a real, GHCR-side
-      # "permission_denied: read_package" pushing to this personal-account
-      # namespace — most likely because the package already existed and
-      # wasn't linked to this repo's Actions access, which no permissions
-      # block in this file can fix. Back to the GHCR_PAT secret, which is
-      # known-working; revisit only if the package is explicitly re-linked
-      # via its own Settings > Manage Actions access.
+      # GITHUB_TOKEN previously hit "permission_denied: read_package" here:
+      # the roost-chat-server package was originally created by a push
+      # authenticated with a personal GHCR_PAT, not this repo's own
+      # GITHUB_TOKEN, so it was never auto-linked to holzeis/roost's Actions
+      # access. Fixed on GitHub's side (package Settings > Manage Actions
+      # access > holzeis/roost, Write role) rather than by keeping a
+      # standing PAT secret around.
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: github.event_name == 'push'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PAT }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: server
