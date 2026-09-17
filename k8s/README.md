@@ -112,3 +112,14 @@ successfully via `kubectl` and then silently do nothing. Check with
 Cilium, kube-router) — if there isn't one, either swap k3s's CNI (`k3s
 server --flannel-backend=none` plus installing Calico/Cilium separately) or
 add a lightweight policy-only companion like kube-router alongside Flannel.
+
+**Not done yet, deliberately deferred**: chat-server's `DATABASE_URL` uses
+`sslmode=disable` — the `postgres:16-alpine` image has no TLS configured out
+of the box (no cert/key, `ssl` off in `postgresql.conf`), so this matches
+reality rather than being a considered trade-off. That means the
+chat-server↔postgres hop is unencrypted cluster-internal traffic, unrelated
+to (and not covered by) Tailscale's own WireGuard encryption, which only
+applies to the tailnet-facing hops. Worth fixing (enable `ssl = on` with a
+cert on the postgres pod, switch the DSN to `sslmode=verify-ca`), but held
+until NetworkPolicy enforcement above is confirmed actually working —
+that's the more foundational half of the same "who can reach postgres" gap.
