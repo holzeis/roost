@@ -116,7 +116,9 @@ jobs:
           context: server
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
-          tags: ghcr.io/${{ github.repository }}-chat-server:${{ github.sha }}
+          tags: |
+            ghcr.io/${{ github.repository }}-chat-server:${{ github.sha }}
+            ghcr.io/${{ github.repository }}-chat-server:latest
 
   app-test:
     name: app / analyze + test
