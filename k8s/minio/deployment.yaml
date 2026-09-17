@@ -35,6 +35,7 @@ spec:
         app: minio
     spec:
       automountServiceAccountToken: false # this pod never talks to the k8s API
+      enableServiceLinks: false # avoid Kubernetes' auto-injected <SVC>_PORT-style env vars; everything here uses explicit DNS names instead
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

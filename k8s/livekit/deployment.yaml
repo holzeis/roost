@@ -50,6 +50,14 @@ spec:
         app: livekit
     spec:
       automountServiceAccountToken: false # this pod never talks to the k8s API
+      # Kubernetes auto-injects a LIVEKIT_PORT=tcp://<clusterIP>:7880 env var
+      # into every pod in this namespace, from the "livekit" Service's own
+      # name (Docker-links-style discovery) — livekit-server also reads
+      # LIVEKIT_PORT itself, as its own --port flag equivalent, expecting a
+      # bare integer. The collision crashes it on startup ("could not parse
+      # ... as uint value"). This disables that auto-injection; nothing here
+      # relies on it anyway (LIVEKIT_CONFIG below is explicit).
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         # 1000 is a generic non-root uid, not something verified against
