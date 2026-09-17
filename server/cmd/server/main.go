@@ -83,7 +83,12 @@ func run() error {
 	// server exists purely for that: bound to loopback only, so it adds no
 	// externally reachable surface, and kubelet-to-pod traffic is already
 	// cluster-internal.
-	probeServer := &http.Server{Addr: "127.0.0.1:9000", Handler: probeMux()}
+	// Binds all interfaces, not just loopback: the kubelet's httpGet probe
+	// connects to the pod's real IP from the node's own network namespace,
+	// so a loopback-only bind here would make readiness/liveness checks
+	// unreachable (127.0.0.1 in that context means the node's own loopback,
+	// not this container's). /healthz returns nothing sensitive either way.
+	probeServer := &http.Server{Addr: ":9000", Handler: probeMux()}
 	go func() {
 		if err := probeServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("probe server exited", "error", err)

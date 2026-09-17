@@ -22,6 +22,7 @@ spec:
         app: chat-server
     spec:
       automountServiceAccountToken: false # this pod never talks to the k8s API
+      enableServiceLinks: false # avoid Kubernetes' auto-injected <SVC>_PORT-style env vars; everything here uses explicit DNS names instead
       securityContext:
         runAsNonRoot: true
         # 65532 is distroless's baked-in "nonroot" uid/gid (see the
@@ -96,18 +97,22 @@ spec:
           readinessProbe:
             # This checks only that the process is up, not that it has an
             # active tailnet session — the real API is only reachable inside
-            # the tailnet (see cmd/server's probeServer doc comment).
+            # the tailnet (see cmd/server's probeServer doc comment). No
+            # explicit host here — the kubelet's probe runs from the node's
+            # own network namespace and connects to the pod's real IP by
+            # default; an explicit "127.0.0.1" would instead target the
+            # *node's* own loopback (a different, real bug this used to
+            # have, since probeServer itself binds all interfaces, not just
+            # loopback, precisely so this default reaches it).
             httpGet:
               path: /healthz
               port: 9000
-              host: 127.0.0.1
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
               port: 9000
-              host: 127.0.0.1
             initialDelaySeconds: 10
             periodSeconds: 20
           resources:
