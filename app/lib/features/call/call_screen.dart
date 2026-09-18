@@ -43,6 +43,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   late bool _cameraOn = !widget.audioOnly;
   bool _connecting = true;
   String? _error;
+  String? _mediaWarning;
   bool _leaving = false;
   final _stopwatch = Stopwatch();
 
@@ -80,9 +81,31 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         ..on<lk.LocalTrackPublishedEvent>((_) => mounted ? setState(() {}) : null);
 
       await _room.connect(livekitUrl, token);
-      await _room.localParticipant?.setMicrophoneEnabled(true);
+
+      // Capturing local media can fail independently of the connection
+      // itself — no camera at all (iOS Simulator), a denied permission, a
+      // device already in use by another app. By this point we've already
+      // joined the room, so failing the whole call over it would be wrong:
+      // a participant who can't publish can still see and hear everyone
+      // else. Each track is enabled separately so one failing doesn't take
+      // the other down with it, and the UI just reflects what's off.
+      final unavailable = <String>[];
+      try {
+        await _room.localParticipant?.setMicrophoneEnabled(true);
+      } catch (_) {
+        _micOn = false;
+        unavailable.add('Microphone');
+      }
       if (_cameraOn) {
-        await _room.localParticipant?.setCameraEnabled(true);
+        try {
+          await _room.localParticipant?.setCameraEnabled(true);
+        } catch (_) {
+          _cameraOn = false;
+          unavailable.add('Camera');
+        }
+      }
+      if (unavailable.isNotEmpty) {
+        _mediaWarning = '${unavailable.join(' and ')} unavailable';
       }
       _stopwatch.start();
 
@@ -115,15 +138,28 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     if (mounted) Navigator.of(context).maybePop();
   }
 
+  // Both toggles can throw for the same reasons the initial capture can
+  // (no such device, permission denied) — turning one back on is a fresh
+  // capture attempt, not just a mute flag, so it needs the same handling.
   Future<void> _toggleMic() async {
     final next = !_micOn;
-    await _room.localParticipant?.setMicrophoneEnabled(next);
+    try {
+      await _room.localParticipant?.setMicrophoneEnabled(next);
+    } catch (_) {
+      if (mounted) setState(() => _mediaWarning = 'Microphone unavailable');
+      return;
+    }
     if (mounted) setState(() => _micOn = next);
   }
 
   Future<void> _toggleCamera() async {
     final next = !_cameraOn;
-    await _room.localParticipant?.setCameraEnabled(next);
+    try {
+      await _room.localParticipant?.setCameraEnabled(next);
+    } catch (_) {
+      if (mounted) setState(() => _mediaWarning = 'Camera unavailable');
+      return;
+    }
     if (mounted) setState(() => _cameraOn = next);
   }
 
@@ -191,6 +227,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                     )
                   : _CallDuration(stopwatch: _stopwatch),
             ),
+            if (_mediaWarning != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  _mediaWarning!,
+                  style: const TextStyle(color: CallColors.danger, fontSize: 11),
+                ),
+              ),
             Expanded(
               child: remote.length <= 1 && !widget.isGroup
                   ? _SoloLayout(
