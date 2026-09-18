@@ -9,14 +9,17 @@
 # 2. Explicit allows carve back exactly what's needed:
 #    - chat-server -> postgres:5432
 #    - chat-server -> minio:9000
-#    - the Tailscale operator's proxy pod (a different namespace,
-#      `tailscale` by default) -> livekit's signaling/RTC ports, since
-#      that's how tailnet clients actually reach it (see k8s/livekit's own
-#      comments on why it's exposed via a LoadBalancer-class Service).
 # chat-server itself gets no explicit allow-ingress rule: nothing in normal
 # cluster networking needs to reach it (it has no Service — see
 # k8s/chat-server/deployment.yaml — and is only reachable via its own
 # embedded tsnet listener), so the default-deny below is exactly right for it.
+#
+# LiveKit isn't covered here at all: it now lives in the `roost-media`
+# namespace as its own tailnet node (see k8s/livekit/deployment.yaml), and
+# its traffic arrives over the WireGuard interface inside its pod rather
+# than through cluster networking, so NetworkPolicy isn't the control point
+# for it. Deliberately left without a policy of its own rather than adding a
+# speculative one that might silently break the media path again.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -61,66 +64,3 @@ spec:
               app: chat-server
       ports:
         - port: 9000
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: livekit-allow-tailscale-operator
-  namespace: roost
-spec:
-  podSelector:
-    matchLabels:
-      app: livekit
-  policyTypes: ["Ingress"]
-  ingress:
-    - from:
-        # kubernetes.io/metadata.name is a built-in label every namespace
-        # gets automatically (k8s 1.21+) — no manual labeling needed.
-        # Adjust if your Tailscale operator install uses a different
-        # namespace than the default.
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: tailscale
-      ports:
-        - port: 7880
-        - port: 7881
-        - port: 50000
-          protocol: UDP
-        - port: 50001
-          protocol: UDP
-        - port: 50002
-          protocol: UDP
-        - port: 50003
-          protocol: UDP
-        - port: 50004
-          protocol: UDP
-        - port: 50005
-          protocol: UDP
-        - port: 50006
-          protocol: UDP
-        - port: 50007
-          protocol: UDP
-        - port: 50008
-          protocol: UDP
-        - port: 50009
-          protocol: UDP
-        - port: 50010
-          protocol: UDP
-        - port: 50011
-          protocol: UDP
-        - port: 50012
-          protocol: UDP
-        - port: 50013
-          protocol: UDP
-        - port: 50014
-          protocol: UDP
-        - port: 50015
-          protocol: UDP
-        - port: 50016
-          protocol: UDP
-        - port: 50017
-          protocol: UDP
-        - port: 50018
-          protocol: UDP
-        - port: 50019
-          protocol: UDP

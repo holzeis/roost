@@ -6,7 +6,7 @@ service is a plain Kubernetes manifest — no Helm.
 
 ## Prerequisites
 
-- A k3s cluster with the [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) installed (needed for LiveKit's `LoadBalancer` exposure).
+- A k3s cluster. The [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) is **not** required — both services that need tailnet reachability provide it themselves (chat-server embeds `tsnet`; LiveKit runs a Tailscale sidecar), so nothing here depends on the operator's `LoadBalancer` exposure.
 - [Longhorn](https://longhorn.io/) installed, providing a `longhorn` StorageClass. This is a real multi-node cluster (mixed arm64/amd64 hardware), not a single box — k3s's built-in default `local-path` StorageClass ties a volume to whichever node the pod first lands on and doesn't let it follow the pod elsewhere, which breaks on any node failure/drain/reboot. Every PVC below sets `storageClassName: longhorn` for that reason. If your Longhorn install uses a different StorageClass name, update each PVC to match.
 - Every image used here (`postgres:16-alpine`, `quay.io/minio/minio`, `livekit/livekit-server`, and the CI-built chat-server image) publishes multi-arch manifests covering both amd64 and arm64, matching `CLAUDE.md`'s requirement and this cluster's mixed Raspberry Pi 4 / ThinkCentre hardware — Kubernetes resolves the right architecture per node automatically, no per-node manifest changes needed.
 
@@ -18,14 +18,18 @@ command; this table is the one-page summary. Where a secret is shared by
 two services, the same credential value has to be kept in sync manually —
 Kubernetes has no way to derive one secret's value from another.
 
-| Secret | Keys | Used by |
-|---|---|---|
-| `chat-server-tailscale` | `authkey` | chat-server (its own tailnet identity) |
-| `postgres-password` | `password` | postgres pod |
-| `chat-server-db` | `url` (full `postgres://...` DSN, embedding the same password as `postgres-password`) | chat-server |
-| `chat-server-minio` | `access-key`, `secret-key` | both minio pod and chat-server |
-| `livekit-config` | `config.yaml` (full LiveKit config, embedding the same key/secret pair as `chat-server-livekit`) | livekit pod |
-| `chat-server-livekit` | `api-key`, `api-secret` | chat-server (mints JWTs LiveKit must trust) |
+Note the namespace column — LiveKit's two secrets live in `roost-media`,
+everything else in `roost`.
+
+| Secret | Namespace | Keys | Used by |
+|---|---|---|---|
+| `chat-server-tailscale` | `roost` | `authkey` | chat-server (its own tailnet identity) |
+| `postgres-password` | `roost` | `password` | postgres pod |
+| `chat-server-db` | `roost` | `url` (full `postgres://...` DSN, embedding the same password as `postgres-password`) | chat-server |
+| `chat-server-minio` | `roost` | `access-key`, `secret-key` | both minio pod and chat-server |
+| `chat-server-livekit` | `roost` | `api-key`, `api-secret` | chat-server (mints JWTs LiveKit must trust) |
+| `livekit-config` | `roost-media` | `config.yaml` (full LiveKit config, embedding the same key/secret pair as `chat-server-livekit`, plus `rtc.node_ip`) | livekit pod |
+| `livekit-tailscale` | `roost-media` | `authkey` | LiveKit's Tailscale sidecar |
 
 ## Order of operations
 
@@ -41,6 +45,32 @@ kubectl apply -f k8s/chat-server/
 kubectl apply -f k8s/network-policies.yaml
 ```
 
+## LiveKit's two-phase `node_ip` setup
+
+LiveKit has to advertise an ICE candidate address clients can route to, and
+that address is the tailnet IP its sidecar gets — which isn't known until
+the pod has registered once. So the first deploy is two-phase:
+
+```sh
+# 1. Deploy without node_ip. The pod starts; LiveKit works for signaling
+#    but media won't connect yet.
+kubectl apply -f k8s/livekit/
+
+# 2. Read the tailnet IP the sidecar registered (or find roost-livekit in
+#    `tailscale status` / the admin console):
+kubectl exec -n roost-media deploy/livekit -c tailscale -- tailscale ip -4
+
+# 3. Put that address in the config's rtc.node_ip and restart:
+#    (recreate the livekit-config secret with `node_ip: <that address>`
+#    under the rtc: block, then)
+kubectl rollout restart deploy/livekit -n roost-media
+```
+
+The sidecar's state lives on a PVC, so the identity and IP stay stable
+across restarts — this is a one-time step, not something to redo on every
+deploy. If you ever delete that PVC, the node re-registers with a new
+address and `node_ip` has to be updated to match.
+
 ## Why chat-server has no Service exposure
 
 It's the one fully custom component (architecture doc: "the chat server is
@@ -52,14 +82,26 @@ means `k8s/chat-server/deployment.yaml` needs a reusable Tailscale auth key
 (`chat-server-tailscale` secret, key `authkey`) rather than the operator
 managing its tailnet presence.
 
-## LiveKit's media port range
+## Why LiveKit is its own tailnet node
 
-`docker-compose.yml` exposes LiveKit's full `50000-50100` UDP range because
-Docker supports port ranges directly. Kubernetes Services don't — each port
-needs its own entry — so `k8s/livekit/deployment.yaml` narrows this to 20
-ports (`50000-50019`), enough for several concurrent family-scale calls.
-Widen it (both the container ports, the Service ports, and `livekit-config`'s
-`port_range_end`) if you need more concurrent call capacity.
+Same reason as chat-server, reached from the opposite direction. LiveKit was
+originally exposed through the Tailscale operator's `LoadBalancer`-class
+Service, which is fine for TCP signaling but breaks WebRTC media: an SFU has
+to advertise ICE candidates clients can actually route to, and LiveKit —
+seeing only its pod IP behind the proxy — advertised `10.42.x.x`, which no
+phone on the tailnet can reach. Calls connected to signaling and then died
+with `Timed Out waiting for PeerConnection to connect`.
+
+A Tailscale sidecar sharing the pod's network namespace fixes it: the pod
+gets a real `100.x.y.z` address, `rtc.node_ip` points at it, and media flows
+client→pod directly over WireGuard with full UDP. That also means **LiveKit
+has no Service at all** now, exactly like chat-server — nothing in-cluster
+connects to it (chat-server only mints JWTs locally; it never opens a
+connection), and clients reach it at `roost-livekit.<tailnet>.ts.net`.
+
+The media port range (`50000-50019` in the config) no longer has to be
+enumerated anywhere, since nothing proxies it — widen it in `livekit-config`
+alone if you need more concurrent call capacity.
 
 ## Image
 
@@ -96,9 +138,21 @@ since none of these pods call the Kubernetes API.
 `k8s/namespace.yaml` also enforces the Pod Security Standards "restricted"
 profile at admission time (`pod-security.kubernetes.io/enforce: restricted`)
 — any future pod spec in this namespace that doesn't meet the bar above gets
-rejected outright, not just flagged. The Tailscale operator's own proxy
-pods run in its own namespace (`tailscale` by default), not `roost`, so
-this doesn't affect them.
+rejected outright, not just flagged.
+
+**The one deliberate carve-out**: LiveKit lives in a separate `roost-media`
+namespace enforcing `baseline` rather than `restricted`, because its
+Tailscale sidecar needs `NET_ADMIN` to bring up a kernel-mode tailnet
+interface — and `restricted` forbids adding any capability. The alternatives
+were worse: `hostNetwork` (forbidden by `baseline` too, and it would expose
+the node's whole network stack rather than one pod's), or userspace-mode
+Tailscale (no added capability, but it forwards inbound UDP poorly — which
+is exactly what the media path needs). Isolating it in its own namespace
+keeps `roost` fully restricted instead of loosening everything for one pod's
+requirement, and `baseline` still blocks privileged containers, host
+namespaces, hostPath volumes and host ports. LiveKit's own container within
+that pod remains non-root with all capabilities dropped; only the sidecar
+holds the extra privilege.
 
 `k8s/network-policies.yaml` adds a default-deny-ingress policy plus explicit
 allows: only chat-server can reach postgres/minio, and only the Tailscale
