@@ -19,15 +19,15 @@
 # opens a connection), and clients reach it at roost-livekit.<tailnet>.ts.net
 # via the sidecar's TS_HOSTNAME.
 #
-# Secrets, created out-of-band in THIS namespace (roost-media, not roost):
-#   livekit-config   (key: config.yaml)  - full LiveKit config, incl. keys + rtc.node_ip
+# Secrets, created out-of-band:
+#   livekit-config    (key: config.yaml) - full LiveKit config, incl. keys + rtc.node_ip
 #   livekit-tailscale (key: authkey)     - a reusable Tailscale auth key
 # See k8s/README.md for the exact commands and the two-phase node_ip step.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: livekit
-  namespace: roost-media
+  namespace: roost
   labels:
     app: livekit
 spec:
@@ -86,11 +86,13 @@ spec:
           image: tailscale/tailscale:stable
           securityContext:
             # Kernel-mode networking needs NET_ADMIN to bring up the tailnet
-            # interface. This is the one privilege this whole deployment
-            # asks for, and why it lives in a `baseline` namespace rather
-            # than `roost`'s `restricted` one. Userspace mode would avoid
-            # it, but forwards inbound UDP poorly — which is precisely what
-            # the media path needs.
+            # interface. This is the one elevated privilege in the whole
+            # deployment, and the reason the namespace carries no Pod
+            # Security Standards label — both `restricted` and `baseline`
+            # forbid adding NET_ADMIN (see k8s/namespace.yaml). Userspace
+            # mode would avoid the capability but forwards inbound UDP
+            # poorly, which is precisely what the media path needs.
+            # Everything else here stays non-root with all caps dropped.
             capabilities:
               add: ["NET_ADMIN"]
           env:
@@ -123,7 +125,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: livekit-tailscale-state
-  namespace: roost-media
+  namespace: roost
 spec:
   # Persisting tailscaled's state keeps the node identity — and therefore
   # the 100.x.y.z address that rtc.node_ip is pinned to — stable across

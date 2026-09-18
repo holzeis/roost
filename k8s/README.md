@@ -18,18 +18,15 @@ command; this table is the one-page summary. Where a secret is shared by
 two services, the same credential value has to be kept in sync manually —
 Kubernetes has no way to derive one secret's value from another.
 
-Note the namespace column — LiveKit's two secrets live in `roost-media`,
-everything else in `roost`.
-
-| Secret | Namespace | Keys | Used by |
-|---|---|---|---|
-| `chat-server-tailscale` | `roost` | `authkey` | chat-server (its own tailnet identity) |
-| `postgres-password` | `roost` | `password` | postgres pod |
-| `chat-server-db` | `roost` | `url` (full `postgres://...` DSN, embedding the same password as `postgres-password`) | chat-server |
-| `chat-server-minio` | `roost` | `access-key`, `secret-key` | both minio pod and chat-server |
-| `chat-server-livekit` | `roost` | `api-key`, `api-secret` | chat-server (mints JWTs LiveKit must trust) |
-| `livekit-config` | `roost-media` | `config.yaml` (full LiveKit config, embedding the same key/secret pair as `chat-server-livekit`, plus `rtc.node_ip`) | livekit pod |
-| `livekit-tailscale` | `roost-media` | `authkey` | LiveKit's Tailscale sidecar |
+| Secret | Keys | Used by |
+|---|---|---|
+| `chat-server-tailscale` | `authkey` | chat-server (its own tailnet identity) |
+| `postgres-password` | `password` | postgres pod |
+| `chat-server-db` | `url` (full `postgres://...` DSN, embedding the same password as `postgres-password`) | chat-server |
+| `chat-server-minio` | `access-key`, `secret-key` | both minio pod and chat-server |
+| `chat-server-livekit` | `api-key`, `api-secret` | chat-server (mints JWTs LiveKit must trust) |
+| `livekit-config` | `config.yaml` (full LiveKit config, embedding the same key/secret pair as `chat-server-livekit`, plus `rtc.node_ip`) | livekit pod |
+| `livekit-tailscale` | `authkey` | LiveKit's Tailscale sidecar |
 
 ## Order of operations
 
@@ -58,12 +55,12 @@ kubectl apply -f k8s/livekit/
 
 # 2. Read the tailnet IP the sidecar registered (or find roost-livekit in
 #    `tailscale status` / the admin console):
-kubectl exec -n roost-media deploy/livekit -c tailscale -- tailscale ip -4
+kubectl exec -n roost deploy/livekit -c tailscale -- tailscale ip -4
 
 # 3. Put that address in the config's rtc.node_ip and restart:
 #    (recreate the livekit-config secret with `node_ip: <that address>`
 #    under the rtc: block, then)
-kubectl rollout restart deploy/livekit -n roost-media
+kubectl rollout restart deploy/livekit -n roost
 ```
 
 The sidecar's state lives on a PVC, so the identity and IP stay stable
@@ -135,24 +132,27 @@ since none of these pods call the Kubernetes API.
   fails to start with a permissions error, check what uid/gid the image
   itself expects.
 
-`k8s/namespace.yaml` also enforces the Pod Security Standards "restricted"
-profile at admission time (`pod-security.kubernetes.io/enforce: restricted`)
-— any future pod spec in this namespace that doesn't meet the bar above gets
-rejected outright, not just flagged.
+The one exception is **LiveKit's Tailscale sidecar**, which needs
+`NET_ADMIN` to bring up a kernel-mode tailnet interface. LiveKit's own
+container in that pod still runs non-root with all capabilities dropped —
+only the sidecar holds the extra privilege, and it's what makes the media
+path work at all (userspace-mode Tailscale avoids the capability but
+forwards inbound UDP poorly; `hostNetwork` would expose the whole node's
+network stack rather than one pod's, which is strictly worse).
 
-**The one deliberate carve-out**: LiveKit lives in a separate `roost-media`
-namespace enforcing `baseline` rather than `restricted`, because its
-Tailscale sidecar needs `NET_ADMIN` to bring up a kernel-mode tailnet
-interface — and `restricted` forbids adding any capability. The alternatives
-were worse: `hostNetwork` (forbidden by `baseline` too, and it would expose
-the node's whole network stack rather than one pod's), or userspace-mode
-Tailscale (no added capability, but it forwards inbound UDP poorly — which
-is exactly what the media path needs). Isolating it in its own namespace
-keeps `roost` fully restricted instead of loosening everything for one pod's
-requirement, and `baseline` still blocks privileged containers, host
-namespaces, hostPath volumes and host ports. LiveKit's own container within
-that pod remains non-root with all capabilities dropped; only the sidecar
-holds the extra privilege.
+**No Pod Security Standards labels are set on the namespace**, deliberately.
+An earlier revision enforced `restricted`, but *both* `restricted` and
+`baseline` forbid adding `NET_ADMIN` — restricted requires dropping all
+capabilities and permits adding only `NET_BIND_SERVICE`, and baseline
+permits only the default capability set, which doesn't include `NET_ADMIN`
+either. Keeping admission enforcement would have meant either a PSS
+exemption configured at the API-server level (`AdmissionConfiguration`, not
+expressible in a manifest and requiring k3s server config changes) or
+splitting LiveKit into its own unlabelled namespace — neither justified by
+the benefit, since the PSS labels were only ever an admission-time backstop.
+The actual hardening is in each pod's own `securityContext` above, and all
+of it remains in force. What's lost is the guarantee that a future careless
+manifest can't silently regress it.
 
 `k8s/network-policies.yaml` adds a default-deny-ingress policy plus explicit
 allows: only chat-server can reach postgres/minio, and only the Tailscale

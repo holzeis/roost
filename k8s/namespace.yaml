@@ -1,32 +1,23 @@
+# No Pod Security Standards labels here, deliberately.
+#
+# LiveKit's Tailscale sidecar needs NET_ADMIN to bring up a kernel-mode
+# tailnet interface (see k8s/livekit/deployment.yaml for why that's the
+# media path's only workable shape). Both the `restricted` and `baseline`
+# profiles forbid it: restricted requires dropping ALL capabilities and
+# permits adding only NET_BIND_SERVICE, and baseline permits only the
+# default capability set, which doesn't include NET_ADMIN either. The only
+# ways to keep admission enforcement would be a PSS exemption configured at
+# the API-server level (AdmissionConfiguration, not expressible in a
+# manifest and needing k3s server config changes) or splitting LiveKit into
+# its own unlabelled namespace — neither worth the operational cost here.
+#
+# What still enforces the hardening: every pod's own securityContext
+# (runAsNonRoot with explicit uid/gid, all capabilities dropped, no
+# privilege escalation, RuntimeDefault seccomp, readOnlyRootFilesystem on
+# chat-server). Those are the real controls; the PSS labels were only an
+# admission-time backstop against a future manifest regressing them. See
+# k8s/README.md's Hardening section.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: roost
-  labels:
-    # Pod Security Standards, enforced at admission time — every pod spec in
-    # this namespace must meet the "restricted" profile (non-root, no added
-    # capabilities, no privilege escalation, seccomp set, no hostPath/
-    # hostNetwork/hostPID/hostIPC, etc.), matching the securityContext
-    # already set on every Deployment under k8s/. `enforce` is what actually
-    # blocks a non-compliant pod; `audit`/`warn` are redundant with it today
-    # but cost nothing and keep surfacing violations in logs/kubectl output
-    # if this ever gets loosened. See k8s/README.md's Hardening section.
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
----
-# LiveKit lives here rather than in `roost` because its Tailscale sidecar
-# needs NET_ADMIN to bring up a kernel-mode tailnet interface, which the
-# "restricted" profile forbids. Isolating it keeps `roost` fully restricted
-# instead of loosening the whole deployment for one pod's requirement.
-# "baseline" still blocks the things that actually matter here — privileged
-# containers, host namespaces, hostPath volumes, host ports — while allowing
-# the one capability the sidecar genuinely needs. See k8s/README.md.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: roost-media
-  labels:
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/audit: baseline
-    pod-security.kubernetes.io/warn: baseline

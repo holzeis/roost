@@ -14,12 +14,15 @@
 # k8s/chat-server/deployment.yaml — and is only reachable via its own
 # embedded tsnet listener), so the default-deny below is exactly right for it.
 #
-# LiveKit isn't covered here at all: it now lives in the `roost-media`
-# namespace as its own tailnet node (see k8s/livekit/deployment.yaml), and
-# its traffic arrives over the WireGuard interface inside its pod rather
-# than through cluster networking, so NetworkPolicy isn't the control point
-# for it. Deliberately left without a policy of its own rather than adding a
-# speculative one that might silently break the media path again.
+# LiveKit gets an explicit allow-all-ingress rule below rather than being
+# left to the default-deny. Its client traffic arrives over the WireGuard
+# interface inside its own pod (see k8s/livekit/deployment.yaml), which
+# shouldn't traverse the CNI's policy hooks at all — but "shouldn't" varies
+# by CNI, and a silently-dropped media path is exactly the bug that took
+# this deployment a long time to diagnose once already. Access to it is
+# gated by tailnet membership and a signed JWT regardless, so an open
+# ingress rule here costs nothing real. Tighten it if you confirm your CNI
+# leaves the tailscale interface alone.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -64,3 +67,16 @@ spec:
               app: chat-server
       ports:
         - port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: livekit-allow-ingress
+  namespace: roost
+spec:
+  podSelector:
+    matchLabels:
+      app: livekit
+  policyTypes: ["Ingress"]
+  ingress:
+    - {} # allow from anywhere: see this file's header for why
