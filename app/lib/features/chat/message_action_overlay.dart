@@ -7,12 +7,7 @@ import 'package:flutter/material.dart';
 const messageActionGap = 8.0;
 const messageActionPickerHeight = 46.0;
 const messageActionMenuRowHeight = 40.0;
-
-/// A [double.clamp] that tolerates `min > max` (a viewport too small to fit
-/// both bounds at once) by just returning `min`, instead of clamp's own
-/// ArgumentError in that case.
-double _clampRange(double value, double min, double max) =>
-    max >= min ? value.clamp(min, max) : min;
+const messageActionScreenMargin = 12.0;
 
 /// One row in the action menu (Reply, Forward, Copy, ...). Kept as plain
 /// data so the caller decides which actions apply to a given message —
@@ -111,8 +106,6 @@ class _MessageActionContentState extends State<_MessageActionContent>
     reverseDuration: const Duration(milliseconds: 140),
   )..forward();
 
-  static const _screenMargin = 12.0;
-
   Future<void> _close([VoidCallback? then]) async {
     await _controller.reverse();
     then?.call();
@@ -140,30 +133,20 @@ class _MessageActionContentState extends State<_MessageActionContent>
     final pickerOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, 1.0);
     final menuOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, -1.0);
 
-    // chat_screen.dart scrolls the message to make room before this opens,
-    // but a chat too short to scroll (nothing above/below to reveal) can't
-    // always honor that — these keep both pieces fully on screen as a last
-    // resort so they stay usable rather than landing partly off-screen.
-    final estimatedMenuHeight = widget.actions.length * messageActionMenuRowHeight + 8;
-    final menuTop = _clampRange(
-      anchorRect.bottom + messageActionGap,
-      _screenMargin,
-      screen.height - estimatedMenuHeight - _screenMargin,
-    );
-    final pickerBottom = _clampRange(
-      screen.height - anchorRect.top + messageActionGap,
-      messageActionPickerHeight + _screenMargin,
-      screen.height - _screenMargin,
-    );
-
     // The picker is always above the bubble and the menu always below it —
     // chat_screen.dart scrolls the message into a position with room for
     // both before this ever opens, so there's no "does it fit above?"
-    // fallback here. Each is anchored by exactly one edge (`bottom` for the
-    // picker, `top` for the menu) so it grows away from that fixed line
-    // using its own real, measured height instead of a guessed one —
-    // anchoring both edges from a height estimate was what previously made
-    // the whole group appear to start low and get shoved into place.
+    // fallback here, and no clamp pulling either one back toward the bubble
+    // to stay on screen: a clamp here previously won out over an
+    // insufficient scroll instead of just landing a bit further off-screen,
+    // and the opaque menu card painting over part of the "undimmed" cutout
+    // it had been pulled into read as a dirty seam across the bubble as
+    // much as it read as literal overlap. Each is anchored by exactly one
+    // edge (`bottom` for the picker, `top` for the menu) so it grows away
+    // from that fixed line using its own real, measured height instead of a
+    // guessed one.
+    final menuTop = anchorRect.bottom + messageActionGap;
+    final pickerBottom = screen.height - anchorRect.top + messageActionGap;
     return Stack(
       children: [
         Positioned.fill(
@@ -182,8 +165,8 @@ class _MessageActionContentState extends State<_MessageActionContent>
         if (widget.quickEmojis.isNotEmpty)
           Positioned(
             bottom: pickerBottom,
-            left: _screenMargin,
-            right: _screenMargin,
+            left: messageActionScreenMargin,
+            right: messageActionScreenMargin,
             child: Align(
               alignment: crossAlign,
               child: ScaleTransition(
@@ -201,8 +184,8 @@ class _MessageActionContentState extends State<_MessageActionContent>
           ),
         Positioned(
           top: menuTop,
-          left: _screenMargin,
-          right: _screenMargin,
+          left: messageActionScreenMargin,
+          right: messageActionScreenMargin,
           child: Align(
             alignment: crossAlign,
             child: ScaleTransition(

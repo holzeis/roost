@@ -76,6 +76,15 @@ FakeApiClient _seededApiClient() {
 
 Future<void> _pumpApp(WidgetTester tester, FakeApiClient api, {List<Override> extraOverrides = const []}) async {
   appRouter.go('/'); // appRouter is a module-level singleton; reset between tests.
+  // The default test surface is 800x600 — wider than tall, unlike any real
+  // phone — which starves message_action_overlay.dart's fit-check of the
+  // vertical room a real device always has. A realistic portrait size here
+  // means that fit-check exercises its normal path (scroll-if-needed)
+  // instead of its degenerate one (nothing left to scroll).
+  tester.view.physicalSize = const Size(390, 844);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -248,6 +257,27 @@ void main() {
 
     await tester.enterText(find.byType(TextField).last, 'oops typo');
     await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    // Being the newest message in the room, "oops typo" would otherwise sit
+    // flush against the composer with nothing after it — content
+    // message_action_overlay.dart's fit-check can never scroll into view no
+    // matter how it's long-pressed, since scrolling only ever reveals
+    // existing content, not blank space past the end of the list. A reply
+    // arriving right after is the ordinary way that stops being true (and
+    // is exactly what "long-press a message you just sent" looks like once
+    // a conversation is actually moving, rather than the one-off case of
+    // it being the very last thing anyone has ever sent).
+    for (var i = 0; i < 4; i++) {
+      api.ws.emit(WsEvent('message.created', {
+        'id': 'reply-after-$i',
+        'roomId': 'room-family',
+        'senderId': 'user-mom',
+        'kind': 'text',
+        'body': 'No worries, happens to everyone! ($i)',
+        'createdAt': DateTime.now().toIso8601String(),
+      }));
+    }
     await tester.pumpAndSettle();
 
     await tester.longPress(find.textContaining('oops typo'));

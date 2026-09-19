@@ -191,7 +191,6 @@ class _MessageListState extends ConsumerState<_MessageList> {
   final _itemScrollController = ItemScrollController();
   final _itemPositionsListener = ItemPositionsListener.create();
   final _scrollOffsetController = ScrollOffsetController();
-  final _viewportKey = GlobalKey();
   Timer? _seenDebounce;
 
   // Keyed by message id and reused across rebuilds, rather than minted fresh
@@ -253,10 +252,12 @@ class _MessageListState extends ConsumerState<_MessageList> {
         alignment: 0.4);
   }
 
-  /// Scrolls by exactly [delta] pixels (positive scrolls further into the
-  /// list, moving on-screen content up) — used to make room for the reaction
-  /// picker/action menu when a message is too close to either edge of the
-  /// list to fit them, per _MessageRow's own fit check.
+  /// Scrolls by exactly [delta] pixels on the underlying `ScrollController`
+  /// (positive moves on-screen content *down* on this `reverse: true` list —
+  /// confirmed empirically, since it's the opposite of a plain list) — used
+  /// to make room for the reaction picker/action menu when a message is too
+  /// close to either edge of the list to fit them, per _MessageRow's own
+  /// fit check.
   ///
   /// Deliberately not `ItemScrollController.scrollTo`'s index+alignment API:
   /// on this `reverse: true` list, `alignment` turned out not to map onto a
@@ -303,7 +304,6 @@ class _MessageListState extends ConsumerState<_MessageList> {
         final currentIds = reversed.map((m) => m.id).toSet();
         _bubbleKeys.removeWhere((id, _) => !currentIds.contains(id));
         return ScrollablePositionedList.builder(
-          key: _viewportKey,
           reverse: true,
           itemScrollController: _itemScrollController,
           itemPositionsListener: _itemPositionsListener,
@@ -343,7 +343,6 @@ class _MessageListState extends ConsumerState<_MessageList> {
                 meId: widget.meId,
                 usersById: widget.usersById,
                 onJumpToReply: (id) => _jumpToMessage(id, reversed),
-                viewportKey: _viewportKey,
                 scrollByOffset: _scrollByOffset,
               ),
             );
@@ -388,7 +387,6 @@ class _MessageRow extends ConsumerWidget {
     required this.meId,
     required this.usersById,
     required this.onJumpToReply,
-    required this.viewportKey,
     required this.scrollByOffset,
   });
 
@@ -409,11 +407,9 @@ class _MessageRow extends ConsumerWidget {
   final Map<String, ApiContact> usersById;
   final void Function(String messageId) onJumpToReply;
 
-  // Lets a long-press measure this row's position against the list's own
-  // viewport and scroll it into a spot with room for both the reaction
-  // picker above and the action menu below before opening them — see
-  // openActions() below.
-  final GlobalKey viewportKey;
+  // Lets a long-press scroll this row into a spot with room for both the
+  // reaction picker above and the action menu below before opening them —
+  // see openActions() below.
   final Future<void> Function(double delta) scrollByOffset;
 
   String _nameFor(String userId) =>
@@ -618,41 +614,52 @@ class _MessageRow extends ConsumerWidget {
     ];
 
     Future<void> openActions() async {
-      final bubbleBox = bubbleKey.currentContext?.findRenderObject() as RenderBox?;
-      final viewportBox = viewportKey.currentContext?.findRenderObject() as RenderBox?;
+      final neededAbove = availableEmojis.isEmpty
+          ? 0.0
+          : messageActionPickerHeight + messageActionGap * 2 + messageActionScreenMargin;
+      final neededBelow = actions.length * messageActionMenuRowHeight +
+          messageActionGap * 2 +
+          messageActionScreenMargin;
+
       // Scroll this message into a spot with room for both the picker above
       // and the menu below *before* opening either — moving the popup to
-      // fit around a cramped position, rather than moving the message,
-      // is what let the layout end up ambiguous about which side either
-      // piece was really anchored to.
-      if (bubbleBox != null && bubbleBox.attached && viewportBox != null && viewportBox.attached) {
+      // fit around a cramped position, rather than moving the message, is
+      // what let the layout end up ambiguous about which side either piece
+      // was really anchored to. Measured against the full screen (not just
+      // the list's own viewport, which stops above the composer) since
+      // that's what showMessageActionOverlay itself positions against.
+      //
+      // Re-measures and re-scrolls up to a few times rather than trusting a
+      // single estimate: a request sized for exactly the deficit could
+      // still leave a shortfall (clamped at a scroll extent, a rounding
+      // difference against the overlay's own math, ...), and the previous
+      // one-shot version left the menu overlapping the very message it was
+      // opened on when that happened.
+      for (var attempt = 0; attempt < 3; attempt++) {
+        final bubbleBox = bubbleKey.currentContext?.findRenderObject() as RenderBox?;
+        if (bubbleBox == null || !bubbleBox.attached || !context.mounted) break;
         final bubbleRect = bubbleBox.localToGlobal(Offset.zero) & bubbleBox.size;
-        final viewportTop = viewportBox.localToGlobal(Offset.zero).dy;
-        final viewportHeight = viewportBox.size.height;
+        final screenHeight = MediaQuery.of(context).size.height;
 
-        final neededAbove =
-            availableEmojis.isEmpty ? 0.0 : messageActionPickerHeight + messageActionGap * 2;
-        final neededBelow =
-            actions.length * messageActionMenuRowHeight + 8 + messageActionGap * 2;
-
-        final spaceAbove = bubbleRect.top - viewportTop;
-        final spaceBelow = viewportTop + viewportHeight - bubbleRect.bottom;
+        final spaceAbove = bubbleRect.top;
+        final spaceBelow = screenHeight - bubbleRect.bottom;
 
         // Only scroll when something doesn't actually fit, and only by the
-        // exact deficit — never re-centering a message that already fits. A
-        // positive delta scrolls further into the list, which always moves
-        // on-screen content up regardless of `reverse`; negative moves it
-        // down.
+        // exact deficit — never re-centering a message that already fits.
+        // On this list, a positive delta moves on-screen content *down*
+        // (confirmed empirically: a +108 request measurably moved a bubble
+        // down by 108, three times over) — the opposite of a plain
+        // (non-reversed) ScrollController, where increasing offset always
+        // moves content up. `reverse: true` flips that here.
         double? delta;
         if (neededAbove > 0 && spaceAbove < neededAbove) {
-          delta = -(neededAbove - spaceAbove);
+          delta = neededAbove - spaceAbove;
         } else if (spaceBelow < neededBelow) {
-          delta = neededBelow - spaceBelow;
+          delta = -(neededBelow - spaceBelow);
         }
 
-        if (delta != null) {
-          await scrollByOffset(delta);
-        }
+        if (delta == null) break;
+        await scrollByOffset(delta);
       }
 
       if (!context.mounted) return;
