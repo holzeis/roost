@@ -1,12 +1,34 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 
 import 'providers/chat_providers.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // The iOS Simulator can't bring up WebRTC's Voice-Processing I/O audio
+  // unit — the one that does echo cancellation, and the default for calls.
+  // AURemoteIO::Initialize times out talking to the audio daemon, and
+  // AudioToolbox responds by calling abort(), so the app dies with SIGABRT
+  // the moment a call starts. Bypassing voice processing falls back to the
+  // plain RemoteIO unit, which the simulator does handle.
+  //
+  // Deliberately scoped to the simulator alone: on real hardware this would
+  // disable hardware echo cancellation and make calls echo badly. Anywhere
+  // else this call is skipped entirely, leaving WebRTC to initialize lazily
+  // with its own defaults exactly as before.
+  final isIosSimulator =
+      Platform.isIOS && Platform.environment.keys.any((k) => k.startsWith('SIMULATOR_'));
+  if (isIosSimulator) {
+    await lk.LiveKitClient.initialize(bypassVoiceProcessing: true);
+  }
+
   runApp(const ProviderScope(child: RoostApp()));
 }
 
