@@ -131,6 +131,19 @@ spec:
               value: "roost-livekit" # the MagicDNS name clients connect to
             - name: TS_STATE_DIR
               value: "/var/lib/tailscale"
+            # The tailscale image defaults to storing its state in a
+            # Kubernetes Secret whenever it detects it's running in-cluster
+            # (which it does from KUBERNETES_SERVICE_HOST, injected by
+            # kubelet regardless of enableServiceLinks). That needs a
+            # service account token, which automountServiceAccountToken:
+            # false above removes — so it fails at boot with "error
+            # initializing kube client ... serviceaccount/namespace: no such
+            # file or directory". Empty disables that path entirely, leaving
+            # TS_STATE_DIR above as the sole state store, which is what we
+            # want: the PVC is what keeps the node identity (and its
+            # advertised node_ip) stable across restarts.
+            - name: TS_KUBE_SECRET
+              value: ""
             - name: TS_USERSPACE
               value: "false"
             - name: TS_AUTHKEY
