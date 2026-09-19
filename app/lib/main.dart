@@ -23,9 +23,15 @@ Future<void> main() async {
   // disable hardware echo cancellation and make calls echo badly. Anywhere
   // else this call is skipped entirely, leaving WebRTC to initialize lazily
   // with its own defaults exactly as before.
+  // Auto-detection reads the SIMULATOR_* variables the Simulator puts in the
+  // process environment. That isn't guaranteed to be visible from Dart, so
+  // --dart-define=BYPASS_VOICE_PROCESSING=true forces it on regardless.
+  const bypassOverride = String.fromEnvironment('BYPASS_VOICE_PROCESSING');
   final isIosSimulator =
       Platform.isIOS && Platform.environment.keys.any((k) => k.startsWith('SIMULATOR_'));
-  if (isIosSimulator) {
+  final bypassVoiceProcessing =
+      bypassOverride.isEmpty ? isIosSimulator : bypassOverride == 'true';
+  if (bypassVoiceProcessing) {
     await lk.LiveKitClient.initialize(bypassVoiceProcessing: true);
   }
 
