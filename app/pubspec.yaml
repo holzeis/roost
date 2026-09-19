@@ -50,6 +50,7 @@ dependencies:
   mime: ^2.1.0
   tabler_icons_plus: ^3.46.0
   scrollable_positioned_list: ^0.3.8
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:

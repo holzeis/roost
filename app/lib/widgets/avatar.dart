@@ -48,13 +48,17 @@ class InitialAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A rounded square ("squircle") rather than a full circle — echoes the
+    // corner rounding on the app's own badge mark (assets/logo/roost-logo.svg)
+    // instead of the generic circular-avatar default.
+    final radius = BorderRadius.circular(size * 0.34);
     final avatar = Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: colorForAvatarSeed(_seed),
-        shape: BoxShape.circle,
+        borderRadius: radius,
       ),
       child: Text(
         initial,

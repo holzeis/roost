@@ -1,41 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-/// Color tokens lifted from docs/mockups/roost-mockups-utility-dense.html so
-/// the running app matches the reference mockups rather than drifting to
-/// Material defaults. Keep these in sync if the mockup's tokens change.
+/// Color tokens pulled from the app's own mark (assets/logo/roost-logo.svg —
+/// a slate-blue badge with a cream house-shaped speech bubble) rather than a
+/// generic Material seed color unrelated to it, and from
+/// docs/mockups/roost-mockups-utility-dense.html's warm-paper neutrals.
+/// Keep these in sync if either reference changes.
 class RoostColors {
   RoostColors._();
 
-  // Light
-  static const lightSurface0 = Color(0xFFF3F2EE);
-  static const lightSurface1 = Color(0xFFF8F7F4);
-  static const lightSurface2 = Color(0xFFFFFFFF);
-  static const lightTextPrimary = Color(0xFF1F1E1C);
-  static const lightTextSecondary = Color(0xFF6B6B63);
-  static const lightTextMuted = Color(0xFF9C9B93);
-  static const lightAccent = Color(0xFF2F6FED);
-  static const lightOnAccent = Color(0xFFFFFFFF);
+  // Light — "paper" neutrals warmed from the logo's cream, not a cold gray.
+  static const lightSurface0 = Color(0xFFE7E0D0);
+  static const lightSurface1 = Color(0xFFF7F2E6);
+  static const lightSurface2 = Color(0xFFDCD3BE);
+  static const lightTextPrimary = Color(0xFF221F1C);
+  static const lightTextSecondary = Color(0xFF5B5648);
+  static const lightTextMuted = Color(0xFF948E7D);
+  static const lightAccent = Color(0xFF4A5C8A); // the logo's own slate blue
+  static const lightAccentDeep = Color(0xFF33436B);
+  static const lightOnAccent = Color(0xFFFBF3E9); // the logo's own cream
   static const lightSuccess = Color(0xFF3FA360);
-  static const lightDanger = Color(0xFFE5484D);
+  static const lightOchre = Color(0xFF8C5F22); // presence/live/highlight — the one secondary accent
+  static const lightDanger = Color(0xFF9A4A3E); // muted brick, not a bright red
 
-  // Dark
-  static const darkSurface0 = Color(0xFF141413);
-  static const darkSurface1 = Color(0xFF1C1C1A);
-  static const darkSurface2 = Color(0xFF232320);
-  static const darkTextPrimary = Color(0xFFF2F1EE);
-  static const darkTextSecondary = Color(0xFFA8A79F);
-  static const darkTextMuted = Color(0xFF75746C);
-  static const darkAccent = Color(0xFF5B8CF5);
-  static const darkOnAccent = Color(0xFF0B1220);
+  // Dark — an extension of the same brand blue, not a neutral near-black.
+  static const darkSurface0 = Color(0xFF14171F);
+  static const darkSurface1 = Color(0xFF1C2029);
+  static const darkSurface2 = Color(0xFF0F1116);
+  static const darkTextPrimary = Color(0xFFECE5D7);
+  static const darkTextSecondary = Color(0xFFB7AF9E);
+  static const darkTextMuted = Color(0xFF78715F);
+  static const darkAccent = Color(0xFF93A6DA);
+  static const darkAccentDeep = Color(0xFF6E82B8);
+  static const darkOnAccent = Color(0xFF12151F);
   static const darkSuccess = Color(0xFF4BBF78);
-  static const darkDanger = Color(0xFFEF5A5F);
+  static const darkOchre = Color(0xFFD9A75C);
+  static const darkDanger = Color(0xFFCF8A7D);
 
   // A touch darker/warmer than the scaffold background — the chat screen's
   // wallpaper behind the message bubbles, the same trick WhatsApp uses to
   // give the conversation area its own depth instead of blending into the
   // app chrome above it.
-  static const lightChatWallpaper = Color(0xFFEAE7DE);
-  static const darkChatWallpaper = Color(0xFF0E0E0D);
+  static const lightChatWallpaper = Color(0xFFDCD3BE);
+  static const darkChatWallpaper = Color(0xFF0F1116);
 }
 
 /// Chat-bubble constants shared by the message list — kept here rather than
@@ -45,8 +52,8 @@ class RoostColors {
 class ChatBubbleStyle {
   ChatBubbleStyle._();
 
-  static const radius = Radius.circular(16);
-  static const tailRadius = Radius.circular(4);
+  static const radius = Radius.circular(15);
+  static const tailRadius = Radius.circular(5);
 
   static List<BoxShadow> shadow(Brightness brightness) => [
         BoxShadow(
@@ -61,6 +68,32 @@ Color chatWallpaperColor(BuildContext context) {
   return Theme.of(context).brightness == Brightness.dark
       ? RoostColors.darkChatWallpaper
       : RoostColors.lightChatWallpaper;
+}
+
+Color ochreColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? RoostColors.darkOchre
+      : RoostColors.lightOchre;
+}
+
+/// The app's "system chrome" typographic register — timestamps, member
+/// counts, the tailnet identity string — set apart from ordinary
+/// human-written copy the same way a label on a device is set apart from
+/// handwriting. Uppercase callers should transform the text themselves;
+/// this only sets the type treatment.
+TextStyle roostMono(
+  BuildContext context, {
+  double fontSize = 10.5,
+  Color? color,
+  FontWeight weight = FontWeight.w500,
+  double letterSpacing = 0.3,
+}) {
+  return GoogleFonts.ibmPlexMono(
+    fontSize: fontSize,
+    fontWeight: weight,
+    letterSpacing: letterSpacing,
+    color: color ?? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+  );
 }
 
 class AppTheme {
@@ -91,6 +124,9 @@ class AppTheme {
   }
 
   static ThemeData _base(ColorScheme colorScheme, Color scaffoldBg, Color secondaryText) {
+    final textTheme = GoogleFonts.hankenGroteskTextTheme(
+      Typography.material2021().black.apply(bodyColor: colorScheme.onSurface, displayColor: colorScheme.onSurface),
+    );
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
@@ -101,22 +137,25 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
+        // The one display face, used sparingly (screen titles only) — see
+        // docs/mockups' warm-but-plainspoken direction: a slab serif nods to
+        // "roost" as shelter without tipping into precious.
+        titleTextStyle: GoogleFonts.zillaSlab(
           color: colorScheme.onSurface,
           fontSize: 20,
           fontWeight: FontWeight.w600,
           letterSpacing: -0.2,
         ),
       ),
-      dividerTheme: DividerThemeData(color: colorScheme.onSurface.withValues(alpha: 0.08)),
-      textTheme: Typography.material2021().black.apply(bodyColor: colorScheme.onSurface),
+      dividerTheme: DividerThemeData(color: colorScheme.onSurface.withValues(alpha: 0.1)),
+      textTheme: textTheme,
       listTileTheme: const ListTileThemeData(minVerticalPadding: 10),
       splashFactory: InkSparkle.splashFactory,
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colorScheme.surface,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: colorScheme.onSurface.withValues(alpha: 0.12)),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -124,6 +163,7 @@ class AppTheme {
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
