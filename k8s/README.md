@@ -21,7 +21,8 @@ pre-assembled copy.
 
 | Key | Used by |
 |---|---|
-| `tailscale-authkey` | chat-server's `tsnet` node **and** LiveKit's Tailscale sidecar — one reusable key registers both; they still become separate tailnet nodes, named by each pod's own hostname setting |
+| `chat-server-authkey` | chat-server's `tsnet` node, at first registration only |
+| `livekit-authkey` | LiveKit's Tailscale sidecar, at first registration only |
 | `postgres-password` | the postgres pod, and chat-server (which interpolates it into `DATABASE_URL`) |
 | `minio-access-key`, `minio-secret-key` | the minio pod, and chat-server's S3 client |
 | `livekit-api-key`, `livekit-api-secret` | chat-server (mints JWTs) and LiveKit (validates them) — interpolated into LiveKit's `keys:` config |
@@ -31,7 +32,8 @@ Create it in one command (never committed — generate the values here):
 
 ```sh
 kubectl create secret generic roost-secrets -n roost \
-  --from-literal=tailscale-authkey='<tskey-auth-... , reusable>' \
+  --from-literal=chat-server-authkey='<tskey-auth-...>' \
+  --from-literal=livekit-authkey='<a different tskey-auth-...>' \
   --from-literal=postgres-password="$(openssl rand -base64 24)" \
   --from-literal=minio-access-key='roost' \
   --from-literal=minio-secret-key="$(openssl rand -base64 24)" \
@@ -43,6 +45,14 @@ kubectl create secret generic roost-secrets -n roost \
 `livekit-node-ip` starts empty and gets filled in after the first deploy —
 see below. LiveKit's API secret must be at least 32 characters, which
 `openssl rand -base64 32` satisfies.
+
+**The two Tailscale keys must be different keys.** An auth key is redeemed
+at registration, and the admin console only offers single-use keys on some
+tailnets — so one key cannot enrol both services. This only bites on a
+first deploy: each pod persists its node identity on its own PVC afterwards
+and never re-authenticates, which is why chat-server keeps working
+indefinitely on a key that's long since been spent. If you ever lose one of
+those PVCs, that service needs a fresh key to re-register.
 
 To rotate any value, patch that one key and restart the pods that read it;
 nothing else needs updating:
@@ -100,7 +110,7 @@ directly in-process via `tsnet` rather than being exposed by the operator's
 generic `LoadBalancer`-class Service — see the "Chat server joins the
 tailnet itself" decision in `docs/architecture-overview.md` for why. That
 means `k8s/chat-server/deployment.yaml` needs a reusable Tailscale auth key
-(`roost-secrets`, key `tailscale-authkey`) rather than the operator
+(`roost-secrets`, key `chat-server-authkey`) rather than the operator
 managing its tailnet presence.
 
 ## Why LiveKit is its own tailnet node

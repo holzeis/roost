@@ -20,7 +20,7 @@
 # via the sidecar's TS_HOSTNAME.
 #
 # Credentials come from the single `roost-secrets` Secret shared by every
-# service here (keys: tailscale-authkey, livekit-api-key, livekit-api-secret,
+# service here (keys: livekit-authkey, livekit-api-key, livekit-api-secret,
 # livekit-node-ip). See k8s/README.md for creating it and for the two-phase
 # node_ip step.
 apiVersion: apps/v1
@@ -146,11 +146,16 @@ spec:
               value: ""
             - name: TS_USERSPACE
               value: "false"
+            # Its own key, distinct from chat-server's — auth keys are
+            # redeemed once and Tailscale's console only offers single-use
+            # keys on some tailnets, so the two services can't share one.
+            # Only needed for a first registration; afterwards the identity
+            # persisted on the PVC below is what's used.
             - name: TS_AUTHKEY
               valueFrom:
                 secretKeyRef:
                   name: roost-secrets
-                  key: tailscale-authkey
+                  key: livekit-authkey
           volumeMounts:
             - name: tailscale-state
               mountPath: /var/lib/tailscale

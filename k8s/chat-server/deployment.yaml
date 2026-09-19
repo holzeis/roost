@@ -53,11 +53,17 @@ spec:
               value: "roost-chat"
             - name: TSNET_STATE_DIR
               value: "/var/lib/tsnet"
+            # Each tailnet-joining service needs its OWN auth key: a key is
+            # redeemed once, at first registration, and Tailscale's console
+            # only offers single-use keys on some tailnets. After that this
+            # pod re-uses the node identity persisted on its PVC below and
+            # never re-authenticates — so this value only matters on a first
+            # deploy, or if that PVC is ever lost.
             - name: TSNET_AUTHKEY
               valueFrom:
                 secretKeyRef:
                   name: roost-secrets
-                  key: tailscale-authkey
+                  key: chat-server-authkey
             # POSTGRES_PASSWORD is pulled in only so DATABASE_URL below can
             # interpolate it. Kubernetes expands $(VAR) against env vars
             # defined EARLIER in this same list, which is what lets the
