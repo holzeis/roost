@@ -546,22 +546,25 @@ class _MessageRow extends ConsumerWidget {
             ],
           );
 
+    void openActions() => showMessageActionOverlay(
+          context: context,
+          anchorKey: _bubbleKey,
+          alignEnd: fromMe,
+          bubbleBorderRadius: borderRadius,
+          quickEmojis: _quickReactions,
+          onReact: (emoji) => ref
+              .read(messagesProvider(roomId).notifier)
+              .toggleReaction(message.id, emoji),
+          actions: _buildActions(context, ref),
+        );
+
     return Row(
       mainAxisAlignment: align,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         if (!fromMe) avatarSlot,
         GestureDetector(
-          onLongPress: () => showMessageActionOverlay(
-            context: context,
-            anchorKey: _bubbleKey,
-            alignEnd: fromMe,
-            quickEmojis: _quickReactions,
-            onReact: (emoji) => ref
-                .read(messagesProvider(roomId).notifier)
-                .toggleReaction(message.id, emoji),
-            actions: _buildActions(context, ref),
-          ),
+          onLongPress: openActions,
           child: bubbleWithReactions,
         ),
       ],

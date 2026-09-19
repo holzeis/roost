@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/app_theme.dart';
-
 /// One row in the action menu (Reply, Forward, Copy, ...). Kept as plain
 /// data so the caller decides which actions apply to a given message —
 /// this widget only knows how to lay a list of them out.
@@ -43,6 +41,7 @@ void showMessageActionOverlay({
   required BuildContext context,
   required GlobalKey anchorKey,
   required bool alignEnd,
+  required BorderRadius bubbleBorderRadius,
   required List<String> quickEmojis,
   required void Function(String emoji) onReact,
   required List<MessageActionItem> actions,
@@ -57,6 +56,7 @@ void showMessageActionOverlay({
     builder: (overlayContext) => _MessageActionContent(
       anchorRect: anchorRect,
       alignEnd: alignEnd,
+      bubbleBorderRadius: bubbleBorderRadius,
       quickEmojis: quickEmojis,
       onReact: onReact,
       actions: actions,
@@ -70,6 +70,7 @@ class _MessageActionContent extends StatefulWidget {
   const _MessageActionContent({
     required this.anchorRect,
     required this.alignEnd,
+    required this.bubbleBorderRadius,
     required this.quickEmojis,
     required this.onReact,
     required this.actions,
@@ -78,6 +79,7 @@ class _MessageActionContent extends StatefulWidget {
 
   final Rect anchorRect;
   final bool alignEnd;
+  final BorderRadius bubbleBorderRadius;
   final List<String> quickEmojis;
   final void Function(String emoji) onReact;
   final List<MessageActionItem> actions;
@@ -97,7 +99,6 @@ class _MessageActionContentState extends State<_MessageActionContent>
 
   static const _pillHeight = 46.0;
   static const _menuRowHeight = 40.0;
-  static const _menuWidth = 190.0;
   static const _gap = 8.0;
   static const _screenMargin = 12.0;
 
@@ -118,27 +119,51 @@ class _MessageActionContentState extends State<_MessageActionContent>
     final anchorRect = widget.anchorRect;
     final screen = MediaQuery.of(context).size;
     final menuHeight = widget.actions.length * _menuRowHeight + 8;
-    final totalHeight = _pillHeight + _gap + menuHeight;
-    // Mirrors the same "does it fit above?" check a web build would do with
-    // getBoundingClientRect — flip below the bubble when there isn't room.
-    final anchorAbove = anchorRect.top > totalHeight + 32;
+    // A rough estimate, only ever used to decide *which side* of the bubble
+    // there's room on — mirrors the "does it fit above?" check a web build
+    // would do with getBoundingClientRect. The actual on-screen position
+    // below is never computed from this estimate, so a mismatch between it
+    // and the real rendered height can't visibly shift anything.
+    final estimatedHeight = _pillHeight + _gap + menuHeight;
+    final anchorAbove = anchorRect.top > estimatedHeight + 32;
 
-    final pillTop =
-        anchorAbove ? anchorRect.top - _gap - _pillHeight : anchorRect.bottom + _gap;
-    final menuTop =
-        anchorAbove ? pillTop - _gap - menuHeight : pillTop + _pillHeight + _gap;
-
-    double left = widget.alignEnd ? anchorRect.right - _menuWidth : anchorRect.left;
-    left = left.clamp(_screenMargin, screen.width - _menuWidth - _screenMargin);
-
-    final popOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, anchorAbove ? 1.0 : -1.0);
     final scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutBack, reverseCurve: Curves.easeIn);
     final fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    final popOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, anchorAbove ? 1.0 : -1.0);
 
-    // The dismiss-on-tap GestureDetector wraps only the scrim, as a Stack
-    // sibling to the pill/menu below rather than their ancestor — nesting
-    // it around all three would put every InkWell tap on the picker/menu
-    // through this GestureDetector's hit-test subtree too.
+    final picker = _ReactionPicker(
+      emojis: widget.quickEmojis,
+      onPick: (emoji) => _close(() => widget.onReact(emoji)),
+    );
+    final menu = _ActionMenu(
+      items: widget.actions,
+      rowHeight: _menuRowHeight,
+      onSelected: (item) => _close(item.onTap),
+    );
+
+    // One column, not two independently-positioned widgets: the menu and
+    // picker share a single cross-axis alignment so their edges always line
+    // up with each other, whatever their own intrinsic widths turn out to
+    // be — sizing one from the other's fixed width was what let the wider
+    // picker sail past the menu's edge (and off the screen) before.
+    // Above the bubble the menu reads first (top to bottom: menu, picker,
+    // bubble); below it the order flips so the picker still sits closest
+    // to the bubble either way.
+    final group = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: widget.alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: anchorAbove
+          ? [menu, const SizedBox(height: _gap), picker]
+          : [picker, const SizedBox(height: _gap), menu],
+    );
+
+    // Anchored by `bottom` (above the bubble) or `top` (below it) only —
+    // never both — so the Positioned sizes to the column's real, measured
+    // height instead of the `estimatedHeight` guess above. Anchoring from
+    // an estimated height meant any drift between the guess and the real
+    // layout showed up as the whole group appearing to start low and get
+    // shoved upward; anchoring from one true edge and letting the other
+    // float removes the guess from the position entirely.
     return Stack(
       children: [
         Positioned.fill(
@@ -148,41 +173,23 @@ class _MessageActionContentState extends State<_MessageActionContent>
             child: FadeTransition(
               opacity: fade,
               child: ClipPath(
-                clipper: _CutoutClipper(anchorRect.inflate(4), ChatBubbleStyle.radius),
+                clipper: _CutoutClipper(anchorRect, widget.bubbleBorderRadius),
                 child: Container(color: Colors.black.withValues(alpha: 0.32)),
               ),
             ),
           ),
         ),
         Positioned(
-          left: left,
-          top: pillTop,
-          child: ScaleTransition(
-            scale: scale,
-            alignment: popOrigin,
-            child: FadeTransition(
-              opacity: fade,
-              child: _ReactionPicker(
-                emojis: widget.quickEmojis,
-                onPick: (emoji) => _close(() => widget.onReact(emoji)),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: left,
-          top: menuTop,
-          width: _menuWidth,
-          child: ScaleTransition(
-            scale: scale,
-            alignment: popOrigin,
-            child: FadeTransition(
-              opacity: fade,
-              child: _ActionMenu(
-                items: widget.actions,
-                rowHeight: _menuRowHeight,
-                onSelected: (item) => _close(item.onTap),
-              ),
+          top: anchorAbove ? null : anchorRect.bottom + _gap,
+          bottom: anchorAbove ? screen.height - anchorRect.top + _gap : null,
+          left: _screenMargin,
+          right: _screenMargin,
+          child: Align(
+            alignment: widget.alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+            child: ScaleTransition(
+              scale: scale,
+              alignment: popOrigin,
+              child: FadeTransition(opacity: fade, child: group),
             ),
           ),
         ),
@@ -195,12 +202,16 @@ class _CutoutClipper extends CustomClipper<Path> {
   _CutoutClipper(this.holeRect, this.holeRadius);
 
   final Rect holeRect;
-  final Radius holeRadius;
+  final BorderRadius holeRadius;
 
   @override
   Path getClip(Size size) {
     final screen = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-    final hole = Path()..addRRect(RRect.fromRectAndRadius(holeRect, holeRadius));
+    // Matches the bubble's own per-corner radius (its tail corner is much
+    // sharper than the rest) rather than a uniform radius — a uniform hole
+    // left a sliver of scrim showing at the tail corner, reading as a dirty
+    // smudge right on the bubble it was supposed to be highlighting.
+    final hole = Path()..addRRect(holeRadius.toRRect(holeRect));
     return Path.combine(PathOperation.difference, screen, hole);
   }
 
@@ -253,43 +264,54 @@ class _ActionMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      elevation: 12,
-      shadowColor: Colors.black.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(14),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final item in items)
-            InkWell(
-              onTap: () => onSelected(item),
-              child: SizedBox(
-                height: rowHeight,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        item.icon,
-                        size: 17,
-                        color: item.isDestructive ? scheme.error : scheme.onSurface.withValues(alpha: 0.75),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        item.label,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          color: item.isDestructive ? scheme.error : scheme.onSurface,
+    // IntrinsicWidth first sizes this to its content's true natural width
+    // (the widest label row) rather than the wide, loose box the enclosing
+    // Positioned offers — `stretch` alone would fill *that* box, since
+    // stretch matches children to the incoming constraint, not to each
+    // other's natural size. With a genuinely content-sized box established,
+    // `stretch` then makes every row match the widest one, so the menu
+    // reads as one clean card instead of ragged or full-screen-wide rows.
+    return IntrinsicWidth(
+      child: Material(
+        color: scheme.surface,
+        elevation: 12,
+        shadowColor: Colors.black.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final item in items)
+              InkWell(
+                onTap: () => onSelected(item),
+                child: SizedBox(
+                  height: rowHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          item.icon,
+                          size: 17,
+                          color: item.isDestructive ? scheme.error : scheme.onSurface.withValues(alpha: 0.75),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 12),
+                        Text(
+                          item.label,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            color: item.isDestructive ? scheme.error : scheme.onSurface,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
