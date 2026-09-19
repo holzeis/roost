@@ -2,15 +2,11 @@
 # internal only, never exposed to the tailnet; only chat-server talks to it
 # (see docs/architecture-overview.md's high-level architecture diagram).
 #
-# Expects a Secret named `postgres-password` (key: password), created
-# out-of-band, e.g.:
-#   kubectl create secret generic postgres-password -n roost \
-#     --from-literal=password='<pick a password>'
-# That same password must also be embedded in the `chat-server-db` secret's
-# `url` value that k8s/chat-server/deployment.yaml consumes (a full
-# postgres://... DSN) — Kubernetes has no way to derive one secret's value
-# from another, so keeping the two in sync is a manual step on every
-# rotation.
+# The password comes from the single `roost-secrets` Secret shared by every
+# service here (key: postgres-password). chat-server doesn't get a separate
+# pre-assembled DSN secret — it reads this same key and interpolates it into
+# its DATABASE_URL, so the password exists in exactly one place and rotating
+# it means changing one value. See k8s/README.md.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -70,8 +66,8 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-password
-                  key: password
+                  name: roost-secrets
+                  key: postgres-password
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data

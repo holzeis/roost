@@ -56,13 +56,20 @@ spec:
             - name: TSNET_AUTHKEY
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-tailscale
-                  key: authkey
-            - name: DATABASE_URL
+                  name: roost-secrets
+                  key: tailscale-authkey
+            # POSTGRES_PASSWORD is pulled in only so DATABASE_URL below can
+            # interpolate it. Kubernetes expands $(VAR) against env vars
+            # defined EARLIER in this same list, which is what lets the
+            # password live in exactly one place instead of being duplicated
+            # into a hand-assembled DSN secret. Order matters here.
+            - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-db
-                  key: url
+                  name: roost-secrets
+                  key: postgres-password
+            - name: DATABASE_URL
+              value: "postgres://roost:$(POSTGRES_PASSWORD)@postgres.roost.svc.cluster.local:5432/roost?sslmode=disable"
             - name: S3_ENDPOINT
               value: "minio.roost.svc.cluster.local:9000"
             - name: S3_BUCKET
@@ -72,25 +79,25 @@ spec:
             - name: S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-minio
-                  key: access-key
+                  name: roost-secrets
+                  key: minio-access-key
             - name: S3_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-minio
-                  key: secret-key
+                  name: roost-secrets
+                  key: minio-secret-key
             - name: LIVEKIT_URL
               value: "ws://livekit.roost.svc.cluster.local:7880"
             - name: LIVEKIT_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-livekit
-                  key: api-key
+                  name: roost-secrets
+                  key: livekit-api-key
             - name: LIVEKIT_API_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-livekit
-                  key: api-secret
+                  name: roost-secrets
+                  key: livekit-api-secret
           volumeMounts:
             - name: tsnet-state
               mountPath: /var/lib/tsnet

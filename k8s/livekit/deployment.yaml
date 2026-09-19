@@ -19,10 +19,10 @@
 # opens a connection), and clients reach it at roost-livekit.<tailnet>.ts.net
 # via the sidecar's TS_HOSTNAME.
 #
-# Secrets, created out-of-band:
-#   livekit-config    (key: config.yaml) - full LiveKit config, incl. keys + rtc.node_ip
-#   livekit-tailscale (key: authkey)     - a reusable Tailscale auth key
-# See k8s/README.md for the exact commands and the two-phase node_ip step.
+# Credentials come from the single `roost-secrets` Secret shared by every
+# service here (keys: tailscale-authkey, livekit-api-key, livekit-api-secret,
+# livekit-node-ip). See k8s/README.md for creating it and for the two-phase
+# node_ip step.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -63,11 +63,42 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
-            - name: LIVEKIT_CONFIG
+            # Only the key/secret pair is sensitive, so only it comes from
+            # the Secret — the rest of LiveKit's config is plain deployment
+            # config and lives here in the open, where it's reviewable and
+            # editable without touching secrets. Kubernetes expands $(VAR)
+            # against env vars defined EARLIER in this list, so order
+            # matters: both of these must precede LIVEKIT_CONFIG.
+            - name: LK_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: livekit-config
-                  key: config.yaml
+                  name: roost-secrets
+                  key: livekit-api-key
+            - name: LK_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: livekit-api-secret
+            # node_ip is the tailnet address the sidecar registers, and it's
+            # what LiveKit advertises as its ICE candidate — see the
+            # two-phase setup in k8s/README.md. Not secret, but deployment-
+            # specific, so it's kept in the same Secret as everything else
+            # you have to fill in per-cluster rather than hardcoded here.
+            - name: LK_NODE_IP
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: livekit-node-ip
+            - name: LIVEKIT_CONFIG
+              value: |
+                keys:
+                  $(LK_API_KEY): $(LK_API_SECRET)
+                rtc:
+                  tcp_port: 7881
+                  port_range_start: 50000
+                  port_range_end: 50019
+                  use_external_ip: false
+                  node_ip: $(LK_NODE_IP)
           # Informational only (container ports don't gate connectivity) —
           # the real media ports are whatever rtc.port_range_* in the config
           # says, reached over the tailnet interface the sidecar provides.
@@ -105,8 +136,8 @@ spec:
             - name: TS_AUTHKEY
               valueFrom:
                 secretKeyRef:
-                  name: livekit-tailscale
-                  key: authkey
+                  name: roost-secrets
+                  key: tailscale-authkey
           volumeMounts:
             - name: tailscale-state
               mountPath: /var/lib/tailscale

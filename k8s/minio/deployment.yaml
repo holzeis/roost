@@ -5,16 +5,10 @@
 # bucket itself on startup if missing (server/internal/storage/storage.go),
 # so no bucket-provisioning step is needed here.
 #
-# Reuses the same `chat-server-minio` secret (keys: access-key, secret-key)
-# that k8s/chat-server/deployment.yaml already expects, created out-of-band,
-# e.g.:
-#   kubectl create secret generic chat-server-minio -n roost \
-#     --from-literal=access-key='<pick a user>' \
-#     --from-literal=secret-key='<pick a password>'
-# One secret, one set of credentials, shared by both MinIO and chat-server —
-# simpler than the previous Helm setup, which needed the same credentials
-# duplicated under two different key-naming conventions (the bitnami chart's
-# own root-user/root-password vs. chat-server's access-key/secret-key).
+# Credentials come from the single `roost-secrets` Secret shared by every
+# service here (keys: minio-access-key, minio-secret-key) — the same two
+# values chat-server reads for its own S3 client, stored once. See
+# k8s/README.md for creating it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -69,13 +63,13 @@ spec:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-minio
-                  key: access-key
+                  name: roost-secrets
+                  key: minio-access-key
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: chat-server-minio
-                  key: secret-key
+                  name: roost-secrets
+                  key: minio-secret-key
           volumeMounts:
             - name: minio-data
               mountPath: /data

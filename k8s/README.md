@@ -12,21 +12,45 @@ service is a plain Kubernetes manifest — no Helm.
 
 ## Secrets
 
-Created out-of-band (`kubectl create secret ...`, or a secrets manager) —
-never committed here. Each manifest's own header comment has the exact
-command; this table is the one-page summary. Where a secret is shared by
-two services, the same credential value has to be kept in sync manually —
-Kubernetes has no way to derive one secret's value from another.
+One Secret, `roost-secrets`, holds every credential. Each value appears
+exactly once — no copy of the same password in two places to keep in sync.
+Where a value needs to appear inside a larger string (the Postgres DSN,
+LiveKit's config file), the manifests compose it at runtime with
+Kubernetes' `$(VAR)` env interpolation rather than storing a second
+pre-assembled copy.
 
-| Secret | Keys | Used by |
-|---|---|---|
-| `chat-server-tailscale` | `authkey` | chat-server (its own tailnet identity) |
-| `postgres-password` | `password` | postgres pod |
-| `chat-server-db` | `url` (full `postgres://...` DSN, embedding the same password as `postgres-password`) | chat-server |
-| `chat-server-minio` | `access-key`, `secret-key` | both minio pod and chat-server |
-| `chat-server-livekit` | `api-key`, `api-secret` | chat-server (mints JWTs LiveKit must trust) |
-| `livekit-config` | `config.yaml` (full LiveKit config, embedding the same key/secret pair as `chat-server-livekit`, plus `rtc.node_ip`) | livekit pod |
-| `livekit-tailscale` | `authkey` | LiveKit's Tailscale sidecar |
+| Key | Used by |
+|---|---|
+| `tailscale-authkey` | chat-server's `tsnet` node **and** LiveKit's Tailscale sidecar — one reusable key registers both; they still become separate tailnet nodes, named by each pod's own hostname setting |
+| `postgres-password` | the postgres pod, and chat-server (which interpolates it into `DATABASE_URL`) |
+| `minio-access-key`, `minio-secret-key` | the minio pod, and chat-server's S3 client |
+| `livekit-api-key`, `livekit-api-secret` | chat-server (mints JWTs) and LiveKit (validates them) — interpolated into LiveKit's `keys:` config |
+| `livekit-node-ip` | LiveKit's advertised ICE address; not actually secret, but deployment-specific, so it lives with the other per-cluster values you fill in. See the two-phase setup below |
+
+Create it in one command (never committed — generate the values here):
+
+```sh
+kubectl create secret generic roost-secrets -n roost \
+  --from-literal=tailscale-authkey='<tskey-auth-... , reusable>' \
+  --from-literal=postgres-password="$(openssl rand -base64 24)" \
+  --from-literal=minio-access-key='roost' \
+  --from-literal=minio-secret-key="$(openssl rand -base64 24)" \
+  --from-literal=livekit-api-key='roost' \
+  --from-literal=livekit-api-secret="$(openssl rand -base64 32)" \
+  --from-literal=livekit-node-ip=''
+```
+
+`livekit-node-ip` starts empty and gets filled in after the first deploy —
+see below. LiveKit's API secret must be at least 32 characters, which
+`openssl rand -base64 32` satisfies.
+
+To rotate any value, patch that one key and restart the pods that read it;
+nothing else needs updating:
+
+```sh
+kubectl patch secret roost-secrets -n roost \
+  -p "{\"stringData\":{\"postgres-password\":\"$(openssl rand -base64 24)\"}}"
+```
 
 ## Order of operations
 
@@ -49,17 +73,17 @@ that address is the tailnet IP its sidecar gets — which isn't known until
 the pod has registered once. So the first deploy is two-phase:
 
 ```sh
-# 1. Deploy without node_ip. The pod starts; LiveKit works for signaling
-#    but media won't connect yet.
+# 1. Deploy with livekit-node-ip still empty. The pod starts and signaling
+#    works, but media won't connect yet.
 kubectl apply -f k8s/livekit/
 
 # 2. Read the tailnet IP the sidecar registered (or find roost-livekit in
 #    `tailscale status` / the admin console):
 kubectl exec -n roost deploy/livekit -c tailscale -- tailscale ip -4
 
-# 3. Put that address in the config's rtc.node_ip and restart:
-#    (recreate the livekit-config secret with `node_ip: <that address>`
-#    under the rtc: block, then)
+# 3. Patch that one key and restart:
+kubectl patch secret roost-secrets -n roost \
+  -p '{"stringData":{"livekit-node-ip":"100.x.y.z"}}'
 kubectl rollout restart deploy/livekit -n roost
 ```
 
@@ -76,7 +100,7 @@ directly in-process via `tsnet` rather than being exposed by the operator's
 generic `LoadBalancer`-class Service — see the "Chat server joins the
 tailnet itself" decision in `docs/architecture-overview.md` for why. That
 means `k8s/chat-server/deployment.yaml` needs a reusable Tailscale auth key
-(`chat-server-tailscale` secret, key `authkey`) rather than the operator
+(`roost-secrets`, key `tailscale-authkey`) rather than the operator
 managing its tailnet presence.
 
 ## Why LiveKit is its own tailnet node
@@ -96,9 +120,10 @@ has no Service at all** now, exactly like chat-server — nothing in-cluster
 connects to it (chat-server only mints JWTs locally; it never opens a
 connection), and clients reach it at `roost-livekit.<tailnet>.ts.net`.
 
-The media port range (`50000-50019` in the config) no longer has to be
-enumerated anywhere, since nothing proxies it — widen it in `livekit-config`
-alone if you need more concurrent call capacity.
+The media port range (`50000-50019`) no longer has to be enumerated
+anywhere, since nothing proxies it — widen it in the `LIVEKIT_CONFIG` block
+in `k8s/livekit/deployment.yaml` alone if you need more concurrent call
+capacity.
 
 ## Image
 
