@@ -190,7 +190,21 @@ class _MessageList extends ConsumerStatefulWidget {
 class _MessageListState extends ConsumerState<_MessageList> {
   final _itemScrollController = ItemScrollController();
   final _itemPositionsListener = ItemPositionsListener.create();
+  final _scrollOffsetController = ScrollOffsetController();
+  final _viewportKey = GlobalKey();
   Timer? _seenDebounce;
+
+  // Keyed by message id and reused across rebuilds, rather than minted fresh
+  // inside _MessageRow on every build — openActions() there now awaits a
+  // scroll before opening the overlay, and a rebuild during that await (e.g.
+  // from a seen-status ack) would otherwise swap in a new _MessageRow with a
+  // brand new key, silently detaching the one the long-press closure had
+  // captured and leaving the overlay anchored to whatever bubble happens to
+  // hold the stale key afterward instead of the one actually pressed.
+  final _bubbleKeys = <String, GlobalKey>{};
+
+  GlobalKey _bubbleKeyFor(String messageId) =>
+      _bubbleKeys.putIfAbsent(messageId, GlobalKey.new);
 
   @override
   void initState() {
@@ -239,6 +253,31 @@ class _MessageListState extends ConsumerState<_MessageList> {
         alignment: 0.4);
   }
 
+  /// Scrolls by exactly [delta] pixels (positive scrolls further into the
+  /// list, moving on-screen content up) — used to make room for the reaction
+  /// picker/action menu when a message is too close to either edge of the
+  /// list to fit them, per _MessageRow's own fit check.
+  ///
+  /// Deliberately not `ItemScrollController.scrollTo`'s index+alignment API:
+  /// on this `reverse: true` list, `alignment` turned out not to map onto a
+  /// predictable pixel offset — a request computed to shift a bubble by
+  /// ~79px (using the "0 = top of view, 1 = bottom" semantics the docs
+  /// describe for a *non*-reversed list) instead moved it by 381px, nearly
+  /// 5x more than asked for, landing the popup over a different message
+  /// entirely. `ScrollOffsetController.animateScroll` instead scrolls the
+  /// underlying `ScrollController` by a literal relative pixel amount, with
+  /// no index/alignment translation to get wrong.
+  Future<void> _scrollByOffset(double delta) async {
+    await _scrollOffsetController.animateScroll(
+      offset: delta,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+    final settled = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) => settled.complete());
+    await settled.future;
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(messagesProvider(widget.roomId));
@@ -261,10 +300,14 @@ class _MessageListState extends ConsumerState<_MessageList> {
         // `messages` is oldest-first; the list itself renders newest-at-
         // bottom via reverse:true, so we walk it newest-first here too.
         final reversed = messages.reversed.toList();
+        final currentIds = reversed.map((m) => m.id).toSet();
+        _bubbleKeys.removeWhere((id, _) => !currentIds.contains(id));
         return ScrollablePositionedList.builder(
+          key: _viewportKey,
           reverse: true,
           itemScrollController: _itemScrollController,
           itemPositionsListener: _itemPositionsListener,
+          scrollOffsetController: _scrollOffsetController,
           padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
           itemCount: reversed.length,
           itemBuilder: (context, index) {
@@ -285,6 +328,8 @@ class _MessageListState extends ConsumerState<_MessageList> {
             return Padding(
               padding: EdgeInsets.only(bottom: isLastInGroup ? 10 : 2),
               child: _MessageRow(
+                key: ValueKey(message.id),
+                bubbleKey: _bubbleKeyFor(message.id),
                 roomId: widget.roomId,
                 isGroup: widget.isGroup,
                 message: message,
@@ -298,6 +343,8 @@ class _MessageListState extends ConsumerState<_MessageList> {
                 meId: widget.meId,
                 usersById: widget.usersById,
                 onJumpToReply: (id) => _jumpToMessage(id, reversed),
+                viewportKey: _viewportKey,
+                scrollByOffset: _scrollByOffset,
               ),
             );
           },
@@ -327,7 +374,9 @@ WidgetSpan _statusIconSpan(String status, Color onPrimary) {
 }
 
 class _MessageRow extends ConsumerWidget {
-  _MessageRow({
+  const _MessageRow({
+    super.key,
+    required this.bubbleKey,
     required this.roomId,
     required this.isGroup,
     required this.message,
@@ -339,7 +388,14 @@ class _MessageRow extends ConsumerWidget {
     required this.meId,
     required this.usersById,
     required this.onJumpToReply,
+    required this.viewportKey,
+    required this.scrollByOffset,
   });
+
+  // Owned by _MessageListState and reused across rebuilds for this message
+  // id — see its own doc comment for why this can't just be minted fresh
+  // here on every build.
+  final GlobalKey bubbleKey;
 
   final String roomId;
   final bool isGroup;
@@ -353,10 +409,12 @@ class _MessageRow extends ConsumerWidget {
   final Map<String, ApiContact> usersById;
   final void Function(String messageId) onJumpToReply;
 
-  // Only needs to resolve the bubble's on-screen position at the moment of
-  // the long-press gesture that fires within this same build — doesn't need
-  // to stay stable across rebuilds, so a fresh key per build is fine.
-  final GlobalKey _bubbleKey = GlobalKey();
+  // Lets a long-press measure this row's position against the list's own
+  // viewport and scroll it into a spot with room for both the reaction
+  // picker above and the action menu below before opening them — see
+  // openActions() below.
+  final GlobalKey viewportKey;
+  final Future<void> Function(double delta) scrollByOffset;
 
   String _nameFor(String userId) =>
       userId == meId ? 'You' : (usersById[userId]?.displayName ?? '?');
@@ -385,7 +443,7 @@ class _MessageRow extends ConsumerWidget {
     );
 
     final bubble = Container(
-      key: _bubbleKey,
+      key: bubbleKey,
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
       padding: isMedia || isLocation
@@ -546,17 +604,70 @@ class _MessageRow extends ConsumerWidget {
             ],
           );
 
-    void openActions() => showMessageActionOverlay(
-          context: context,
-          anchorKey: _bubbleKey,
-          alignEnd: fromMe,
-          bubbleBorderRadius: borderRadius,
-          quickEmojis: _quickReactions,
-          onReact: (emoji) => ref
-              .read(messagesProvider(roomId).notifier)
-              .toggleReaction(message.id, emoji),
-          actions: _buildActions(context, ref),
-        );
+    final actions = _buildActions(context, ref);
+    // FR: don't offer an emoji the caller has already reacted with — there's
+    // nothing useful to pick there (tapping it again would just toggle it
+    // off, which the landed reaction chip itself already does).
+    final reactedEmojis = {
+      for (final reaction in message.reactions)
+        if (reaction.reactedByMe) reaction.emoji,
+    };
+    final availableEmojis = [
+      for (final emoji in _quickReactions)
+        if (!reactedEmojis.contains(emoji)) emoji,
+    ];
+
+    Future<void> openActions() async {
+      final bubbleBox = bubbleKey.currentContext?.findRenderObject() as RenderBox?;
+      final viewportBox = viewportKey.currentContext?.findRenderObject() as RenderBox?;
+      // Scroll this message into a spot with room for both the picker above
+      // and the menu below *before* opening either — moving the popup to
+      // fit around a cramped position, rather than moving the message,
+      // is what let the layout end up ambiguous about which side either
+      // piece was really anchored to.
+      if (bubbleBox != null && bubbleBox.attached && viewportBox != null && viewportBox.attached) {
+        final bubbleRect = bubbleBox.localToGlobal(Offset.zero) & bubbleBox.size;
+        final viewportTop = viewportBox.localToGlobal(Offset.zero).dy;
+        final viewportHeight = viewportBox.size.height;
+
+        final neededAbove =
+            availableEmojis.isEmpty ? 0.0 : messageActionPickerHeight + messageActionGap * 2;
+        final neededBelow =
+            actions.length * messageActionMenuRowHeight + 8 + messageActionGap * 2;
+
+        final spaceAbove = bubbleRect.top - viewportTop;
+        final spaceBelow = viewportTop + viewportHeight - bubbleRect.bottom;
+
+        // Only scroll when something doesn't actually fit, and only by the
+        // exact deficit — never re-centering a message that already fits. A
+        // positive delta scrolls further into the list, which always moves
+        // on-screen content up regardless of `reverse`; negative moves it
+        // down.
+        double? delta;
+        if (neededAbove > 0 && spaceAbove < neededAbove) {
+          delta = -(neededAbove - spaceAbove);
+        } else if (spaceBelow < neededBelow) {
+          delta = neededBelow - spaceBelow;
+        }
+
+        if (delta != null) {
+          await scrollByOffset(delta);
+        }
+      }
+
+      if (!context.mounted) return;
+      showMessageActionOverlay(
+        context: context,
+        anchorKey: bubbleKey,
+        alignEnd: fromMe,
+        bubbleBorderRadius: borderRadius,
+        quickEmojis: availableEmojis,
+        onReact: (emoji) => ref
+            .read(messagesProvider(roomId).notifier)
+            .toggleReaction(message.id, emoji),
+        actions: actions,
+      );
+    }
 
     return Row(
       mainAxisAlignment: align,

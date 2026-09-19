@@ -1,5 +1,19 @@
 import 'package:flutter/material.dart';
 
+/// Layout constants shared with callers that need to reserve enough on-screen
+/// space *before* opening this overlay (chat_screen.dart scrolls the target
+/// message into view first if it wouldn't otherwise fit) — kept in sync with
+/// the actual widget sizes below rather than re-guessed at the call site.
+const messageActionGap = 8.0;
+const messageActionPickerHeight = 46.0;
+const messageActionMenuRowHeight = 40.0;
+
+/// A [double.clamp] that tolerates `min > max` (a viewport too small to fit
+/// both bounds at once) by just returning `min`, instead of clamp's own
+/// ArgumentError in that case.
+double _clampRange(double value, double min, double max) =>
+    max >= min ? value.clamp(min, max) : min;
+
 /// One row in the action menu (Reply, Forward, Copy, ...). Kept as plain
 /// data so the caller decides which actions apply to a given message —
 /// this widget only knows how to lay a list of them out.
@@ -97,9 +111,6 @@ class _MessageActionContentState extends State<_MessageActionContent>
     reverseDuration: const Duration(milliseconds: 140),
   )..forward();
 
-  static const _pillHeight = 46.0;
-  static const _menuRowHeight = 40.0;
-  static const _gap = 8.0;
   static const _screenMargin = 12.0;
 
   Future<void> _close([VoidCallback? then]) async {
@@ -118,52 +129,41 @@ class _MessageActionContentState extends State<_MessageActionContent>
   Widget build(BuildContext context) {
     final anchorRect = widget.anchorRect;
     final screen = MediaQuery.of(context).size;
-    final menuHeight = widget.actions.length * _menuRowHeight + 8;
-    // A rough estimate, only ever used to decide *which side* of the bubble
-    // there's room on — mirrors the "does it fit above?" check a web build
-    // would do with getBoundingClientRect. The actual on-screen position
-    // below is never computed from this estimate, so a mismatch between it
-    // and the real rendered height can't visibly shift anything.
-    final estimatedHeight = _pillHeight + _gap + menuHeight;
-    final anchorAbove = anchorRect.top > estimatedHeight + 32;
 
     final scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutBack, reverseCurve: Curves.easeIn);
     final fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    final popOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, anchorAbove ? 1.0 : -1.0);
+    final crossAlign = widget.alignEnd ? Alignment.centerRight : Alignment.centerLeft;
+    // Each piece scales in from the edge nearest the bubble it's anchored
+    // to — the picker (above) from its own bottom, the menu (below) from
+    // its own top — rather than sharing one origin now that they're no
+    // longer adjacent siblings in one column.
+    final pickerOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, 1.0);
+    final menuOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, -1.0);
 
-    final picker = _ReactionPicker(
-      emojis: widget.quickEmojis,
-      onPick: (emoji) => _close(() => widget.onReact(emoji)),
+    // chat_screen.dart scrolls the message to make room before this opens,
+    // but a chat too short to scroll (nothing above/below to reveal) can't
+    // always honor that — these keep both pieces fully on screen as a last
+    // resort so they stay usable rather than landing partly off-screen.
+    final estimatedMenuHeight = widget.actions.length * messageActionMenuRowHeight + 8;
+    final menuTop = _clampRange(
+      anchorRect.bottom + messageActionGap,
+      _screenMargin,
+      screen.height - estimatedMenuHeight - _screenMargin,
     );
-    final menu = _ActionMenu(
-      items: widget.actions,
-      rowHeight: _menuRowHeight,
-      onSelected: (item) => _close(item.onTap),
-    );
-
-    // One column, not two independently-positioned widgets: the menu and
-    // picker share a single cross-axis alignment so their edges always line
-    // up with each other, whatever their own intrinsic widths turn out to
-    // be — sizing one from the other's fixed width was what let the wider
-    // picker sail past the menu's edge (and off the screen) before.
-    // Above the bubble the menu reads first (top to bottom: menu, picker,
-    // bubble); below it the order flips so the picker still sits closest
-    // to the bubble either way.
-    final group = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: widget.alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: anchorAbove
-          ? [menu, const SizedBox(height: _gap), picker]
-          : [picker, const SizedBox(height: _gap), menu],
+    final pickerBottom = _clampRange(
+      screen.height - anchorRect.top + messageActionGap,
+      messageActionPickerHeight + _screenMargin,
+      screen.height - _screenMargin,
     );
 
-    // Anchored by `bottom` (above the bubble) or `top` (below it) only —
-    // never both — so the Positioned sizes to the column's real, measured
-    // height instead of the `estimatedHeight` guess above. Anchoring from
-    // an estimated height meant any drift between the guess and the real
-    // layout showed up as the whole group appearing to start low and get
-    // shoved upward; anchoring from one true edge and letting the other
-    // float removes the guess from the position entirely.
+    // The picker is always above the bubble and the menu always below it —
+    // chat_screen.dart scrolls the message into a position with room for
+    // both before this ever opens, so there's no "does it fit above?"
+    // fallback here. Each is anchored by exactly one edge (`bottom` for the
+    // picker, `top` for the menu) so it grows away from that fixed line
+    // using its own real, measured height instead of a guessed one —
+    // anchoring both edges from a height estimate was what previously made
+    // the whole group appear to start low and get shoved into place.
     return Stack(
       children: [
         Positioned.fill(
@@ -179,17 +179,43 @@ class _MessageActionContentState extends State<_MessageActionContent>
             ),
           ),
         ),
+        if (widget.quickEmojis.isNotEmpty)
+          Positioned(
+            bottom: pickerBottom,
+            left: _screenMargin,
+            right: _screenMargin,
+            child: Align(
+              alignment: crossAlign,
+              child: ScaleTransition(
+                scale: scale,
+                alignment: pickerOrigin,
+                child: FadeTransition(
+                  opacity: fade,
+                  child: _ReactionPicker(
+                    emojis: widget.quickEmojis,
+                    onPick: (emoji) => _close(() => widget.onReact(emoji)),
+                  ),
+                ),
+              ),
+            ),
+          ),
         Positioned(
-          top: anchorAbove ? null : anchorRect.bottom + _gap,
-          bottom: anchorAbove ? screen.height - anchorRect.top + _gap : null,
+          top: menuTop,
           left: _screenMargin,
           right: _screenMargin,
           child: Align(
-            alignment: widget.alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+            alignment: crossAlign,
             child: ScaleTransition(
               scale: scale,
-              alignment: popOrigin,
-              child: FadeTransition(opacity: fade, child: group),
+              alignment: menuOrigin,
+              child: FadeTransition(
+                opacity: fade,
+                child: _ActionMenu(
+                  items: widget.actions,
+                  rowHeight: messageActionMenuRowHeight,
+                  onSelected: (item) => _close(item.onTap),
+                ),
+              ),
             ),
           ),
         ),
