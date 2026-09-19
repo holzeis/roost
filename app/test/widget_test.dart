@@ -189,7 +189,7 @@ void main() {
 
     expect(find.textContaining('is typing'), findsNothing);
     // Falls back to the member-count subtitle once nobody is typing.
-    expect(find.text('3 members'), findsOneWidget);
+    expect(find.text('3 MEMBERS'), findsOneWidget);
   });
 
   testWidgets('Long-pressing a message and picking an emoji adds a reaction', (tester) async {

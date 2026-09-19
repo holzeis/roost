@@ -19,6 +19,7 @@ import 'forward_sheet.dart';
 import 'link_preview_card.dart';
 import 'location_message.dart';
 import 'media_message.dart';
+import 'message_action_overlay.dart';
 import 'reply_preview.dart';
 
 class ChatScreen extends ConsumerWidget {
@@ -158,13 +159,8 @@ class _ChatTitle extends StatelessWidget {
                 )
               else if (room.isGroup)
                 Text(
-                  '${room.members.length} members',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.5),
-                      ),
+                  '${room.members.length} MEMBERS',
+                  style: roostMono(context, fontSize: 10.5),
                 ),
             ],
           ),
@@ -331,7 +327,7 @@ WidgetSpan _statusIconSpan(String status, Color onPrimary) {
 }
 
 class _MessageRow extends ConsumerWidget {
-  const _MessageRow({
+  _MessageRow({
     required this.roomId,
     required this.isGroup,
     required this.message,
@@ -356,6 +352,11 @@ class _MessageRow extends ConsumerWidget {
   final String meId;
   final Map<String, ApiContact> usersById;
   final void Function(String messageId) onJumpToReply;
+
+  // Only needs to resolve the bubble's on-screen position at the moment of
+  // the long-press gesture that fires within this same build — doesn't need
+  // to stay stable across rebuilds, so a fresh key per build is fine.
+  final GlobalKey _bubbleKey = GlobalKey();
 
   String _nameFor(String userId) =>
       userId == meId ? 'You' : (usersById[userId]?.displayName ?? '?');
@@ -384,6 +385,7 @@ class _MessageRow extends ConsumerWidget {
     );
 
     final bubble = Container(
+      key: _bubbleKey,
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
       padding: isMedia || isLocation
@@ -466,7 +468,8 @@ class _MessageRow extends ConsumerWidget {
                   TextSpan(
                     text:
                         '${message.editedAt != null ? ' (edited)' : ''}  $timeLabel',
-                    style: TextStyle(
+                    style: roostMono(
+                      context,
                       fontSize: 10.5,
                       color: (fromMe ? scheme.onPrimary : scheme.onSurface)
                           .withValues(alpha: 0.62),
@@ -501,32 +504,32 @@ class _MessageRow extends ConsumerWidget {
           : null,
     );
 
-    return Column(
-      crossAxisAlignment:
-          fromMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          onLongPress: () => _showMessageActions(context, ref),
-          child: Row(
-            mainAxisAlignment: align,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: fromMe ? [bubble] : [avatarSlot, bubble],
-          ),
-        ),
-        if (message.reactions.isNotEmpty)
-          Padding(
-            padding: EdgeInsets.only(
-                left: fromMe ? 0 : 32, top: 2, right: fromMe ? 4 : 0),
-            child: Transform.translate(
-              offset: const Offset(0, -7),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
-                decoration: BoxDecoration(
-                  color: chatWallpaperColor(context),
-                  borderRadius: BorderRadius.circular(999),
-                  boxShadow:
-                      ChatBubbleStyle.shadow(Theme.of(context).brightness),
-                ),
+    // A RenderBox's default hitTest() rejects any position outside its own
+    // [0, size] box *before* it ever delegates to a child — so a
+    // Transform/Positioned overlap that overflows past this widget's own
+    // reported size is invisible to hit-testing regardless of what the
+    // overflowing child itself does, no matter which ancestor eventually
+    // contains it (learned the hard way: a -14 Transform.translate on a
+    // separate sibling below the bubble looked right but silently ate every
+    // tap on the reaction it was supposed to show). The fix is for this
+    // Stack to genuinely report a size that already includes bubble +
+    // overlap — reserved here via a real (non-positioned) SizedBox spacer —
+    // rather than relying on Positioned overflow past a smaller reported
+    // size. Horizontally too: the badge is flush with the bubble's own edge
+    // (right: 0 / left: 0), not poking past it, for the same reason.
+    const reactionBadgeProtrusion = 14.0;
+    final bubbleWithReactions = message.reactions.isEmpty
+        ? bubble
+        : Stack(
+            children: [
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [bubble, const SizedBox(height: reactionBadgeProtrusion)],
+              ),
+              Positioned(
+                bottom: 0,
+                right: fromMe ? null : 0,
+                left: fromMe ? 0 : null,
                 child: Wrap(
                   spacing: 3,
                   children: [
@@ -540,8 +543,27 @@ class _MessageRow extends ConsumerWidget {
                   ],
                 ),
               ),
-            ),
+            ],
+          );
+
+    return Row(
+      mainAxisAlignment: align,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (!fromMe) avatarSlot,
+        GestureDetector(
+          onLongPress: () => showMessageActionOverlay(
+            context: context,
+            anchorKey: _bubbleKey,
+            alignEnd: fromMe,
+            quickEmojis: _quickReactions,
+            onReact: (emoji) => ref
+                .read(messagesProvider(roomId).notifier)
+                .toggleReaction(message.id, emoji),
+            actions: _buildActions(context, ref),
           ),
+          child: bubbleWithReactions,
+        ),
       ],
     );
   }
@@ -555,126 +577,81 @@ class _MessageRow extends ConsumerWidget {
       message.kind == 'text' &&
       DateTime.now().difference(message.createdAt) < const Duration(minutes: 1);
 
-  void _showMessageActions(BuildContext context, WidgetRef ref) {
+  /// Same set of actions the old bottom sheet offered, and the same
+  /// conditionals deciding which apply to this message — just handed to
+  /// [showMessageActionOverlay] instead of a ListTile column, so dismissal
+  /// is the overlay's job, not each item's.
+  List<MessageActionItem> _buildActions(BuildContext context, WidgetRef ref) {
     final isMedia = message.kind == 'image' || message.kind == 'video';
     final isText = message.kind == 'text';
     final isLocation = message.kind == 'location';
     final isCall = message.kind == 'call';
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+
+    return [
+      MessageActionItem(
+        icon: TablerIcons.arrowBackUp,
+        label: 'Reply',
+        onTap: () => ref.read(composerDraftProvider(roomId).notifier).state =
+            ReplyDraft(message),
       ),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Wrap(
-                spacing: 16,
-                children: [
-                  for (final emoji in _quickReactions)
-                    InkWell(
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        ref
-                            .read(messagesProvider(roomId).notifier)
-                            .toggleReaction(message.id, emoji);
-                      },
-                      borderRadius: BorderRadius.circular(24),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child:
-                            Text(emoji, style: const TextStyle(fontSize: 28)),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(TablerIcons.arrowBackUp),
-              title: const Text('Reply'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                ref.read(composerDraftProvider(roomId).notifier).state =
-                    ReplyDraft(message);
-              },
-            ),
-            if (!isLocation && !isCall)
-              ListTile(
-                leading: const Icon(TablerIcons.arrowForwardUp),
-                title: const Text('Forward'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  showForwardSheet(context, ref, message);
-                },
-              ),
-            if (isText)
-              ListTile(
-                leading: const Icon(TablerIcons.copy),
-                title: const Text('Copy'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  Clipboard.setData(ClipboardData(text: message.body ?? ''));
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('Copied')));
-                },
-              ),
-            if (_canEdit)
-              ListTile(
-                leading: const Icon(TablerIcons.pencil),
-                title: const Text('Edit'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  ref.read(composerDraftProvider(roomId).notifier).state =
-                      EditDraft(message);
-                },
-              ),
-            if (isMedia)
-              ListTile(
-                leading: const Icon(TablerIcons.download),
-                title: const Text('Download'),
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  final messenger = ScaffoldMessenger.of(context);
-                  try {
-                    final ext = message.kind == 'video' ? 'mp4' : 'jpg';
-                    final path = await downloadMediaToDisk(
-                        ref, message.mediaId!, '${message.id}.$ext');
-                    messenger.showSnackBar(
-                        SnackBar(content: Text('Saved to $path')));
-                  } catch (error) {
-                    messenger.showSnackBar(
-                        SnackBar(content: Text('Could not download: $error')));
-                  }
-                },
-              ),
-            if (isMedia && fromMe)
-              ListTile(
-                leading: Icon(TablerIcons.trash,
-                    color: Theme.of(context).colorScheme.error),
-                title: Text('Delete',
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error)),
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  final messenger = ScaffoldMessenger.of(context);
-                  try {
-                    await ref
-                        .read(messagesProvider(roomId).notifier)
-                        .deleteMedia(message.mediaId!);
-                  } catch (error) {
-                    messenger.showSnackBar(
-                        SnackBar(content: Text('Could not delete: $error')));
-                  }
-                },
-              ),
-            const SizedBox(height: 8),
-          ],
+      if (!isLocation && !isCall)
+        MessageActionItem(
+          icon: TablerIcons.arrowForwardUp,
+          label: 'Forward',
+          onTap: () => showForwardSheet(context, ref, message),
         ),
-      ),
-    );
+      if (isText)
+        MessageActionItem(
+          icon: TablerIcons.copy,
+          label: 'Copy',
+          onTap: () {
+            Clipboard.setData(ClipboardData(text: message.body ?? ''));
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('Copied')));
+          },
+        ),
+      if (_canEdit)
+        MessageActionItem(
+          icon: TablerIcons.pencil,
+          label: 'Edit',
+          onTap: () => ref.read(composerDraftProvider(roomId).notifier).state =
+              EditDraft(message),
+        ),
+      if (isMedia)
+        MessageActionItem(
+          icon: TablerIcons.download,
+          label: 'Download',
+          onTap: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              final ext = message.kind == 'video' ? 'mp4' : 'jpg';
+              final path = await downloadMediaToDisk(
+                  ref, message.mediaId!, '${message.id}.$ext');
+              messenger.showSnackBar(SnackBar(content: Text('Saved to $path')));
+            } catch (error) {
+              messenger.showSnackBar(
+                  SnackBar(content: Text('Could not download: $error')));
+            }
+          },
+        ),
+      if (isMedia && fromMe)
+        MessageActionItem(
+          icon: TablerIcons.trash,
+          label: 'Delete',
+          isDestructive: true,
+          onTap: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              await ref
+                  .read(messagesProvider(roomId).notifier)
+                  .deleteMedia(message.mediaId!);
+            } catch (error) {
+              messenger.showSnackBar(
+                  SnackBar(content: Text('Could not delete: $error')));
+            }
+          },
+        ),
+    ];
   }
 }
 
@@ -687,22 +664,30 @@ class _ReactionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // A ring the color of the wallpaper behind the bubble, not a plain
+    // border — reads as a distinct badge sitting on the seam between the
+    // bubble and the chat background, the way the reaction sits half on
+    // each. Sitting directly on the bubble corner (see the Stack in
+    // _MessageRow) rather than in a caption row underneath it.
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: reaction.reactedByMe
-              ? scheme.primary.withValues(alpha: 0.15)
-              : scheme.onSurface.withValues(alpha: 0.06),
+          color: scheme.surface,
           borderRadius: BorderRadius.circular(999),
-          border: reaction.reactedByMe
-              ? Border.all(color: scheme.primary.withValues(alpha: 0.4))
-              : null,
+          border: Border.all(color: chatWallpaperColor(context), width: 1.5),
+          boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
         ),
-        child: Text('${reaction.emoji} ${reaction.count}',
-            style: const TextStyle(fontSize: 12)),
+        child: Text(
+          '${reaction.emoji} ${reaction.count}',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: reaction.reactedByMe ? FontWeight.w700 : FontWeight.w400,
+            color: reaction.reactedByMe ? ochreColor(context) : scheme.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
       ),
     );
   }
