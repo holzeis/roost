@@ -15,6 +15,18 @@ import 'call_controls.dart';
 /// IncomingCallScreen) — either way, joining media is the same: mint a
 /// token (POST /api/livekit/token, unchanged), connect, and publish
 /// mic/camera per FR4.3's audio-only choice.
+///
+/// **Calls cannot be tested on the iOS Simulator — use a physical device.**
+/// Starting one there kills the app with SIGABRT: WebRTC brings up Apple's
+/// Voice-Processing I/O audio unit, `AURemoteIO::Initialize` times out on
+/// its RPC to the audio daemon, and AudioToolbox calls `abort()`. That's
+/// inside CoreAudio, well below anything catchable from Dart.
+/// `LiveKitClient.initialize(bypassVoiceProcessing: true)` looks like the
+/// fix and isn't — it was tried, forced on explicitly, and the abort is
+/// unchanged, because the option doesn't reach WebRTC's audio device module
+/// initialization. The Simulator also has no camera and shares the host's
+/// single tailnet identity (so it can't be a second participant anyway),
+/// which is why this isn't worth working around.
 class CallScreen extends ConsumerStatefulWidget {
   const CallScreen({
     super.key,
