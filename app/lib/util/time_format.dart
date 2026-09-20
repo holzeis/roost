@@ -27,6 +27,31 @@ const _weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 String _weekday(int weekday1to7) => _weekdayNames[weekday1to7 - 1];
 
+const _weekdayNamesFull = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday' // ignore: prefer_trailing_commas
+];
+
+const _monthNames = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' // ignore: prefer_trailing_commas
+];
+
+/// Chat day-divider label: "Today"/"Yesterday" for the last two days, a full
+/// weekday name for the rest of the last week, else "Fri, 11 Sep" — a visual
+/// line-break between a day's messages and the next, not a timestamp.
+/// `dateTime` should already be day-only (see `_dayOnly` in chat_screen.dart).
+String formatDateDivider(DateTime dateTime) {
+  final local = dateTime.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(local.year, local.month, local.day);
+  final daysAgo = today.difference(day).inDays;
+
+  if (daysAgo == 0) return 'Today';
+  if (daysAgo == 1) return 'Yesterday';
+  if (daysAgo < 7) return _weekdayNamesFull[local.weekday - 1];
+  return '${_weekday(local.weekday)}, ${local.day} ${_monthNames[local.month - 1]}';
+}
+
 /// "How much longer" label for an active location share (FR3.6), e.g. "12m
 /// left" or "1h 5m left". A non-positive duration (already expired) reads
 /// as "Ending…" rather than a negative/zero time, since the client's own

@@ -32,6 +32,39 @@ void main() {
     });
   });
 
+  group('formatDateDivider', () {
+    test('formats today as "Today"', () {
+      expect(formatDateDivider(DateTime.now()), 'Today');
+    });
+
+    test('formats yesterday as "Yesterday"', () {
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      expect(formatDateDivider(yesterday), 'Yesterday');
+    });
+
+    test('formats 3 days ago as a full weekday name', () {
+      final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
+      final formatted = formatDateDivider(threeDaysAgo);
+      expect(
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+        contains(formatted),
+      );
+    });
+
+    test('formats exactly a week ago as a short date, not a weekday', () {
+      final aWeekAgo = DateTime.now().subtract(const Duration(days: 7));
+      final formatted = formatDateDivider(aWeekAgo);
+      expect(
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+        isNot(contains(formatted)),
+      );
+    });
+
+    test('formats more than a week ago as "Weekday, day Month"', () {
+      expect(formatDateDivider(DateTime(2026, 9, 11)), 'Fri, 11 Sep');
+    });
+  });
+
   group('formatRemaining', () {
     test('formats minutes only', () {
       expect(formatRemaining(const Duration(minutes: 12)), '12m left');

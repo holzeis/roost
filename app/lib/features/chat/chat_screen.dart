@@ -12,6 +12,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../theme/app_theme.dart';
+import '../../util/time_format.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
 import 'call_message.dart';
@@ -211,6 +212,28 @@ class _MessageListState extends ConsumerState<_MessageList> {
   final _itemPositionsListener = ItemPositionsListener.create();
   Timer? _seenDebounce;
 
+  // Rebuilt on every build() alongside the list itself — the single source
+  // of truth for what item index N actually is, since date dividers mean
+  // that's no longer just `reversed[N]`. Kept as a field (rather than
+  // recomputed from the provider) so the scroll-position listeners below,
+  // which fire independently of build(), always agree with what's actually
+  // on screen.
+  List<_ListEntry> _entries = const [];
+
+  // Drives the scrollbar and sticky date pill's fade in/out — set from
+  // actual scroll notifications (not item positions, which also fire on
+  // plain layout) so they only appear while the user is really scrolling.
+  Timer? _scrollActivityTimer;
+  bool _scrollActive = false;
+
+  void _onScrollActivity() {
+    if (!_scrollActive && mounted) setState(() => _scrollActive = true);
+    _scrollActivityTimer?.cancel();
+    _scrollActivityTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _scrollActive = false);
+    });
+  }
+
   // Keyed by message id and reused across rebuilds, rather than minted fresh
   // inside _MessageRow on every build — a rebuild between a long-press and
   // the overlay actually opening (e.g. from a seen-status ack) would
@@ -244,6 +267,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
   void dispose() {
     _itemPositionsListener.itemPositions.removeListener(_onPositionsChanged);
     _seenDebounce?.cancel();
+    _scrollActivityTimer?.cancel();
     super.dispose();
   }
 
@@ -251,36 +275,72 @@ class _MessageListState extends ConsumerState<_MessageList> {
   /// (reversed, newest-first) list settles, ack any visible message from
   /// someone else as seen. Debounced rather than acked on every scroll
   /// frame since positions fire continuously while flinging the list.
+  /// Reads indices against `_entries` (this build's own item list, dividers
+  /// included) rather than a freshly re-derived message list, since it's
+  /// only `_entries` that the visible `position.index` values actually
+  /// index into.
   void _onPositionsChanged() {
     _seenDebounce?.cancel();
     _seenDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      final reversed = (ref.read(messagesProvider(widget.roomId)).valueOrNull ??
-              const <ApiMessage>[])
-          .reversed
-          .toList();
-      final visibleIds = [
-        for (final position in _itemPositionsListener.itemPositions.value)
-          if (position.index >= 0 && position.index < reversed.length)
-            reversed[position.index].id,
-      ];
+      final visibleIds = <String>[];
+      for (final position in _itemPositionsListener.itemPositions.value) {
+        if (position.index < 0 || position.index >= _entries.length) continue;
+        final entry = _entries[position.index];
+        if (entry is _MessageEntry) visibleIds.add(entry.message.id);
+      }
       unawaited(ref
           .read(messagesProvider(widget.roomId).notifier)
           .ackSeen(visibleIds));
     });
   }
 
+  /// Topmost currently-visible day, for the sticky overlay pill — "topmost"
+  /// meaning the largest visible index, since this list is reverse:true and
+  /// increasing index means further up/older. If that's a divider itself
+  /// (i.e. it's just been scrolled to), the label already switches to the
+  /// next, older day per the requested "until the actual date separator is
+  /// found, then start with the next date" behavior.
+  String? _stickyDateLabel(Iterable<ItemPosition> positions) {
+    if (positions.isEmpty || _entries.isEmpty) return null;
+    var topIndex =
+        positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+    topIndex = topIndex.clamp(0, _entries.length - 1);
+    var entry = _entries[topIndex];
+    if (entry is _DateDividerEntry && topIndex + 1 < _entries.length) {
+      entry = _entries[topIndex + 1];
+    }
+    final day = switch (entry) {
+      _DateDividerEntry(:final day) => day,
+      _MessageEntry(:final message) => _dayOnly(message.createdAt),
+    };
+    return formatDateDivider(day);
+  }
+
+  double _scrollFraction(Iterable<ItemPosition> positions) {
+    if (positions.isEmpty || _entries.length <= 1) return 0;
+    final topIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+    return (topIndex / (_entries.length - 1)).clamp(0.0, 1.0);
+  }
+
   /// Scrolls back to a message by id, e.g. when a reply quote is tapped
   /// (FR1.10). A silent no-op if it isn't in the currently loaded window
   /// (e.g. it's further back than pagination has fetched) — there's no
   /// stable way to jump to something that isn't loaded yet.
-  void _jumpToMessage(String messageId, List<ApiMessage> reversed) {
-    final index = reversed.indexWhere((m) => m.id == messageId);
+  void _jumpToMessage(String messageId) {
+    final index = _entries
+        .indexWhere((e) => e is _MessageEntry && e.message.id == messageId);
     if (index == -1 || !_itemScrollController.isAttached) return;
     _itemScrollController.scrollTo(
         index: index,
         duration: const Duration(milliseconds: 300),
         alignment: 0.4);
+  }
+
+  void _jumpToBottom() {
+    if (!_itemScrollController.isAttached) return;
+    _itemScrollController.scrollTo(
+        index: 0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
   }
 
   @override
@@ -309,53 +369,284 @@ class _MessageListState extends ConsumerState<_MessageList> {
         final reversed = messages.reversed.toList();
         final currentIds = reversed.map((m) => m.id).toSet();
         _bubbleKeys.removeWhere((id, _) => !currentIds.contains(id));
-        return ScrollablePositionedList.builder(
-          reverse: true,
-          itemScrollController: _itemScrollController,
-          itemPositionsListener: _itemPositionsListener,
-          padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
-          itemCount: reversed.length,
-          itemBuilder: (context, index) {
-            final message = reversed[index];
-            // Chronologically-next/-previous, i.e. the neighbors on screen
-            // above/below since this list is newest-first.
-            final older =
-                index + 1 < reversed.length ? reversed[index + 1] : null;
-            final newer = index > 0 ? reversed[index - 1] : null;
-            final isFirstInGroup =
-                older == null || older.senderId != message.senderId;
-            final isLastInGroup =
-                newer == null || newer.senderId != message.senderId;
 
-            final senderName = message.senderId == widget.meId
-                ? 'Me'
-                : (widget.usersById[message.senderId]?.displayName ?? '?');
-            return Padding(
-              padding: EdgeInsets.only(bottom: isLastInGroup ? 10 : 2),
-              child: _MessageRow(
-                key: ValueKey(message.id),
-                bubbleKey: _bubbleKeyFor(message.id),
-                roomId: widget.roomId,
-                isGroup: widget.isGroup,
-                message: message,
-                fromMe: message.senderId == widget.meId,
-                senderName: senderName,
-                isFirstInGroup: isFirstInGroup,
-                isLastInGroup: isLastInGroup,
-                showSenderLabel: widget.isGroup &&
-                    message.senderId != widget.meId &&
-                    isFirstInGroup,
-                meId: widget.meId,
-                usersById: widget.usersById,
-                onJumpToReply: (id) => _jumpToMessage(id, reversed),
-                composerKey: widget.composerKey,
-                isLifted: _liftedMessageId == message.id,
-                onLiftedChange: _setLifted,
-              ),
-            );
+        // Built once per rebuild rather than derived per-item in
+        // itemBuilder, since the day-boundary check needs each message's
+        // chronological neighbors and a day divider takes up its own item
+        // slot — see _ListEntry's own doc comment for the index contract
+        // the scroll-position listeners above depend on.
+        final entries = <_ListEntry>[];
+        for (var i = 0; i < reversed.length; i++) {
+          final message = reversed[i];
+          final older =
+              i + 1 < reversed.length ? reversed[i + 1] : null;
+          final newer = i > 0 ? reversed[i - 1] : null;
+          final isFirstInGroup = older == null ||
+              older.senderId != message.senderId ||
+              !_isSameDay(older.createdAt, message.createdAt);
+          final isLastInGroup = newer == null ||
+              newer.senderId != message.senderId ||
+              !_isSameDay(newer.createdAt, message.createdAt);
+          entries.add(_MessageEntry(message,
+              isFirstInGroup: isFirstInGroup, isLastInGroup: isLastInGroup));
+          if (older == null || !_isSameDay(older.createdAt, message.createdAt)) {
+            entries.add(_DateDividerEntry(_dayOnly(message.createdAt)));
+          }
+        }
+        _entries = entries;
+
+        return NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification is ScrollStartNotification ||
+                notification is ScrollUpdateNotification) {
+              _onScrollActivity();
+            }
+            return false;
           },
+          child: Stack(
+            children: [
+              ScrollablePositionedList.builder(
+                reverse: true,
+                itemScrollController: _itemScrollController,
+                itemPositionsListener: _itemPositionsListener,
+                padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
+                itemCount: entries.length,
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  if (entry is _DateDividerEntry) {
+                    return _DateDividerRow(day: entry.day);
+                  }
+                  final message = (entry as _MessageEntry).message;
+                  final senderName = message.senderId == widget.meId
+                      ? 'Me'
+                      : (widget.usersById[message.senderId]?.displayName ?? '?');
+                  return Padding(
+                    padding:
+                        EdgeInsets.only(bottom: entry.isLastInGroup ? 10 : 2),
+                    child: _MessageRow(
+                      key: ValueKey(message.id),
+                      bubbleKey: _bubbleKeyFor(message.id),
+                      roomId: widget.roomId,
+                      isGroup: widget.isGroup,
+                      message: message,
+                      fromMe: message.senderId == widget.meId,
+                      senderName: senderName,
+                      isFirstInGroup: entry.isFirstInGroup,
+                      isLastInGroup: entry.isLastInGroup,
+                      showSenderLabel: widget.isGroup &&
+                          message.senderId != widget.meId &&
+                          entry.isFirstInGroup,
+                      meId: widget.meId,
+                      usersById: widget.usersById,
+                      onJumpToReply: _jumpToMessage,
+                      composerKey: widget.composerKey,
+                      isLifted: _liftedMessageId == message.id,
+                      onLiftedChange: _setLifted,
+                    ),
+                  );
+                },
+              ),
+              Positioned(
+                top: 8,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _scrollActive ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Center(
+                      child: ValueListenableBuilder<Iterable<ItemPosition>>(
+                        valueListenable: _itemPositionsListener.itemPositions,
+                        builder: (context, positions, _) {
+                          final label = _stickyDateLabel(positions);
+                          if (label == null) return const SizedBox.shrink();
+                          return _DatePill(label: label);
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 2,
+                top: 8,
+                bottom: 8,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _scrollActive ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: ValueListenableBuilder<Iterable<ItemPosition>>(
+                      valueListenable: _itemPositionsListener.itemPositions,
+                      builder: (context, positions, _) =>
+                          _HistoryScrollbar(fraction: _scrollFraction(positions)),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: ValueListenableBuilder<Iterable<ItemPosition>>(
+                  valueListenable: _itemPositionsListener.itemPositions,
+                  builder: (context, positions, _) {
+                    final atBottom = positions.any((p) => p.index == 0);
+                    if (atBottom || positions.isEmpty) return const SizedBox.shrink();
+                    return _JumpToBottomButton(onPressed: _jumpToBottom);
+                  },
+                ),
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+}
+
+/// One row in the rendered (reverse-chronological, dividers-included) list —
+/// the shared index contract every scroll-position listener in
+/// _MessageListState reads against, since `reversed[index]` alone stopped
+/// being true once dividers took up their own slots.
+sealed class _ListEntry {
+  const _ListEntry();
+}
+
+class _MessageEntry extends _ListEntry {
+  const _MessageEntry(this.message,
+      {required this.isFirstInGroup, required this.isLastInGroup});
+  final ApiMessage message;
+  final bool isFirstInGroup;
+  final bool isLastInGroup;
+}
+
+class _DateDividerEntry extends _ListEntry {
+  const _DateDividerEntry(this.day);
+  final DateTime day;
+}
+
+DateTime _dayOnly(DateTime dt) {
+  final local = dt.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+bool _isSameDay(DateTime a, DateTime b) => _dayOnly(a) == _dayOnly(b);
+
+/// The inline, non-sticky day divider rendered as an ordinary list item —
+/// a visual line-break between one day's messages and the next. Extra top
+/// margin vs. bottom, as asked, so it reads as closing the day above it
+/// more than opening the one below.
+class _DateDividerRow extends StatelessWidget {
+  const _DateDividerRow({required this.day});
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 18, bottom: 8),
+      child: Center(
+        child: Text(
+          formatDateDivider(day),
+          style: roostMono(context,
+              fontSize: 11.5, color: scheme.onSurface.withValues(alpha: 0.55)),
+        ),
+      ),
+    );
+  }
+}
+
+/// The floating pill that tracks whichever day is currently scrolled to,
+/// shown only while the list is actively being scrolled (see
+/// _MessageListState._scrollActive).
+class _DatePill extends StatelessWidget {
+  const _DatePill({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 6,
+              offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Text(label,
+          style: roostMono(context,
+              fontSize: 11.5, color: scheme.onSurface.withValues(alpha: 0.75))),
+    );
+  }
+}
+
+/// A minimal history indicator standing in for a native scrollbar —
+/// scrollable_positioned_list doesn't provide one. `fraction` is an
+/// approximation of how far back through history the visible window is (0 =
+/// newest/bottom, 1 = oldest/top loaded), good enough for a visual cue
+/// rather than pixel-accurate scroll physics.
+class _HistoryScrollbar extends StatelessWidget {
+  const _HistoryScrollbar({required this.fraction});
+  final double fraction;
+
+  static const _thumbHeight = 36.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final track = constraints.maxHeight;
+        final top = (track - _thumbHeight).clamp(0.0, double.infinity) * fraction;
+        return SizedBox(
+          width: 4,
+          height: track,
+          child: Stack(
+            children: [
+              Positioned(
+                top: top,
+                child: Container(
+                  width: 4,
+                  height: _thumbHeight,
+                  decoration: BoxDecoration(
+                    color: scheme.onSurface.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Jumps back to the newest message — shown only once scrolled away from it.
+class _JumpToBottomButton extends StatelessWidget {
+  const _JumpToBottomButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      elevation: 4,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(TablerIcons.arrowDown,
+              size: 20, color: scheme.onSurface.withValues(alpha: 0.7)),
+        ),
+      ),
     );
   }
 }

@@ -421,4 +421,31 @@ void main() {
     expect(find.text('Call back?'), findsNothing);
     expect(find.text('Family'), findsOneWidget); // chat screen, undisturbed
   });
+
+  testWidgets('A date divider separates messages sent on different days', (tester) async {
+    final api = _seededApiClient();
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    api.messagesByRoom['room-family']!.insert(
+      0,
+      ApiMessage(
+        id: 'm0',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'text',
+        body: 'good morning from yesterday',
+        createdAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 9),
+      ),
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // findsWidgets rather than findsOneWidget: the sticky date-pill overlay
+    // (see chat_screen.dart's _DatePill) renders its own copy of whichever
+    // label is current, invisible via opacity rather than absent from the
+    // tree, so it's a legitimate second match alongside the inline divider.
+    expect(find.text('Yesterday'), findsWidgets);
+    expect(find.text('Today'), findsWidgets);
+  });
 }
