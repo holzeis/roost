@@ -651,8 +651,6 @@ class _JumpToBottomButton extends StatelessWidget {
   }
 }
 
-const _quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-
 /// Sent/delivered/seen tick (FR1.5, FR1.6), rendered next to the timestamp
 /// on the sender's own message bubbles only. Delivered and seen both use
 /// the double-check glyph (TablerIcons.checks) — seen is distinguished by
@@ -931,7 +929,7 @@ class _MessageRow extends ConsumerWidget {
         if (reaction.reactedByMe) reaction.emoji,
     };
     final availableEmojis = [
-      for (final emoji in _quickReactions)
+      for (final emoji in quickReactions)
         if (!reactedEmojis.contains(emoji)) emoji,
     ];
 

@@ -47,6 +47,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Roost needs access to your photo library to share photos and videos in chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Roost needs permission to save photos and videos from chat to your photo library.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Roost needs access to your camera to share photos and video in chat and calls.</string>
 	<key>NSMicrophoneUsageDescription</key>

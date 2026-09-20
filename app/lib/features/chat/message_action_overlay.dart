@@ -11,6 +11,10 @@ const messageActionPickerHeight = 58.0;
 const messageActionMenuRowHeight = 50.0;
 const messageActionScreenMargin = 12.0;
 
+/// The quick-reaction emoji offered by both the long-press action overlay
+/// and the media viewer's own react button.
+const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
 /// One row in the action menu (Reply, Forward, Copy, ...). Kept as plain
 /// data so the caller decides which actions apply to a given message —
 /// this widget only knows how to lay a list of them out.
@@ -232,7 +236,7 @@ class _MessageActionContentState extends State<_MessageActionContent>
                       alignment: pickerOrigin,
                       child: FadeTransition(
                         opacity: fade,
-                        child: _ReactionPicker(
+                        child: ReactionPicker(
                           emojis: widget.quickEmojis,
                           onPick: (emoji) =>
                               _close(() => widget.onReact(emoji)),
@@ -269,8 +273,11 @@ class _MessageActionContentState extends State<_MessageActionContent>
   }
 }
 
-class _ReactionPicker extends StatelessWidget {
-  const _ReactionPicker({required this.emojis, required this.onPick});
+/// The pill of quick-reaction emoji shown by the long-press action overlay —
+/// public so the media viewer (media_viewer_screen.dart) can reuse it for
+/// its own "react to this photo" button.
+class ReactionPicker extends StatelessWidget {
+  const ReactionPicker({super.key, required this.emojis, required this.onPick});
 
   final List<String> emojis;
   final void Function(String emoji) onPick;

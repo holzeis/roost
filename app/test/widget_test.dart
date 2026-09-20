@@ -305,6 +305,45 @@ void main() {
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
+  testWidgets('Tapping an image opens the full-screen viewer, where react and reply both work',
+      (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // A plain tap (not long-press) opens the viewer.
+    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+
+    // Now on the media viewer, not the chat screen — its back button and
+    // react button are the ones the chat screen doesn't have.
+    expect(find.byIcon(TablerIcons.moodSmile), findsOneWidget);
+
+    await tester.tap(find.byIcon(TablerIcons.moodSmile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('👍'));
+    await tester.pumpAndSettle();
+
+    // Reactions land in messagesProvider's own state via the reaction.added
+    // WS round-trip (see chat_providers.dart's _applyReactionEvent), not in
+    // the fake client's backing store — back on the chat screen is where
+    // that state actually renders, same as the long-press reaction test.
+    await tester.tap(find.byIcon(TablerIcons.chevronLeft));
+    await tester.pumpAndSettle();
+    expect(find.text('👍 1'), findsOneWidget);
+
+    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reply'));
+    await tester.pumpAndSettle();
+
+    // Reply hands off to the regular composer draft and returns to the chat.
+    expect(find.byIcon(TablerIcons.moodSmile), findsNothing); // viewer is gone
+    expect(find.textContaining('Replying to'), findsOneWidget);
+  });
+
   testWidgets('Contacts screen lists other users with presence', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 

@@ -4,6 +4,7 @@ import '../data/api_models.dart';
 import '../features/call/call_screen.dart';
 import '../features/call/incoming_call_screen.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/chat/media_viewer_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/location/live_location_screen.dart';
@@ -32,6 +33,13 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/chat/:roomId/location',
       builder: (context, state) => LiveLocationScreen(roomId: state.pathParameters['roomId']!),
+    ),
+    GoRoute(
+      path: '/chat/:roomId/media/:messageId',
+      builder: (context, state) => MediaViewerScreen(
+        roomId: state.pathParameters['roomId']!,
+        initialMessageId: state.pathParameters['messageId']!,
+      ),
     ),
     GoRoute(
       path: '/call/:roomId',
