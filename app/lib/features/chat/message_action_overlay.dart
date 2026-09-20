@@ -208,6 +208,14 @@ class _MessageActionContentState extends State<_MessageActionContent>
                   onTap: () => _close(),
                   child: ScaleTransition(
                     scale: bubbleScale,
+                    // Anchored to the bubble's own outer edge (the one
+                    // flush with its sender's side), not its center — a
+                    // centered scale would grow past that edge too, subtly
+                    // breaking the left/right alignment the popup above and
+                    // menu below are otherwise careful to preserve. This
+                    // keeps that edge fixed and only grows toward the
+                    // middle of the chat.
+                    alignment: crossAlign,
                     child: IgnorePointer(child: widget.bubbleContent),
                   ),
                 ),
