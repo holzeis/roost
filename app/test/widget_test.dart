@@ -10,6 +10,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
+import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
@@ -708,6 +709,12 @@ void main() {
     expect(shared.location!.lng, 13.4);
     expect(location.requestPermissionCalls, 1);
     expect(find.textContaining('Live ·'), findsOneWidget);
+
+    // No bubble-colored frame around the map, same as a photo/video bubble.
+    final bubbleContainer = tester.widget<Container>(find
+        .ancestor(of: find.byType(LocationBubbleContent), matching: find.byType(Container))
+        .first);
+    expect(bubbleContainer.padding, EdgeInsets.zero);
   });
 
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {

@@ -743,14 +743,16 @@ class _MessageRow extends ConsumerWidget {
       bottomRight: fromMe ? tail : ChatBubbleStyle.radius,
     );
 
-    // A photo/video renders edge-to-edge, with no bubble-colored frame
-    // around it — but if there's a forwarded/reply/sender-name header above
-    // it in the same bubble, its top corners go square (flush against that
-    // header) rather than rounded, since it's no longer adjacent to the
-    // bubble's own top edge.
-    final hasMediaHeader =
-        message.forwarded || message.replyTo != null || showSenderLabel;
-    final mediaRadius = hasMediaHeader
+    // A photo/video/location map renders edge-to-edge, with no
+    // bubble-colored frame around it — but if there's a
+    // forwarded/reply/sender-name header above it in the same bubble, its
+    // top corners go square (flush against that header) rather than
+    // rounded, since it's no longer adjacent to the bubble's own top edge.
+    final isFrameless = isMedia || isLocation;
+    final hasFramelessHeader = message.forwarded ||
+        message.replyTo != null ||
+        (isFrameless && showSenderLabel);
+    final framelessRadius = hasFramelessHeader
         ? BorderRadius.only(
             bottomLeft: borderRadius.bottomLeft,
             bottomRight: borderRadius.bottomRight)
@@ -759,11 +761,9 @@ class _MessageRow extends ConsumerWidget {
     final bubbleContent = Container(
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
-      padding: isMedia
+      padding: isFrameless
           ? EdgeInsets.zero
-          : isLocation
-              ? const EdgeInsets.all(3)
-              : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: fromMe ? scheme.primary : scheme.surface,
         borderRadius: borderRadius,
@@ -776,10 +776,7 @@ class _MessageRow extends ConsumerWidget {
           if (message.forwarded)
             Padding(
               padding: EdgeInsets.fromLTRB(
-                  isMedia ? 8 : (isLocation ? 5 : 0),
-                  isMedia ? 6 : 0,
-                  isMedia ? 8 : 0,
-                  2),
+                  isFrameless ? 8 : 0, isFrameless ? 6 : 0, isFrameless ? 8 : 0, 2),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -803,8 +800,7 @@ class _MessageRow extends ConsumerWidget {
           if (message.replyTo != null)
             Padding(
               padding: EdgeInsets.symmetric(
-                  horizontal: isMedia ? 8 : (isLocation ? 5 : 0),
-                  vertical: isMedia ? 4 : 0),
+                  horizontal: isFrameless ? 8 : 0, vertical: isFrameless ? 4 : 0),
               child: ReplyQuoteChip(
                 snippet: message.replyTo!,
                 senderName: _nameFor(message.replyTo!.senderId),
@@ -812,10 +808,10 @@ class _MessageRow extends ConsumerWidget {
                 onTap: () => onJumpToReply(message.replyTo!.id),
               ),
             ),
-          // Group chats always show who posted a photo/video, the same way
-          // a group text message already names its sender — never for the
-          // viewer's own messages, which need no such label.
-          if (isMedia && showSenderLabel)
+          // Group chats always show who posted a photo/video/location, the
+          // same way a group text message already names its sender — never
+          // for the viewer's own messages, which need no such label.
+          if (isFrameless && showSenderLabel)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
               child: Text(
@@ -828,9 +824,10 @@ class _MessageRow extends ConsumerWidget {
               ),
             ),
           if (isMedia)
-            MediaBubbleContent(message: message, borderRadius: mediaRadius)
+            MediaBubbleContent(message: message, borderRadius: framelessRadius)
           else if (isLocation)
-            LocationBubbleContent(message: message, roomId: roomId)
+            LocationBubbleContent(
+                message: message, roomId: roomId, borderRadius: framelessRadius)
           else if (isCall)
             CallBubbleContent(
               message: message,

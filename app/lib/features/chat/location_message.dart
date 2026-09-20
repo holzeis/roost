@@ -14,11 +14,21 @@ import '../../util/time_format.dart';
 /// once it's ended/expired. Tapping it opens the room's full live-location
 /// map (FR3.8), which is where multiple simultaneous shares actually come
 /// together — this bubble only ever shows its own message's position.
+/// Renders edge-to-edge like a photo/video bubble (no bubble-colored frame
+/// around the map) — see chat_screen.dart's own computation of
+/// `borderRadius`, square on whichever edge has a forwarded/reply/sender-name
+/// header above it instead of rounded.
 class LocationBubbleContent extends StatefulWidget {
-  const LocationBubbleContent({super.key, required this.message, required this.roomId});
+  const LocationBubbleContent({
+    super.key,
+    required this.message,
+    required this.roomId,
+    this.borderRadius = const BorderRadius.all(Radius.circular(6)),
+  });
 
   final ApiMessage message;
   final String roomId;
+  final BorderRadius borderRadius;
 
   @override
   State<LocationBubbleContent> createState() => _LocationBubbleContentState();
@@ -58,7 +68,7 @@ class _LocationBubbleContentState extends State<LocationBubbleContent> {
       child: ConstrainedBox(
         constraints: box,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: widget.borderRadius,
           child: Stack(
             children: [
               AbsorbPointer(
