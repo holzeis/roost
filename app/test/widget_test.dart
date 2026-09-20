@@ -118,7 +118,7 @@ void main() {
     expect(find.text('Message'), findsOneWidget); // the composer's hint text
   });
 
-  testWidgets('Camera shortcut stays visible while typing and long-press offers video/gallery alternatives', (tester) async {
+  testWidgets('Camera shortcut stays visible while typing and opens a chooser on tap', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
@@ -126,14 +126,15 @@ void main() {
 
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
 
-    // Long-press surfaces the alternatives without invoking the (unmockable
-    // in a widget test) native camera/gallery pickers.
-    await tester.longPress(find.byIcon(TablerIcons.camera));
+    // A plain tap surfaces the chooser without invoking the (unmockable in a
+    // widget test) native camera/gallery pickers.
+    await tester.tap(find.byIcon(TablerIcons.camera));
     await tester.pumpAndSettle();
 
     expect(find.text('Take photo'), findsOneWidget);
     expect(find.text('Record video'), findsOneWidget);
     expect(find.text('Choose from gallery'), findsOneWidget);
+    expect(find.text('Share location'), findsOneWidget);
 
     await tester.tapAt(const Offset(200, 100)); // dismiss the sheet
     await tester.pumpAndSettle();

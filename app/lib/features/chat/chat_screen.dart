@@ -966,17 +966,6 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
   }
 
-  /// One merged camera shortcut, replacing the separate "+" attach menu and
-  /// camera button. A plain tap jumps straight into the device's own camera
-  /// for a photo — "directly open the camera" as asked — since that's the
-  /// single most common action and there's no way to inject a "video" or
-  /// "gallery" control into the native camera capture screen itself (iOS's
-  /// camera picker UI isn't customizable from Flutter). Long-pressing
-  /// surfaces the alternatives (record video, or pick from the gallery
-  /// instead) without slowing down the common one-tap case.
-  Future<void> _onCameraTap() =>
-      _pickAndSendMedia(video: false, source: ImageSource.camera);
-
   void _showAttachOptions() {
     showModalBottomSheet<void>(
       context: context,
@@ -1171,18 +1160,13 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                   ),
                   // Always visible now, on the trailing side — kept even
                   // while composing text, rather than hidden the moment
-                  // there's something typed.
-                  GestureDetector(
-                    onLongPress: _showAttachOptions,
-                    // No `tooltip:` here — IconButton wraps itself in a Tooltip
-                    // when one is set, and Tooltip's own long-press-to-show
-                    // recognizer competes with ours in the same gesture arena,
-                    // making onLongPress fire unreliably.
-                    child: IconButton(
-                      icon: Icon(TablerIcons.camera,
-                          color: scheme.onSurface.withValues(alpha: 0.6)),
-                      onPressed: _onCameraTap,
-                    ),
+                  // there's something typed. Opens the same chooser sheet
+                  // used to be long-press-only, since a plain tap needs to
+                  // reach video/gallery too, not just an instant photo.
+                  IconButton(
+                    icon: Icon(TablerIcons.camera,
+                        color: scheme.onSurface.withValues(alpha: 0.6)),
+                    onPressed: _showAttachOptions,
                   ),
                   if (_sending)
                     const Padding(
