@@ -43,6 +43,7 @@ func (s *Server) Router() http.Handler {
 		r.Route("/api", func(r chi.Router) {
 			r.Get("/me", s.handleGetMe)
 			r.Patch("/me", s.handleUpdateMe)
+			r.Post("/me/avatar", s.handleUploadAvatar)
 
 			r.Get("/users", s.handleListUsers)
 

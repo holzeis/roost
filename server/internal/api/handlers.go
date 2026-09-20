@@ -71,6 +71,58 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// handleUploadAvatar sets the caller's own profile picture. Unlike
+// handleUploadMedia (room-scoped, and always creates a chat message as a
+// side effect), this is user-scoped and touches no room or message at all —
+// it creates a media_objects row the same way, then points the caller's own
+// avatar_media_id at it directly. Reuses the current display name from
+// session (rather than accepting one in the body) so this can't overwrite
+// it — UpdateUserProfile sets both columns unconditionally.
+func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
+	u, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadBytes)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "upload too large or malformed")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing file")
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	objectKey := fmt.Sprintf("avatars/%s%s", uuid.NewString(), filepath.Ext(header.Filename))
+
+	if err := s.Media.Put(r.Context(), objectKey, file, header.Size, contentType); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not store file")
+		return
+	}
+
+	mediaObj, err := s.Store.CreateMediaObject(r.Context(), s.Media.Bucket(), objectKey, contentType, header.Size, u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not record uploaded file")
+		return
+	}
+
+	updated, err := s.Store.UpdateUserProfile(r.Context(), u.ID, u.DisplayName, &mediaObj.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not update profile")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 type contactDTO struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
@@ -404,7 +456,11 @@ var safeInlineMediaContentTypes = map[string]bool{
 // room the media's message belongs to — forwarded media is always a
 // duplicated, independent copy with its own message (FR1.11), never shared
 // by reference across rooms, so a media object always belongs to exactly
-// one room and this check is unambiguous.
+// one room and this check is unambiguous. The exception is a profile
+// picture (handleUploadAvatar): it has no owning message at all, so there's
+// no room to scope it to — any authenticated user may fetch one, same as
+// any other user's display name is already visible to every other user on
+// this private, single-tailnet instance.
 func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUser(w, r)
 	if !ok {
@@ -422,11 +478,11 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	message, err := s.Store.GetMessageByMediaID(r.Context(), mediaID)
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusInternalServerError, "could not look up the message for this media")
 		return
 	}
-	if !s.requireMembership(w, r, userID, message.RoomID) {
+	if err == nil && !s.requireMembership(w, r, userID, message.RoomID) {
 		return
 	}
 
