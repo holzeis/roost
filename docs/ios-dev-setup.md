@@ -69,6 +69,41 @@ iPhone.
 See the root [`README.md`](../README.md#google-maps-api-keys) for setting up
 a Maps API key — without one the map renders as blank grey tiles.
 
+## Running on a real device standalone (not tethered to `flutter run`)
+
+`flutter run` installs a **debug** build. Debug builds are JIT-compiled and
+stay connected to the Dart VM Service on your Mac the whole time they run —
+closing the app and reopening it from the home screen with no `flutter run`
+attached leaves it with no way to fetch/execute its own Dart code, so it
+exits immediately on launch. This is true of every Flutter app in debug
+mode, on every platform — it isn't a bug in this app.
+
+To get a build that opens from the home screen on its own, indefinitely,
+install a **release** (or `--profile`) build instead — these are fully
+AOT-compiled and don't need your Mac at all once installed:
+
+```sh
+flutter run --release -d <device-id>       # builds, installs, and launches
+# or, to install without immediately launching:
+flutter build ios --release
+```
+
+A few notes specific to this repo:
+
+- The Xcode project already has a development team configured
+  (`DEVELOPMENT_TEAM` in `ios/Runner.xcodeproj`, automatic signing) — a
+  release build should sign and install without extra setup as long as
+  that team/Apple ID is the one signed into Xcode.
+- A **free** Apple ID (no paid Developer Program) can sign and install to
+  your own registered devices this way, but the resulting build's
+  provisioning profile expires after **7 days** — reinstall by rerunning
+  the command above. The paid Program ($99/yr) removes that limit and is
+  what `.github/workflows/release.yml` uses to ship to TestFlight instead.
+- If `flutter run --release -d <device-id>` reports install succeeded but
+  launch failed with a "device was not, or could not be, unlocked" error,
+  the app is already installed — unlock the device and open it from the
+  home screen manually.
+
 ## Talking to a local chat server
 
 The Simulator runs on your Mac's network namespace, so `docker-compose.yml`'s
