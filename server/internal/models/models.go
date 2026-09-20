@@ -104,12 +104,15 @@ func ComputeMessageStatus(recipients, delivered, seen int) MessageStatus {
 
 // MessageSnippet is a trimmed preview of another message, embedded in a
 // reply (FR1.10). Body is truncated by the store so a reply to a long text
-// message doesn't carry the whole thing around a second time.
+// message doesn't carry the whole thing around a second time. MediaID lets
+// a reply to a photo/video show a thumbnail of it, the same as the reply
+// draft bar already can from the full (still-loaded) original message.
 type MessageSnippet struct {
 	ID       string      `json:"id"`
 	SenderID string      `json:"senderId"`
 	Kind     MessageKind `json:"kind"`
 	Body     *string     `json:"body,omitempty"`
+	MediaID  *string     `json:"mediaId,omitempty"`
 }
 
 // ReactionSummary groups message_reactions rows by emoji for one message

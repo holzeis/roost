@@ -582,7 +582,7 @@ func (s *Store) AttachReplyPreviews(ctx context.Context, messages []models.Messa
 		return nil
 	}
 
-	const q = `SELECT id, sender_id, kind, LEFT(COALESCE(body, ''), 140) FROM messages WHERE id = ANY($1)`
+	const q = `SELECT id, sender_id, kind, LEFT(COALESCE(body, ''), 140), media_id FROM messages WHERE id = ANY($1)`
 	rows, err := s.pool.Query(ctx, q, replyIDs)
 	if err != nil {
 		return fmt.Errorf("store: attach reply previews: %w", err)
@@ -593,7 +593,7 @@ func (s *Store) AttachReplyPreviews(ctx context.Context, messages []models.Messa
 	for rows.Next() {
 		var snippet models.MessageSnippet
 		var kind, body string
-		if err := rows.Scan(&snippet.ID, &snippet.SenderID, &kind, &body); err != nil {
+		if err := rows.Scan(&snippet.ID, &snippet.SenderID, &kind, &body, &snippet.MediaID); err != nil {
 			return fmt.Errorf("store: scan reply preview: %w", err)
 		}
 		snippet.Kind = models.MessageKind(kind)

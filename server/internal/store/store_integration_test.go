@@ -568,6 +568,29 @@ func TestStore_ReplyPreview(t *testing.T) {
 	if refetched.ReplyToMessageID != nil {
 		t.Fatalf("expected reply_to_message_id to be nulled out after the original was deleted, got %+v", refetched.ReplyToMessageID)
 	}
+
+	// A reply to a photo/video needs the original's mediaId in its preview
+	// too, so the client can render a thumbnail instead of just a label.
+	mediaObj, err := s.CreateMediaObject(ctx, "test-bucket", fmt.Sprintf("test/%d.jpg", run), "image/jpeg", 123, alice.ID)
+	if err != nil {
+		t.Fatalf("create media object: %v", err)
+	}
+	photo, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", mediaObj.ID, nil, false)
+	if err != nil {
+		t.Fatalf("create photo message: %v", err)
+	}
+	photoReply, err := s.CreateTextMessage(ctx, room.ID, alice.ID, "nice photo", &photo.ID, false)
+	if err != nil {
+		t.Fatalf("create reply to photo: %v", err)
+	}
+	photoMessages := []models.Message{photoReply}
+	if err := s.AttachReplyPreviews(ctx, photoMessages); err != nil {
+		t.Fatalf("attach reply previews for photo reply: %v", err)
+	}
+	if photoMessages[0].ReplyTo == nil || photoMessages[0].ReplyTo.MediaID == nil ||
+		*photoMessages[0].ReplyTo.MediaID != mediaObj.ID {
+		t.Fatalf("expected reply preview to carry the photo's mediaId, got %+v", photoMessages[0].ReplyTo)
+	}
 }
 
 func TestStore_EditMessage(t *testing.T) {
