@@ -38,6 +38,22 @@ class ApiClient {
     return ApiUser.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Sets the caller's own profile picture (FR6.4) — see
+  /// server/internal/api's handleUploadAvatar. Unlike uploadMedia this is
+  /// user-scoped, not room-scoped, and never creates a chat message.
+  Future<ApiUser> uploadAvatar({
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/api/me/avatar'))
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(contentType)));
+    final streamed = await _http.send(request);
+    final res = await http.Response.fromStream(streamed);
+    _checkOk(res);
+    return ApiUser.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<List<ApiContact>> listUsers() async {
     final res = await _http.get(_uri('/api/users'));
     _checkOk(res);

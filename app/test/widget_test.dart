@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'package:roost/data/api_models.dart';
@@ -424,6 +427,36 @@ void main() {
     expect(find.text('Light'), findsOneWidget);
     expect(find.text('Dark'), findsOneWidget);
     expect(find.text('System'), findsWidgets);
+  });
+
+  testWidgets('Picking a new profile photo uploads it and sets the avatar', (tester) async {
+    final originalPlatform = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
+    addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.byIcon(TablerIcons.user));
+    await tester.pumpAndSettle();
+    expect(find.text('Profile'), findsWidgets);
+    expect(api.me.avatarMediaId, isNull);
+
+    await tester.tap(find.byIcon(TablerIcons.camera));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Take photo'), findsOneWidget);
+    expect(find.text('Choose from gallery'), findsOneWidget);
+
+    await tester.tap(find.text('Choose from gallery'));
+    await tester.pumpAndSettle();
+
+    expect(api.me.avatarMediaId, isNotNull);
+    // Renders the freshly uploaded photo instead of the initial fallback —
+    // fake:// isn't a real network scheme, so it falls through to the same
+    // error builder the initial letter would otherwise show, but the
+    // Image.network widget itself only appears once avatarMediaId is set.
+    expect(find.byType(Image), findsOneWidget);
   });
 
   testWidgets('Tapping a missed call message asks for confirmation instead of joining immediately', (tester) async {

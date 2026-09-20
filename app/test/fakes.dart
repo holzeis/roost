@@ -1,11 +1,35 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/location/location_service.dart';
+
+/// Stands in for the real platform channel behind ImagePicker.pickImage —
+/// there's no real camera/gallery under `flutter test`, so without this any
+/// code path that reaches ImagePicker would hang or throw
+/// MissingPluginException. Returns a fixed in-memory XFile regardless of
+/// source, which is enough for tests that only care about what happens
+/// after a file is picked, not the picker UI itself.
+class FakeImagePickerPlatform extends ImagePickerPlatform {
+  FakeImagePickerPlatform(this.bytes, {this.name = 'photo.jpg', this.mimeType = 'image/jpeg'});
+
+  final Uint8List bytes;
+  final String name;
+  final String mimeType;
+
+  @override
+  Future<XFile?> getImageFromSource({
+    required ImageSource source,
+    ImagePickerOptions options = const ImagePickerOptions(),
+  }) async {
+    return XFile.fromData(bytes, name: name, mimeType: mimeType);
+  }
+}
 
 /// In-memory stand-ins for the network layer, used by widget tests so they
 /// never make a real HTTP/WebSocket call. Overriding a method on a
@@ -32,6 +56,18 @@ class FakeApiClient extends ApiClient {
   @override
   Future<ApiUser> updateMe({required String displayName, String? avatarMediaId}) async {
     me = ApiUser(id: me.id, displayName: displayName, avatarMediaId: avatarMediaId);
+    return me;
+  }
+
+  @override
+  Future<ApiUser> uploadAvatar({
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    final mediaId = 'avatar-media-${_nextMediaId++}';
+    mediaBytesById[mediaId] = bytes;
+    me = ApiUser(id: me.id, displayName: me.displayName, avatarMediaId: mediaId);
     return me;
   }
 
