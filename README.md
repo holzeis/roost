@@ -73,8 +73,13 @@ for Android" / "Maps SDK for iOS"), and never commit the real key anywhere:
   `app/ios/Runner/Config.xcconfig` (gitignored) and fill in
   `GOOGLE_MAPS_API_KEY`.
 
-Without a real key, the app still builds and runs — maps just render blank
-grey tiles instead of imagery.
+Without a real key, behavior differs by platform: Android's Maps SDK
+degrades gracefully (blank grey tiles instead of imagery). **iOS's Maps SDK
+does not** — `GMSServices.checkServicePreconditions` raises a hard
+NSException the moment a map view is created (opening a chat's live
+location screen, or a shared-location message), crashing the app. A real
+"Maps SDK for iOS" key in `Config.xcconfig` is required to use location
+sharing on iOS at all, not just to see imagery.
 
 ## Testing
 
