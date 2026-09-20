@@ -1,6 +1,11 @@
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:tabler_icons_plus/tabler_icons_plus.dart';
+
+import '../../theme/app_theme.dart';
+import 'reaction_frequency.dart';
 
 /// Layout constants shared with callers that need to reserve enough on-screen
 /// space when deciding where to display a message (chat_screen.dart's
@@ -10,10 +15,6 @@ const messageActionGap = 8.0;
 const messageActionPickerHeight = 58.0;
 const messageActionMenuRowHeight = 50.0;
 const messageActionScreenMargin = 12.0;
-
-/// The quick-reaction emoji offered by both the long-press action overlay
-/// and the media viewer's own react button.
-const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 /// One row in the action menu (Reply, Forward, Copy, ...). Kept as plain
 /// data so the caller decides which actions apply to a given message —
@@ -64,7 +65,7 @@ void showMessageActionOverlay({
   required double displayTop,
   required bool alignEnd,
   required Widget bubbleContent,
-  required List<String> quickEmojis,
+  required Set<String> selectedEmojis,
   required void Function(String emoji) onReact,
   required List<MessageActionItem> actions,
   required VoidCallback onDismissed,
@@ -77,7 +78,7 @@ void showMessageActionOverlay({
       displayTop: displayTop,
       alignEnd: alignEnd,
       bubbleContent: bubbleContent,
-      quickEmojis: quickEmojis,
+      selectedEmojis: selectedEmojis,
       onReact: onReact,
       actions: actions,
       onClose: () {
@@ -95,7 +96,7 @@ class _MessageActionContent extends StatefulWidget {
     required this.displayTop,
     required this.alignEnd,
     required this.bubbleContent,
-    required this.quickEmojis,
+    required this.selectedEmojis,
     required this.onReact,
     required this.actions,
     required this.onClose,
@@ -105,7 +106,7 @@ class _MessageActionContent extends StatefulWidget {
   final double displayTop;
   final bool alignEnd;
   final Widget bubbleContent;
-  final List<String> quickEmojis;
+  final Set<String> selectedEmojis;
   final void Function(String emoji) onReact;
   final List<MessageActionItem> actions;
   final VoidCallback onClose;
@@ -224,27 +225,25 @@ class _MessageActionContentState extends State<_MessageActionContent>
                   ),
                 ),
               ),
-              if (widget.quickEmojis.isNotEmpty)
-                Positioned(
-                  bottom: pickerBottom,
-                  left: horizontalLeft,
-                  right: horizontalRight,
-                  child: Align(
-                    alignment: crossAlign,
-                    child: ScaleTransition(
-                      scale: scale,
-                      alignment: pickerOrigin,
-                      child: FadeTransition(
-                        opacity: fade,
-                        child: ReactionPicker(
-                          emojis: widget.quickEmojis,
-                          onPick: (emoji) =>
-                              _close(() => widget.onReact(emoji)),
-                        ),
+              Positioned(
+                bottom: pickerBottom,
+                left: horizontalLeft,
+                right: horizontalRight,
+                child: Align(
+                  alignment: crossAlign,
+                  child: ScaleTransition(
+                    scale: scale,
+                    alignment: pickerOrigin,
+                    child: FadeTransition(
+                      opacity: fade,
+                      child: ReactionPicker(
+                        selectedEmojis: widget.selectedEmojis,
+                        onPick: (emoji) => _close(() => widget.onReact(emoji)),
                       ),
                     ),
                   ),
                 ),
+              ),
               Positioned(
                 top: menuTop,
                 left: horizontalLeft,
@@ -275,17 +274,35 @@ class _MessageActionContentState extends State<_MessageActionContent>
 
 /// The pill of quick-reaction emoji shown by the long-press action overlay —
 /// public so the media viewer (media_viewer_screen.dart) can reuse it for
-/// its own "react to this photo" button.
-class ReactionPicker extends StatelessWidget {
-  const ReactionPicker({super.key, required this.emojis, required this.onPick});
+/// its own "react to this photo" button. Sources its own emoji list from
+/// [quickReactionsProvider] rather than taking one as a parameter, so every
+/// caller automatically reflects the same usage-ranked list. An emoji in
+/// [selectedEmojis] (whatever the caller's message is already reacted with)
+/// gets a highlighted background rather than being hidden — tapping it
+/// again still calls [onPick], letting the caller decide what "picking the
+/// one you already have" means (toggle off, in every caller so far).
+class ReactionPicker extends ConsumerWidget {
+  const ReactionPicker({
+    super.key,
+    required this.onPick,
+    this.selectedEmojis = const {},
+  });
 
-  final List<String> emojis;
   final void Function(String emoji) onPick;
+  final Set<String> selectedEmojis;
+
+  void _pick(WidgetRef ref, String emoji) {
+    ref.read(quickReactionsProvider.notifier).recordUse(emoji);
+    onPick(emoji);
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final emojis =
+        ref.watch(quickReactionsProvider).valueOrNull ?? defaultQuickReactions;
+    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: scheme.surface,
       elevation: 10,
       shadowColor: Colors.black.withValues(alpha: 0.35),
       borderRadius: BorderRadius.circular(999),
@@ -297,17 +314,73 @@ class ReactionPicker extends StatelessWidget {
             for (final emoji in emojis)
               InkWell(
                 borderRadius: BorderRadius.circular(999),
-                onTap: () => onPick(emoji),
-                child: Padding(
+                onTap: () => _pick(ref, emoji),
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selectedEmojis.contains(emoji)
+                        ? ochreColor(context).withValues(alpha: 0.25)
+                        : null,
+                  ),
                   padding: const EdgeInsets.all(7),
                   child: Text(emoji, style: const TextStyle(fontSize: 28)),
                 ),
               ),
+            InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () =>
+                  pickCustomEmoji(context, (emoji) => _pick(ref, emoji)),
+              child: Padding(
+                padding: const EdgeInsets.all(7),
+                child: Icon(TablerIcons.plus,
+                    size: 26, color: scheme.onSurface.withValues(alpha: 0.55)),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+/// Lets the viewer pick any emoji, not just the quick list — a bottom sheet
+/// with an auto-focused text field brings up the system keyboard, and
+/// whichever character actually gets typed there is taken as the pick
+/// (`characters`, not raw code units, since many real emoji — a skin-tone
+/// variant, a flag, a family — span several UTF-16 code units as one
+/// grapheme cluster). There's no dedicated "confirm" step: the field
+/// closes itself the moment anything is entered, since one emoji is all
+/// this is ever for.
+Future<void> pickCustomEmoji(
+    BuildContext context, void Function(String emoji) onPick) async {
+  final controller = TextEditingController();
+  final emoji = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+      ),
+      child: TextField(
+        controller: controller,
+        autofocus: true,
+        style: const TextStyle(fontSize: 28),
+        decoration: const InputDecoration(
+          labelText: "Tap your keyboard's emoji key",
+          border: OutlineInputBorder(),
+        ),
+        onChanged: (value) {
+          if (value.characters.isNotEmpty) {
+            Navigator.of(sheetContext).pop(value.characters.first);
+          }
+        },
+      ),
+    ),
+  );
+  if (emoji != null && emoji.isNotEmpty) onPick(emoji);
 }
 
 class _ActionMenu extends StatelessWidget {

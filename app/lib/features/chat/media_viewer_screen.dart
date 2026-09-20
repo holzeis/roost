@@ -14,7 +14,7 @@ import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import 'forward_sheet.dart';
 import 'media_message.dart';
-import 'message_action_overlay.dart' show ReactionPicker, quickReactions;
+import 'message_action_overlay.dart' show ReactionPicker;
 
 /// The image/video subset of a room's messages, in the same order they were
 /// given — the gallery this viewer pages through.
@@ -458,7 +458,9 @@ class _ReactButtonState extends State<_ReactButton> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 72),
               child: ReactionPicker(
-                emojis: quickReactions,
+                selectedEmojis: {
+                  if (widget.myReaction != null) widget.myReaction!.emoji,
+                },
                 onPick: (emoji) {
                   close();
                   widget.onReact(emoji);

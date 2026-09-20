@@ -958,17 +958,12 @@ class _MessageRow extends ConsumerWidget {
     final bubbleWithReactions = withReactions(bubble);
 
     final actions = _buildActions(context, ref);
-    // FR: don't offer an emoji the caller has already reacted with — there's
-    // nothing useful to pick there (tapping it again would just toggle it
-    // off, which the landed reaction chip itself already does).
+    // Shown with a highlighted background in the picker rather than hidden
+    // — tapping one still toggles it off via the same onReact below.
     final reactedEmojis = {
       for (final reaction in message.reactions)
         if (reaction.reactedByMe) reaction.emoji,
     };
-    final availableEmojis = [
-      for (final emoji in quickReactions)
-        if (!reactedEmojis.contains(emoji)) emoji,
-    ];
 
     // Fully synchronous — no scroll to await — so there's no gap between
     // measuring and using these values for anything to go stale in.
@@ -987,9 +982,10 @@ class _MessageRow extends ConsumerWidget {
           ? composerBox.localToGlobal(Offset.zero).dy
           : MediaQuery.of(context).size.height;
 
-      final pickerClearance = availableEmojis.isEmpty
-          ? 0.0
-          : messageActionPickerHeight + messageActionGap;
+      // The picker is always shown now (it always has at least the default
+      // quick emoji plus the "+" custom-entry button), so this clearance no
+      // longer depends on whether any given message has emoji left to pick.
+      const pickerClearance = messageActionPickerHeight + messageActionGap;
       final menuClearance =
           actions.length * messageActionMenuRowHeight + messageActionGap;
 
@@ -997,7 +993,7 @@ class _MessageRow extends ConsumerWidget {
       // never scrolled there, since scrolling moves every other message in
       // the list too. minTop leaves room for the picker above; maxBottom
       // leaves room for the menu below *and* keeps the composer clear.
-      final minTop = messageActionScreenMargin + pickerClearance;
+      const minTop = messageActionScreenMargin + pickerClearance;
       final maxBottom = composerTop - messageActionGap - menuClearance;
 
       var displayTop = bubbleRect.top;
@@ -1015,7 +1011,7 @@ class _MessageRow extends ConsumerWidget {
         displayTop: displayTop,
         alignEnd: fromMe,
         bubbleContent: withReactions(bubbleContent),
-        quickEmojis: availableEmojis,
+        selectedEmojis: reactedEmojis,
         onReact: (emoji) => ref
             .read(messagesProvider(roomId).notifier)
             .toggleReaction(message.id, emoji),

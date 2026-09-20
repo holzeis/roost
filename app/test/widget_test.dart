@@ -226,6 +226,45 @@ void main() {
     expect(find.text('👍 1'), findsNothing);
   });
 
+  testWidgets('A reacted-with emoji stays visible (highlighted) in the picker, not hidden', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining("Dinner's at 7"));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('👍'));
+    await tester.pumpAndSettle();
+
+    // Reopen the picker on the same message — 👍 used to be filtered out
+    // entirely once reacted; it should still be offered (highlighted, not
+    // testable visually here, but present) so tapping it again can change it.
+    await tester.longPress(find.textContaining("Dinner's at 7"));
+    await tester.pumpAndSettle();
+
+    expect(find.text('👍'), findsOneWidget);
+  });
+
+  testWidgets('The "+" in the reaction picker lets the viewer type any emoji from their keyboard', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining("Dinner's at 7"));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+
+    // .last: the composer's own TextField is still in the tree underneath.
+    await tester.enterText(find.byType(TextField).last, '🥳');
+    await tester.pumpAndSettle();
+
+    expect(find.text('🥳 1'), findsOneWidget);
+  });
+
   testWidgets('Replying to a message shows a draft bar and tags the sent reply', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
