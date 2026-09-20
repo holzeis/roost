@@ -1345,55 +1345,6 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
   }
 
-  void _showAttachOptions() {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(TablerIcons.camera),
-              title: const Text('Take photo'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _pickAndSendMedia(video: false, source: ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(TablerIcons.video),
-              title: const Text('Record video'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _pickAndSendMedia(video: true, source: ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(TablerIcons.photo),
-              title: const Text('Choose from gallery'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _pickAndSendMedia(video: false, source: ImageSource.gallery);
-              },
-            ),
-            ListTile(
-              leading: const Icon(TablerIcons.mapPin),
-              title: const Text('Share location'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _showLocationTtlSheet();
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// FR3.2: the sender picks a preset TTL before sharing starts. Presets
   /// match docs/architecture-overview.md's own example (15 min / 1 hr /
   /// "until I arrive" — the last implemented as a long bound since
@@ -1566,13 +1517,21 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                   ),
                   // Always visible now, on the trailing side — kept even
                   // while composing text, rather than hidden the moment
-                  // there's something typed. Opens the same chooser sheet
-                  // used to be long-press-only, since a plain tap needs to
-                  // reach video/gallery too, not just an instant photo.
+                  // there's something typed. Jumps straight into the native
+                  // camera for a photo — image_picker's camera source is
+                  // always locked to one fixed media type per call (no way
+                  // to ask for a combined photo/video capture session the
+                  // way Apple's own Camera app offers, even though the
+                  // underlying UIImagePickerController supports it — the
+                  // plugin just never exposes that combination through its
+                  // public API), so video and gallery live in the "+"
+                  // attach tray instead rather than pretending this one tap
+                  // can reach all three.
                   IconButton(
                     icon: Icon(TablerIcons.camera,
                         color: scheme.onSurface.withValues(alpha: 0.6)),
-                    onPressed: _showAttachOptions,
+                    onPressed: () =>
+                        _pickAndSendMedia(video: false, source: ImageSource.camera),
                   ),
                   if (_sending)
                     const Padding(
@@ -1599,6 +1558,10 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                   setState(() => _showAttachTray = false);
                   _pickAndSendMedia(video: false, source: ImageSource.camera);
                 },
+                onVideo: () {
+                  setState(() => _showAttachTray = false);
+                  _pickAndSendMedia(video: true, source: ImageSource.camera);
+                },
                 onLocation: () {
                   setState(() => _showAttachTray = false);
                   _showLocationTtlSheet();
@@ -1611,21 +1574,28 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   }
 }
 
-/// The composer's "+" attach tray: Photos / Camera / Location, laid out the
-/// way the system keyboard's own emoji/suggestions area would be — filling
-/// the space the keyboard just vacated rather than a modal sheet on top of
-/// it. A fixed height, roughly what a keyboard occupies, rather than sizing
-/// to content: this is meant to read as "the keyboard, but for attachments"
-/// swapping in and out at a stable size, not a panel that jumps around.
+/// The composer's "+" attach tray: Photos / Camera / Video / Location, laid
+/// out the way the system keyboard's own emoji/suggestions area would be —
+/// filling the space the keyboard just vacated rather than a modal sheet on
+/// top of it. A fixed height, roughly what a keyboard occupies, rather than
+/// sizing to content: this is meant to read as "the keyboard, but for
+/// attachments" swapping in and out at a stable size, not a panel that
+/// jumps around. Camera and Video are separate options here (rather than
+/// one combined "camera" entry point) because image_picker's camera source
+/// is always locked to a single fixed media type per call — there's no way
+/// to ask for the same combined photo/video capture session Apple's own
+/// Camera app offers.
 class _AttachTray extends StatelessWidget {
   const _AttachTray({
     required this.onPhotos,
     required this.onCamera,
+    required this.onVideo,
     required this.onLocation,
   });
 
   final VoidCallback onPhotos;
   final VoidCallback onCamera;
+  final VoidCallback onVideo;
   final VoidCallback onLocation;
 
   @override
@@ -1634,31 +1604,49 @@ class _AttachTray extends StatelessWidget {
     return Container(
       height: 220,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       decoration: BoxDecoration(
         color: scheme.onSurface.withValues(alpha: 0.04),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
       ),
+      // Expanded, not spaceEvenly sized to each option's own natural
+      // width — four options' combined intrinsic width (icon circle +
+      // label) overflowed a typical phone width by a couple dozen
+      // pixels; splitting the row evenly instead scales to however many
+      // options there are and can't overflow regardless of screen width.
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _AttachOption(
-            icon: TablerIcons.photo,
-            label: 'Photos',
-            color: const Color(0xFF3F7CE0),
-            onTap: onPhotos,
+          Expanded(
+            child: _AttachOption(
+              icon: TablerIcons.photo,
+              label: 'Photos',
+              color: const Color(0xFF3F7CE0),
+              onTap: onPhotos,
+            ),
           ),
-          _AttachOption(
-            icon: TablerIcons.camera,
-            label: 'Camera',
-            color: scheme.onSurface.withValues(alpha: 0.75),
-            onTap: onCamera,
+          Expanded(
+            child: _AttachOption(
+              icon: TablerIcons.camera,
+              label: 'Camera',
+              color: scheme.onSurface.withValues(alpha: 0.75),
+              onTap: onCamera,
+            ),
           ),
-          _AttachOption(
-            icon: TablerIcons.mapPin,
-            label: 'Location',
-            color: const Color(0xFF2FA97A),
-            onTap: onLocation,
+          Expanded(
+            child: _AttachOption(
+              icon: TablerIcons.video,
+              label: 'Video',
+              color: const Color(0xFFE0673F),
+              onTap: onVideo,
+            ),
+          ),
+          Expanded(
+            child: _AttachOption(
+              icon: TablerIcons.mapPin,
+              label: 'Location',
+              color: const Color(0xFF2FA97A),
+              onTap: onLocation,
+            ),
           ),
         ],
       ),

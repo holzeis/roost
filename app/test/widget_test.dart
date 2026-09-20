@@ -155,26 +155,28 @@ void main() {
     expect((decoration.borderRadius as BorderRadius?)?.topLeft.x, greaterThanOrEqualTo(999));
   });
 
-  testWidgets('Camera shortcut stays visible while typing and opens a chooser on tap', (tester) async {
-    await _pumpApp(tester, _seededApiClient());
+  testWidgets('Camera shortcut stays visible while typing and jumps straight to the camera on tap', (tester) async {
+    final originalPlatform = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
+    addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
 
-    // A plain tap surfaces the chooser without invoking the (unmockable in a
-    // widget test) native camera/gallery pickers.
+    // A plain tap goes straight to the camera — no chooser in between —
+    // and sends whatever comes back as an image message.
     await tester.tap(find.byIcon(TablerIcons.camera));
     await tester.pumpAndSettle();
 
-    expect(find.text('Take photo'), findsOneWidget);
-    expect(find.text('Record video'), findsOneWidget);
-    expect(find.text('Choose from gallery'), findsOneWidget);
-    expect(find.text('Share location'), findsOneWidget);
-
-    await tester.tapAt(const Offset(200, 100)); // dismiss the sheet
-    await tester.pumpAndSettle();
+    expect(
+      api.messagesByRoom['room-family']!.any((m) => m.kind == 'image' && m.senderId == 'me'),
+      isTrue,
+    );
 
     // Stays visible while composing text, rather than hiding once there's
     // something typed.
@@ -184,7 +186,7 @@ void main() {
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
   });
 
-  testWidgets('The "+" attach tray shows Photos/Camera/Location and swaps with the keyboard', (tester) async {
+  testWidgets('The "+" attach tray shows Photos/Camera/Video/Location and swaps with the keyboard', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
@@ -198,6 +200,7 @@ void main() {
 
     expect(find.text('Photos'), findsOneWidget);
     expect(find.text('Camera'), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
     expect(find.text('Location'), findsOneWidget);
     // The leading icon swapped to a keyboard glyph while the tray is open.
     expect(find.byIcon(TablerIcons.plus), findsNothing);
@@ -242,6 +245,32 @@ void main() {
 
     expect(
       api.messagesByRoom['room-family']!.any((m) => m.kind == 'image' && m.senderId == 'me'),
+      isTrue,
+    );
+  });
+
+  testWidgets('The attach tray\'s Video option records a video and sends it', (tester) async {
+    final originalPlatform = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(
+      Uint8List.fromList([1, 2, 3]),
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+    );
+    addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Video'));
+    await tester.pumpAndSettle();
+
+    expect(
+      api.messagesByRoom['room-family']!.any((m) => m.kind == 'video' && m.senderId == 'me'),
       isTrue,
     );
   });
@@ -662,10 +691,10 @@ void main() {
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    await tester.longPress(find.byIcon(TablerIcons.camera));
+    await tester.tap(find.byIcon(TablerIcons.plus));
     await tester.pumpAndSettle();
-    expect(find.text('Share location'), findsOneWidget);
-    await tester.tap(find.text('Share location'));
+    expect(find.text('Location'), findsOneWidget);
+    await tester.tap(find.text('Location'));
     await tester.pumpAndSettle();
 
     expect(find.text('15 minutes'), findsOneWidget);

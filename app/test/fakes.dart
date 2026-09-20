@@ -37,6 +37,19 @@ class FakeImagePickerPlatform extends ImagePickerPlatform {
   Future<List<XFile>> getMedia({required MediaOptions options}) async {
     return [XFile.fromData(bytes, name: name, mimeType: mimeType)];
   }
+
+  /// Backs pickVideo (the attach tray's "Video" option, and previously the
+  /// composer's own long-press chooser) — pickImage and pickVideo go
+  /// through separate platform methods even though they share this same
+  /// fake's fixed bytes/name/mimeType.
+  @override
+  Future<XFile?> getVideo({
+    required ImageSource source,
+    CameraDevice preferredCameraDevice = CameraDevice.rear,
+    Duration? maxDuration,
+  }) async {
+    return XFile.fromData(bytes, name: name, mimeType: mimeType);
+  }
 }
 
 /// In-memory stand-ins for the network layer, used by widget tests so they
