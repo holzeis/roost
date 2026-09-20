@@ -145,6 +145,8 @@ class _MessageActionContentState extends State<_MessageActionContent>
         reverseCurve: Curves.easeIn);
     final lift =
         CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    final bubbleScale = Tween<double>(begin: 1.0, end: 1.035)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     final crossAlign =
         widget.alignEnd ? Alignment.centerRight : Alignment.centerLeft;
     final pickerOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, 1.0);
@@ -152,6 +154,16 @@ class _MessageActionContentState extends State<_MessageActionContent>
 
     final menuTop = widget.displayTop + originalRect.height + messageActionGap;
     final pickerBottom = screen.height - widget.displayTop + messageActionGap;
+    // The picker/menu anchor to the bubble's own edge — not a fixed screen
+    // margin on both sides — so a short bubble (e.g. one with an avatar
+    // before it) doesn't leave them hanging out past where the bubble
+    // itself actually starts or ends. The margin still applies on the
+    // *other* side, purely as an overflow guard.
+    final horizontalLeft =
+        widget.alignEnd ? messageActionScreenMargin : originalRect.left;
+    final horizontalRight = widget.alignEnd
+        ? screen.width - originalRect.right
+        : messageActionScreenMargin;
 
     return AnimatedBuilder(
       animation: lift,
@@ -194,14 +206,17 @@ class _MessageActionContentState extends State<_MessageActionContent>
                 width: originalRect.width,
                 child: GestureDetector(
                   onTap: () => _close(),
-                  child: IgnorePointer(child: widget.bubbleContent),
+                  child: ScaleTransition(
+                    scale: bubbleScale,
+                    child: IgnorePointer(child: widget.bubbleContent),
+                  ),
                 ),
               ),
               if (widget.quickEmojis.isNotEmpty)
                 Positioned(
                   bottom: pickerBottom,
-                  left: messageActionScreenMargin,
-                  right: messageActionScreenMargin,
+                  left: horizontalLeft,
+                  right: horizontalRight,
                   child: Align(
                     alignment: crossAlign,
                     child: ScaleTransition(
@@ -220,8 +235,8 @@ class _MessageActionContentState extends State<_MessageActionContent>
                 ),
               Positioned(
                 top: menuTop,
-                left: messageActionScreenMargin,
-                right: messageActionScreenMargin,
+                left: horizontalLeft,
+                right: horizontalRight,
                 child: Align(
                   alignment: crossAlign,
                   child: ScaleTransition(
