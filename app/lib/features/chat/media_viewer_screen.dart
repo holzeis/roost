@@ -141,6 +141,33 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
     }
   }
 
+  /// Same immediate, no-confirmation delete as the chat screen's own
+  /// action-menu "Delete" for a media message (chat_screen.dart's
+  /// _buildActions) — kept consistent with that existing behavior rather
+  /// than introducing a new confirmation step just for this entry point.
+  /// Pops back to the chat once nothing's left to show; otherwise the
+  /// gallery just continues on whatever's left, via _mediaMessages's own
+  /// ref.watch.
+  Future<void> _delete(ApiMessage message) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(messagesProvider(widget.roomId).notifier)
+          .deleteMedia(message.mediaId!);
+      // ref.read, not the _mediaMessages(ref) used during build — that one
+      // calls ref.watch, which only makes sense from inside build().
+      final remaining = mediaMessagesIn(
+          ref.read(messagesProvider(widget.roomId)).valueOrNull ?? const []);
+      if (mounted && remaining.isEmpty) context.pop();
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not delete: $error')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = _mediaMessages(ref);
@@ -225,6 +252,11 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
                       onSave: () => _save(current),
                       onShare: () => _share(current),
                       onForward: () => showForwardSheet(context, ref, current),
+                      // Same restriction as the chat screen's own action
+                      // menu: only the sender may delete their media.
+                      onDelete: current.senderId == meId
+                          ? () => _delete(current)
+                          : null,
                     ),
                   ],
                 ),
@@ -539,13 +571,22 @@ class _Filmstrip extends StatelessWidget {
 }
 
 class _ActionRow extends StatelessWidget {
-  const _ActionRow(
-      {required this.busy, required this.onSave, required this.onShare, required this.onForward});
+  const _ActionRow({
+    required this.busy,
+    required this.onSave,
+    required this.onShare,
+    required this.onForward,
+    required this.onDelete,
+  });
 
   final bool busy;
   final VoidCallback onSave;
   final VoidCallback onShare;
   final VoidCallback onForward;
+  // Null when the viewer isn't the sender — same restriction as the chat
+  // screen's own action menu, which only ever offers Delete for a media
+  // message the caller sent themselves.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -559,6 +600,13 @@ class _ActionRow extends StatelessWidget {
             _ActionButton(icon: TablerIcons.download, label: 'Save', onTap: busy ? null : onSave),
             _ActionButton(icon: TablerIcons.share, label: 'Share', onTap: busy ? null : onShare),
             _ActionButton(icon: TablerIcons.arrowForwardUp, label: 'Forward', onTap: busy ? null : onForward),
+            if (onDelete != null)
+              _ActionButton(
+                icon: TablerIcons.trash,
+                label: 'Delete',
+                onTap: busy ? null : onDelete,
+                isDestructive: true,
+              ),
           ],
         ),
       ),
@@ -567,13 +615,23 @@ class _ActionRow extends StatelessWidget {
 }
 
 class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.icon, required this.label, required this.onTap});
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isDestructive = false,
+  });
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
+  final bool isDestructive;
 
   @override
   Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    final color = isDestructive
+        ? Theme.of(context).colorScheme.error.withValues(alpha: disabled ? 0.4 : 1)
+        : Colors.white.withValues(alpha: disabled ? 0.4 : 1);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -582,10 +640,9 @@ class _ActionButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white.withValues(alpha: onTap == null ? 0.4 : 1)),
+            Icon(icon, color: color),
             const SizedBox(height: 4),
-            Text(label,
-                style: TextStyle(color: Colors.white.withValues(alpha: onTap == null ? 0.4 : 1), fontSize: 12)),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
           ],
         ),
       ),

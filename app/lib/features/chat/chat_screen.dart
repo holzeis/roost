@@ -422,7 +422,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
                       : (widget.usersById[message.senderId]?.displayName ?? '?');
                   return Padding(
                     padding:
-                        EdgeInsets.only(bottom: entry.isLastInGroup ? 10 : 2),
+                        EdgeInsets.only(bottom: entry.isLastInGroup ? 16 : 4),
                     child: _MessageRow(
                       key: ValueKey(message.id),
                       bubbleKey: _bubbleKeyFor(message.id),
@@ -909,8 +909,11 @@ class _MessageRow extends ConsumerWidget {
     // Stack to genuinely report a size that already includes bubble +
     // overlap — reserved here via a real (non-positioned) SizedBox spacer —
     // rather than relying on Positioned overflow past a smaller reported
-    // size. Horizontally too: the badge is flush with the bubble's own edge
-    // (right: 0 / left: 0), not poking past it, for the same reason.
+    // size. Horizontally too: the badge is flush with the bubble's own edge,
+    // not poking past it, for the same reason — anchored to the same side
+    // the bubble itself is on (right for the viewer's own messages, left
+    // for everyone else's) so multiple reaction chips grow inward from that
+    // edge rather than toward the screen's center.
     //
     // Factored into a function rather than a single `bubbleWithReactions`
     // value: openActions() below duplicates the bubble's content into the
@@ -932,8 +935,8 @@ class _MessageRow extends ConsumerWidget {
           ),
           Positioned(
             bottom: 0,
-            right: fromMe ? null : 0,
-            left: fromMe ? 0 : null,
+            right: fromMe ? 0 : null,
+            left: fromMe ? null : 0,
             child: Wrap(
               spacing: 3,
               children: [
@@ -1459,7 +1462,13 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: scheme.surface,
-                          borderRadius: BorderRadius.circular(22),
+                          // A large fixed radius rather than one tied to the
+                          // field's own height guarantees a full pill/stadium
+                          // shape regardless of exact height (same idiom as
+                          // ReactionPicker/_ReactionChip elsewhere), instead
+                          // of a merely-rounded rectangle if the field's
+                          // actual height ever drifts from what 22 assumes.
+                          borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                               color: scheme.onSurface.withValues(alpha: 0.08)),
                         ),

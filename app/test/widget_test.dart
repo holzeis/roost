@@ -433,6 +433,24 @@ void main() {
     expect(find.byIcon(TablerIcons.moodSmile), findsNothing);
   });
 
+  testWidgets('The viewer offers to delete a photo the viewer sent themself, and returns to chat', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete'), findsOneWidget);
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    // Nothing else to view (m3 was the only image) — back on the chat.
+    expect(find.text('Family'), findsOneWidget);
+    expect(api.mediaBytesById.containsKey('media-1'), isFalse);
+  });
+
   testWidgets('Contacts screen lists other users with presence', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
