@@ -28,7 +28,11 @@ import (
 	"roost/server/internal/store"
 )
 
-func newAvatarTestServer(t *testing.T) *Server {
+// newAPITestServer builds a Server backed by real Postgres and MinIO
+// connections (shared by every *_integration_test.go file in this
+// package) — skips instead of failing when either isn't configured, same
+// as the store/storage packages' own integration test helpers.
+func newAPITestServer(t *testing.T) *Server {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -96,7 +100,7 @@ func withURLParam(r *http.Request, key, value string) *http.Request {
 // sets both columns unconditionally, so the handler has to supply the
 // existing name back to it).
 func TestHandleUploadAvatar_SetsAvatarWithoutCreatingAMessageOrTouchingDisplayName(t *testing.T) {
-	s := newAvatarTestServer(t)
+	s := newAPITestServer(t)
 	ctx := context.Background()
 	run := time.Now().UnixNano()
 

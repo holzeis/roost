@@ -68,6 +68,28 @@ func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return obj, nil
 }
 
+// GetRange returns a reader for the inclusive byte range [start, end] of an
+// object — needed so video playback (which seeks via HTTP Range requests,
+// and on iOS often has to before it can start playing at all: a recorded
+// .mov's moov atom commonly sits at the end of the file, so the player
+// seeks there first for metadata) doesn't have to download the whole file
+// to satisfy a single seek.
+func (s *Store) GetRange(ctx context.Context, key string, start, end int64) (io.ReadCloser, error) {
+	opts := minio.GetObjectOptions{}
+	if err := opts.SetRange(start, end); err != nil {
+		return nil, fmt.Errorf("storage: set range: %w", err)
+	}
+	obj, err := s.client.GetObject(ctx, s.bucket, key, opts)
+	if err != nil {
+		return nil, fmt.Errorf("storage: get object range: %w", err)
+	}
+	if _, err := obj.Stat(); err != nil {
+		obj.Close()
+		return nil, fmt.Errorf("storage: stat ranged object: %w", err)
+	}
+	return obj, nil
+}
+
 // Copy duplicates an object under a new key, server-side (no bytes pass
 // through this process) — used when forwarding a media message, so the
 // forwarded copy has its own independent object that can be deleted without

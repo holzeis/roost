@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -486,13 +487,6 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reader, err := s.Media.Get(r.Context(), obj.ObjectKey)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "media not found")
-		return
-	}
-	defer reader.Close()
-
 	w.Header().Set("X-Content-Type-Options", "nosniff") // belt-and-braces: never let a browser re-sniff this into something more dangerous than what's set below
 	if safeInlineMediaContentTypes[obj.ContentType] {
 		w.Header().Set("Content-Type", obj.ContentType)
@@ -500,9 +494,87 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", "attachment")
 	}
-	w.Header().Set("Content-Length", strconv.FormatInt(obj.SizeBytes, 10))
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable") // FR2.4: media never changes once uploaded
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Video playback needs Range support to work at all, not just to seek —
+	// see GetRange's own doc comment. A plain GET (no Range header) is
+	// served in full, as before.
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader == "" {
+		reader, err := s.Media.Get(r.Context(), obj.ObjectKey)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "media not found")
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("Content-Length", strconv.FormatInt(obj.SizeBytes, 10))
+		_, _ = io.Copy(w, reader)
+		return
+	}
+
+	start, end, ok := parseByteRange(rangeHeader, obj.SizeBytes)
+	if !ok {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", obj.SizeBytes))
+		writeError(w, http.StatusRequestedRangeNotSatisfiable, "invalid range")
+		return
+	}
+	reader, err := s.Media.GetRange(r.Context(), obj.ObjectKey, start, end)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "media not found")
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, obj.SizeBytes))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+	w.WriteHeader(http.StatusPartialContent)
 	_, _ = io.Copy(w, reader)
+}
+
+// parseByteRange parses a single-range "Range: bytes=..." header value
+// (RFC 7233 §3.1) against an object of the given total size, resolving the
+// open-ended and suffix forms (bytes=500-, bytes=-500) to a concrete
+// inclusive [start, end]. Multiple comma-separated ranges aren't supported —
+// no video player actually sends those for a simple seek.
+func parseByteRange(header string, size int64) (start, end int64, ok bool) {
+	const prefix = "bytes="
+	if !strings.HasPrefix(header, prefix) {
+		return 0, 0, false
+	}
+	spec := strings.TrimPrefix(header, prefix)
+	if strings.Contains(spec, ",") {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(spec, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	if parts[0] == "" {
+		// Suffix range: bytes=-N, the last N bytes.
+		n, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		if n > size {
+			n = size
+		}
+		return size - n, size - 1, true
+	}
+	start, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return 0, 0, false
+	}
+	if parts[1] == "" {
+		return start, size - 1, true
+	}
+	end, err = strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || end < start {
+		return 0, 0, false
+	}
+	if end >= size {
+		end = size - 1
+	}
+	return start, end, true
 }
 
 // handleDeleteMedia implements FR2.5. Only the uploader may delete their own
