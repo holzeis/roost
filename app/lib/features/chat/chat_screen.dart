@@ -165,8 +165,16 @@ class _ChatTitle extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(title,
-                  style: const TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w600)),
+                  // The AppBar's own titleTextStyle is a display serif
+                  // (Zilla Slab, see app_theme.dart) meant for plain screen
+                  // titles — the chat title sits right above message text
+                  // set in the body font, so it borrows that family instead
+                  // of the ambient AppBar one.
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      )),
               if (typingLabel.isNotEmpty)
                 Text(
                   typingLabel,

@@ -156,6 +156,27 @@ void main() {
     expect((decoration.borderRadius as BorderRadius?)?.topLeft.x, greaterThanOrEqualTo(999));
   });
 
+  testWidgets('The chat title uses the message body font, not the AppBar\'s display serif', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // Regression test: the app-wide AppBarTheme.titleTextStyle is a
+    // deliberately different display face (Zilla Slab) for plain screen
+    // titles, but the chat title sits directly above message text set in
+    // the body font (Hanken Grotesk) — it must match that, not the
+    // ambient AppBar style, or the two clash right next to each other.
+    final context = tester.element(find.text('Family').last);
+    final title = tester.widget<Text>(find.text('Family').last);
+    final bodyFamily = Theme.of(context).textTheme.bodyLarge?.fontFamily;
+    final appBarFamily = Theme.of(context).appBarTheme.titleTextStyle?.fontFamily;
+    expect(bodyFamily, isNotNull);
+    expect(appBarFamily, isNotNull);
+    expect(appBarFamily, isNot(equals(bodyFamily)));
+    expect(title.style?.fontFamily, equals(bodyFamily));
+  });
+
   testWidgets('Camera shortcut stays visible while typing and jumps straight to the camera on tap', (tester) async {
     final originalPlatform = ImagePickerPlatform.instance;
     ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
