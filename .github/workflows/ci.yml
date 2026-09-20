@@ -13,8 +13,59 @@ permissions:
   contents: read
 
 jobs:
+  # Detects which side(s) of the repo actually changed so the jobs below can
+  # skip the half that didn't — a server-only change no longer waits on (or
+  # burns minutes on) a Flutter build, and vice versa. Plain git diff rather
+  # than a third-party path-filter action: one fewer dependency for what a
+  # few lines of shell already do. A change to this workflow file itself
+  # always runs everything, since that's exactly when it's least safe to
+  # trust the skip logic.
+  changes:
+    name: detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Determine changed paths
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$BASE_SHA"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+
+          if [ -z "$base" ]; then
+            echo "No usable base commit (new branch/history) — running everything."
+            echo "server=true" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "$base" "${{ github.sha }}")
+          echo "Changed files vs $base:"
+          echo "$changed"
+
+          server=false
+          app=false
+          if echo "$changed" | grep -qE '^(server/|\.github/workflows/ci\.yml)'; then
+            server=true
+          fi
+          if echo "$changed" | grep -qE '^(app/|\.github/workflows/ci\.yml)'; then
+            app=true
+          fi
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+
   server-test:
     name: server / test
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -48,6 +99,8 @@ jobs:
 
   server-build-matrix:
     name: server / build (${{ matrix.goarch }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -68,7 +121,8 @@ jobs:
   server-image:
     name: server / container image (amd64+arm64)
     runs-on: ubuntu-latest
-    needs: [server-test, server-build-matrix]
+    needs: [changes, server-test, server-build-matrix]
+    if: needs.changes.outputs.server == 'true'
     permissions:
       contents: read
       packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
@@ -122,6 +176,8 @@ jobs:
 
   app-test:
     name: app / analyze + test
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
