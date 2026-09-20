@@ -850,7 +850,6 @@ class _MessageComposer extends ConsumerStatefulWidget {
 class _MessageComposerState extends ConsumerState<_MessageComposer> {
   final _controller = TextEditingController();
   bool _sending = false;
-  bool _hasText = false;
 
   bool _typingSignaled = false;
   DateTime? _lastTypingPing;
@@ -863,9 +862,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   }
 
   void _onTextChanged() {
-    final hasText = _controller.text.trim().isNotEmpty;
-    if (hasText != _hasText) setState(() => _hasText = hasText);
-    _notifyTyping(hasText);
+    _notifyTyping(_controller.text.trim().isNotEmpty);
   }
 
   /// FR1.7: throttles typing.start pings to at most one per 3 seconds while
@@ -1114,8 +1111,15 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
         ? 'yourself'
         : (usersById[userId]?.displayName ?? 'them');
 
-    return Container(
+    // A soft shadow lifts the composer off the wallpaper behind it — without
+    // it the bar was just flat color flush against the message list, with
+    // nothing marking it as its own input layer rather than part of the
+    // scrollable conversation.
+    return Material(
       color: Theme.of(context).scaffoldBackgroundColor,
+      elevation: 8,
+      shadowColor: Colors.black.withValues(
+          alpha: Theme.of(context).brightness == Brightness.dark ? 0.5 : 0.18),
       child: SafeArea(
         top: false,
         child: Column(
@@ -1137,22 +1141,6 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Hidden while composing text, matching WhatsApp/Telegram —
-                  // there's nothing to shortcut to the camera for once you're
-                  // already mid-message.
-                  if (!_hasText)
-                    GestureDetector(
-                      onLongPress: _showAttachOptions,
-                      // No `tooltip:` here — IconButton wraps itself in a Tooltip
-                      // when one is set, and Tooltip's own long-press-to-show
-                      // recognizer competes with ours in the same gesture arena,
-                      // making onLongPress fire unreliably.
-                      child: IconButton(
-                        icon: Icon(TablerIcons.camera,
-                            color: scheme.onSurface.withValues(alpha: 0.6)),
-                        onPressed: _onCameraTap,
-                      ),
-                    ),
                   Expanded(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(minHeight: 42),
@@ -1179,6 +1167,21 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                           ),
                         ),
                       ),
+                    ),
+                  ),
+                  // Always visible now, on the trailing side — kept even
+                  // while composing text, rather than hidden the moment
+                  // there's something typed.
+                  GestureDetector(
+                    onLongPress: _showAttachOptions,
+                    // No `tooltip:` here — IconButton wraps itself in a Tooltip
+                    // when one is set, and Tooltip's own long-press-to-show
+                    // recognizer competes with ours in the same gesture arena,
+                    // making onLongPress fire unreliably.
+                    child: IconButton(
+                      icon: Icon(TablerIcons.camera,
+                          color: scheme.onSurface.withValues(alpha: 0.6)),
+                      onPressed: _onCameraTap,
                     ),
                   ),
                   if (_sending)

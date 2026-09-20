@@ -118,7 +118,7 @@ void main() {
     expect(find.text('Message'), findsOneWidget); // the composer's hint text
   });
 
-  testWidgets('Camera shortcut hides while typing and long-press offers video/gallery alternatives', (tester) async {
+  testWidgets('Camera shortcut stays visible while typing and long-press offers video/gallery alternatives', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
@@ -138,12 +138,12 @@ void main() {
     await tester.tapAt(const Offset(200, 100)); // dismiss the sheet
     await tester.pumpAndSettle();
 
-    // Typing hides the camera shortcut entirely (nothing to shortcut to
-    // mid-message), matching WhatsApp/Telegram.
+    // Stays visible while composing text, rather than hiding once there's
+    // something typed.
     await tester.enterText(find.byType(TextField).last, 'hi');
     await tester.pump();
 
-    expect(find.byIcon(TablerIcons.camera), findsNothing);
+    expect(find.byIcon(TablerIcons.camera), findsOneWidget);
   });
 
   testWidgets('There is no send button; hitting the keyboard\'s send action sends the message', (tester) async {
