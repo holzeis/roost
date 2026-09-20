@@ -81,6 +81,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               prefixIcon: Icon(TablerIcons.search, size: 18, color: scheme.onSurface.withValues(alpha: 0.5)),
               isDense: true,
               border: InputBorder.none,
+              // Same fix as the composer's field: the app-wide
+              // InputDecorationTheme's filled:true falls back to a square
+              // fill once there's no OutlineInputBorder to borrow a radius
+              // from, squaring off this pill-shaped Container underneath.
+              filled: false,
               hintText: 'Search messages',
               contentPadding: const EdgeInsets.symmetric(vertical: 10),
             ),

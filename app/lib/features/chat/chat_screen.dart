@@ -422,7 +422,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
                       : (widget.usersById[message.senderId]?.displayName ?? '?');
                   return Padding(
                     padding:
-                        EdgeInsets.only(bottom: entry.isLastInGroup ? 22 : 6),
+                        EdgeInsets.only(bottom: entry.isLastInGroup ? 28 : 10),
                     child: _MessageRow(
                       key: ValueKey(message.id),
                       bubbleKey: _bubbleKeyFor(message.id),
@@ -1546,6 +1546,17 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                             hintText: 'Message',
                             isDense: true,
                             border: InputBorder.none,
+                            // The app-wide InputDecorationTheme defaults to
+                            // filled:true with a *square* fallback fill
+                            // shape once the border is InputBorder.none (it
+                            // only borrows a radius from an OutlineInputBorder,
+                            // which this field doesn't have) — that fill
+                            // painted right over this field's own rounded
+                            // DecoratedBox background, squaring off what
+                            // should have been a pill. This field's fill is
+                            // the surrounding DecoratedBox; the field itself
+                            // paints none of its own.
+                            filled: false,
                             contentPadding: EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 10),
                           ),
