@@ -422,7 +422,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
                       : (widget.usersById[message.senderId]?.displayName ?? '?');
                   return Padding(
                     padding:
-                        EdgeInsets.only(bottom: entry.isLastInGroup ? 16 : 4),
+                        EdgeInsets.only(bottom: entry.isLastInGroup ? 22 : 6),
                     child: _MessageRow(
                       key: ValueKey(message.id),
                       bubbleKey: _bubbleKeyFor(message.id),

@@ -1,5 +1,6 @@
 import 'dart:ui' show lerpDouble;
 
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
@@ -343,40 +344,47 @@ class ReactionPicker extends ConsumerWidget {
   }
 }
 
-/// Lets the viewer pick any emoji, not just the quick list — a bottom sheet
-/// with an auto-focused text field brings up the system keyboard, and
-/// whichever character actually gets typed there is taken as the pick
-/// (`characters`, not raw code units, since many real emoji — a skin-tone
-/// variant, a flag, a family — span several UTF-16 code units as one
-/// grapheme cluster). There's no dedicated "confirm" step: the field
-/// closes itself the moment anything is entered, since one emoji is all
-/// this is ever for.
+/// Lets the viewer pick any emoji, not just the quick list — a real in-app
+/// emoji picker (categories, search, a "frequently used" tab remembered
+/// across launches), rather than a text field that only gets there via the
+/// system keyboard's own globe/emoji key: a plain [TextField] shows the
+/// *ordinary* keyboard first with emoji entry buried behind a switch the
+/// user has to know to tap, where this opens straight into an emoji-only
+/// picker, matching what the system's own emoji keyboard looks like without
+/// requiring the detour through it.
 Future<void> pickCustomEmoji(
     BuildContext context, void Function(String emoji) onPick) async {
-  final controller = TextEditingController();
+  final scheme = Theme.of(context).colorScheme;
   final emoji = await showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    builder: (sheetContext) => Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
-      ),
-      child: TextField(
-        controller: controller,
-        autofocus: true,
-        style: const TextStyle(fontSize: 28),
-        decoration: const InputDecoration(
-          labelText: "Tap your keyboard's emoji key",
-          border: OutlineInputBorder(),
+    builder: (sheetContext) => SafeArea(
+      child: SizedBox(
+        height: 320,
+        child: EmojiPicker(
+          onEmojiSelected: (category, picked) =>
+              Navigator.of(sheetContext).pop(picked.emoji),
+          config: Config(
+            height: 320,
+            // Android-only glyph-support filtering (per the package's own
+            // doc comment on this field) — irrelevant on iOS, this app's
+            // primary target, and better left off than have every category
+            // depend on a compatibility check that has nothing to check.
+            checkPlatformCompatibility: false,
+            emojiViewConfig: EmojiViewConfig(backgroundColor: scheme.surface),
+            categoryViewConfig: CategoryViewConfig(
+              backgroundColor: scheme.surface,
+              indicatorColor: scheme.primary,
+              iconColorSelected: scheme.primary,
+              backspaceColor: scheme.primary,
+            ),
+            bottomActionBarConfig: BottomActionBarConfig(
+              backgroundColor: scheme.surface,
+              buttonColor: scheme.primary,
+            ),
+            searchViewConfig: SearchViewConfig(backgroundColor: scheme.surface),
+          ),
         ),
-        onChanged: (value) {
-          if (value.characters.isNotEmpty) {
-            Navigator.of(sheetContext).pop(value.characters.first);
-          }
-        },
       ),
     ),
   );

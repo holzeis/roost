@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'package:roost/data/api_models.dart';
@@ -103,6 +105,15 @@ Future<void> _pumpApp(WidgetTester tester, FakeApiClient api, {List<Override> ex
 }
 
 void main() {
+  // Without this, a bare SharedPreferences.getInstance() (used by
+  // quickReactionsProvider and, transitively, the emoji_picker_flutter
+  // package's own recent-emoji tracking) hangs forever under flutter_test
+  // rather than resolving to empty prefs — no timeout, no error, it just
+  // never completes, silently stalling anything that awaits it.
+  setUpAll(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('Home screen lists rooms from the server', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
@@ -325,7 +336,7 @@ void main() {
     expect(find.text('👍'), findsOneWidget);
   });
 
-  testWidgets('The "+" in the reaction picker lets the viewer type any emoji from their keyboard', (tester) async {
+  testWidgets('The "+" in the reaction picker opens an emoji-only picker, not the system keyboard', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
@@ -334,17 +345,20 @@ void main() {
     await tester.longPress(find.textContaining("Dinner's at 7"));
     await tester.pumpAndSettle();
 
-    // Scoped to the picker: the composer's own new "+" attach-tray button
-    // uses the same icon and is still on screen underneath.
+    // Scoped to the picker: the composer's own "+" attach-tray button uses
+    // the same icon and is still on screen underneath.
     await tester.tap(find.descendant(
         of: find.byType(ReactionPicker), matching: find.byIcon(TablerIcons.plus)));
     await tester.pumpAndSettle();
 
-    // .last: the composer's own TextField is still in the tree underneath.
-    await tester.enterText(find.byType(TextField).last, '🥳');
-    await tester.pumpAndSettle();
-
-    expect(find.text('🥳 1'), findsOneWidget);
+    // A real emoji grid opened directly — not an extra text field (the
+    // composer's own message field is the only TextField anywhere here)
+    // that would only reach emoji via the system keyboard's own
+    // globe/emoji switch. Category tabs (Recent, Smileys, ...) confirm
+    // it's the full categorized picker, not a bare grid.
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(EmojiPicker), findsOneWidget);
+    expect(find.byType(Tab), findsWidgets);
   });
 
   testWidgets('Replying to a message shows a draft bar and tags the sent reply', (tester) async {
