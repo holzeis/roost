@@ -698,7 +698,6 @@ class _MessageRow extends ConsumerWidget {
       );
     }
 
-
     return Row(
       mainAxisAlignment: align,
       crossAxisAlignment: CrossAxisAlignment.end,
