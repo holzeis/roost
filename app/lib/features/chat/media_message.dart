@@ -14,11 +14,20 @@ import '../../providers/chat_providers.dart';
 /// inline). Text messages don't go through this — see chat_screen.dart.
 /// Tapping either kind opens the full-screen viewer (media_viewer_screen.dart)
 /// rather than a kind-specific route, so photos and videos share one
-/// gallery/react/reply/share experience.
+/// gallery/react/reply/share experience. Renders edge-to-edge — no padding
+/// or bubble-colored frame around the photo/video itself — with corners
+/// matching whichever of the bubble's own corners it's actually adjacent
+/// to, per chat_screen.dart's own computation of `borderRadius` (square on
+/// any edge that has a forwarded/reply/sender-name header above it instead).
 class MediaBubbleContent extends ConsumerWidget {
-  const MediaBubbleContent({super.key, required this.message});
+  const MediaBubbleContent({
+    super.key,
+    required this.message,
+    this.borderRadius = const BorderRadius.all(Radius.circular(6)),
+  });
 
   final ApiMessage message;
+  final BorderRadius borderRadius;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -35,7 +44,7 @@ class MediaBubbleContent extends ConsumerWidget {
           child: AspectRatio(
             aspectRatio: 1,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: borderRadius,
               child: _VideoThumbnail(url: url),
             ),
           ),
@@ -48,7 +57,7 @@ class MediaBubbleContent extends ConsumerWidget {
       child: ConstrainedBox(
         constraints: box,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: borderRadius,
           child: Image.network(
             url,
             fit: BoxFit.cover,

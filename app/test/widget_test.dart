@@ -308,6 +308,31 @@ void main() {
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
+  testWidgets('A group chat names who shared a photo, but never for the viewer\'s own', (tester) async {
+    final api = _seededApiClient();
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'm4',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'image',
+        mediaId: 'media-2',
+        createdAt: DateTime.now(),
+      ),
+    );
+    api.mediaBytesById['media-2'] = const [1, 2, 3];
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // Two "Mom" labels: the existing text message (m1) and the new image
+    // (m4) — both from her. m3, sent by the viewer themself, gets none.
+    expect(find.text('Mom'), findsNWidgets(2));
+    expect(find.text('Dev User'), findsNothing);
+    expect(find.text('Me'), findsNothing);
+  });
+
   testWidgets('Tapping an image opens the full-screen viewer, where react and reply both work',
       (tester) async {
     final api = _seededApiClient();
