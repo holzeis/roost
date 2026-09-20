@@ -1,9 +1,11 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
 
 /// Layout constants shared with callers that need to reserve enough on-screen
-/// space *before* opening this overlay (chat_screen.dart scrolls the target
-/// message into view first if it wouldn't otherwise fit) — kept in sync with
-/// the actual widget sizes below rather than re-guessed at the call site.
+/// space when deciding where to display a message (chat_screen.dart's
+/// openActions computes that before this ever opens) — kept in sync with the
+/// actual widget sizes below rather than re-guessed at the call site.
 const messageActionGap = 8.0;
 const messageActionPickerHeight = 46.0;
 const messageActionMenuRowHeight = 40.0;
@@ -39,37 +41,45 @@ class MessageActionItem {
 /// silently stopped receiving taps. `Overlay.insert` sits above routing
 /// entirely and never touches it.
 ///
-/// [anchorKey] must already be attached to the bubble widget itself (not
-/// the row containing its avatar) — its current [RenderBox] is read once,
-/// at the moment this is called, to know where on screen to open the menu.
-/// The bubble isn't duplicated into the overlay: a translucent scrim is
-/// painted with a rounded-rect cutout matching the bubble's own bounds, so
-/// the real bubble — already in the message list, one layer down — shows
-/// through undimmed instead of needing a snapshot or a second copy of it.
+/// The message itself is *duplicated* here rather than scrolled into place:
+/// [bubbleContent] is the same widget the real message list renders (minus
+/// its `GlobalKey`, which can't appear twice in the tree at once), shown at
+/// [displayTop] while the real one sits dimmed, untouched, at its actual
+/// scroll position underneath — scrolling the list to make room instead
+/// would have moved every other message too, and fighting a `reverse: true`
+/// list's scroll semantics to do it precisely was its own rabbit hole.
+/// [originalRect] (the bubble's real, current on-screen bounds) is where
+/// the duplicate animates from/back to, so opening and closing this reads as
+/// the one message lifting into place and settling back, not a popup
+/// appearing over it. [displayTop] is already computed by the caller to
+/// leave room for the picker above and the menu below without covering the
+/// composer — this widget just renders at the position it's given.
 void showMessageActionOverlay({
   required BuildContext context,
-  required GlobalKey anchorKey,
+  required Rect originalRect,
+  required double displayTop,
   required bool alignEnd,
-  required BorderRadius bubbleBorderRadius,
+  required Widget bubbleContent,
   required List<String> quickEmojis,
   required void Function(String emoji) onReact,
   required List<MessageActionItem> actions,
+  required VoidCallback onDismissed,
 }) {
-  final box = anchorKey.currentContext?.findRenderObject() as RenderBox?;
-  if (box == null || !box.attached) return;
-  final anchorRect = box.localToGlobal(Offset.zero) & box.size;
-
   final overlay = Overlay.of(context, rootOverlay: true);
   late final OverlayEntry entry;
   entry = OverlayEntry(
     builder: (overlayContext) => _MessageActionContent(
-      anchorRect: anchorRect,
+      originalRect: originalRect,
+      displayTop: displayTop,
       alignEnd: alignEnd,
-      bubbleBorderRadius: bubbleBorderRadius,
+      bubbleContent: bubbleContent,
       quickEmojis: quickEmojis,
       onReact: onReact,
       actions: actions,
-      onClose: () => entry.remove(),
+      onClose: () {
+        entry.remove();
+        onDismissed();
+      },
     ),
   );
   overlay.insert(entry);
@@ -77,18 +87,20 @@ void showMessageActionOverlay({
 
 class _MessageActionContent extends StatefulWidget {
   const _MessageActionContent({
-    required this.anchorRect,
+    required this.originalRect,
+    required this.displayTop,
     required this.alignEnd,
-    required this.bubbleBorderRadius,
+    required this.bubbleContent,
     required this.quickEmojis,
     required this.onReact,
     required this.actions,
     required this.onClose,
   });
 
-  final Rect anchorRect;
+  final Rect originalRect;
+  final double displayTop;
   final bool alignEnd;
-  final BorderRadius bubbleBorderRadius;
+  final Widget bubbleContent;
   final List<String> quickEmojis;
   final void Function(String emoji) onReact;
   final List<MessageActionItem> actions;
@@ -102,13 +114,16 @@ class _MessageActionContentState extends State<_MessageActionContent>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
-    reverseDuration: const Duration(milliseconds: 140),
+    duration: const Duration(milliseconds: 220),
+    reverseDuration: const Duration(milliseconds: 180),
   )..forward();
 
   Future<void> _close([VoidCallback? then]) async {
     await _controller.reverse();
     then?.call();
+    // Removes the overlay entry *and* tells the caller to un-hide the real
+    // bubble (see chat_screen.dart's isLifted) — done together so the real
+    // one only reappears once this duplicate is already gone, not before.
     if (mounted) widget.onClose();
   }
 
@@ -120,113 +135,115 @@ class _MessageActionContentState extends State<_MessageActionContent>
 
   @override
   Widget build(BuildContext context) {
-    final anchorRect = widget.anchorRect;
+    final originalRect = widget.originalRect;
     final screen = MediaQuery.of(context).size;
 
-    final scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutBack, reverseCurve: Curves.easeIn);
     final fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    final crossAlign = widget.alignEnd ? Alignment.centerRight : Alignment.centerLeft;
-    // Each piece scales in from the edge nearest the bubble it's anchored
-    // to — the picker (above) from its own bottom, the menu (below) from
-    // its own top — rather than sharing one origin now that they're no
-    // longer adjacent siblings in one column.
+    final scale = CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutBack,
+        reverseCurve: Curves.easeIn);
+    final lift =
+        CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    final crossAlign =
+        widget.alignEnd ? Alignment.centerRight : Alignment.centerLeft;
     final pickerOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, 1.0);
     final menuOrigin = Alignment(widget.alignEnd ? 1.0 : -1.0, -1.0);
 
-    // The picker is always above the bubble and the menu always below it —
-    // chat_screen.dart scrolls the message into a position with room for
-    // both before this ever opens, so there's no "does it fit above?"
-    // fallback here, and no clamp pulling either one back toward the bubble
-    // to stay on screen: a clamp here previously won out over an
-    // insufficient scroll instead of just landing a bit further off-screen,
-    // and the opaque menu card painting over part of the "undimmed" cutout
-    // it had been pulled into read as a dirty seam across the bubble as
-    // much as it read as literal overlap. Each is anchored by exactly one
-    // edge (`bottom` for the picker, `top` for the menu) so it grows away
-    // from that fixed line using its own real, measured height instead of a
-    // guessed one.
-    final menuTop = anchorRect.bottom + messageActionGap;
-    final pickerBottom = screen.height - anchorRect.top + messageActionGap;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _close(),
-            child: FadeTransition(
-              opacity: fade,
-              child: ClipPath(
-                clipper: _CutoutClipper(anchorRect, widget.bubbleBorderRadius),
-                child: Container(color: Colors.black.withValues(alpha: 0.32)),
-              ),
-            ),
-          ),
-        ),
-        if (widget.quickEmojis.isNotEmpty)
-          Positioned(
-            bottom: pickerBottom,
-            left: messageActionScreenMargin,
-            right: messageActionScreenMargin,
-            child: Align(
-              alignment: crossAlign,
-              child: ScaleTransition(
-                scale: scale,
-                alignment: pickerOrigin,
-                child: FadeTransition(
-                  opacity: fade,
-                  child: _ReactionPicker(
-                    emojis: widget.quickEmojis,
-                    onPick: (emoji) => _close(() => widget.onReact(emoji)),
+    final menuTop = widget.displayTop + originalRect.height + messageActionGap;
+    final pickerBottom = screen.height - widget.displayTop + messageActionGap;
+
+    return AnimatedBuilder(
+      animation: lift,
+      builder: (context, child) {
+        // Slides between the bubble's real position and its displayed one —
+        // a no-op lerp (and so no visible motion) when they're already the
+        // same, which is the common case of a message that already had
+        // enough room.
+        final top =
+            lerpDouble(originalRect.top, widget.displayTop, lift.value)!;
+        // The root overlay sits alongside the current route's own Scaffold,
+        // not underneath it, so nothing here inherits a Material ancestor
+        // from the chat screen — the duplicated bubble's reaction chips
+        // (InkWells) need one of their own to paint/build at all.
+        // `transparency` provides that without painting anything itself.
+        return Material(
+          type: MaterialType.transparency,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _close(),
+                  child: FadeTransition(
+                    opacity: fade,
+                    child:
+                        Container(color: Colors.black.withValues(alpha: 0.32)),
                   ),
                 ),
               ),
-            ),
-          ),
-        Positioned(
-          top: menuTop,
-          left: messageActionScreenMargin,
-          right: messageActionScreenMargin,
-          child: Align(
-            alignment: crossAlign,
-            child: ScaleTransition(
-              scale: scale,
-              alignment: menuOrigin,
-              child: FadeTransition(
-                opacity: fade,
-                child: _ActionMenu(
-                  items: widget.actions,
-                  rowHeight: messageActionMenuRowHeight,
-                  onSelected: (item) => _close(item.onTap),
+              // The real bubble stays exactly where it is in the list
+              // underneath, but hidden for as long as this is open (see
+              // chat_screen.dart's isLifted) — without that, it would still
+              // show through here, dimmed by the scrim, right next to this
+              // undimmed duplicate, reading as two copies of one message
+              // rather than the one message having moved.
+              Positioned(
+                left: originalRect.left,
+                top: top,
+                width: originalRect.width,
+                child: GestureDetector(
+                  onTap: () => _close(),
+                  child: IgnorePointer(child: widget.bubbleContent),
                 ),
               ),
-            ),
+              if (widget.quickEmojis.isNotEmpty)
+                Positioned(
+                  bottom: pickerBottom,
+                  left: messageActionScreenMargin,
+                  right: messageActionScreenMargin,
+                  child: Align(
+                    alignment: crossAlign,
+                    child: ScaleTransition(
+                      scale: scale,
+                      alignment: pickerOrigin,
+                      child: FadeTransition(
+                        opacity: fade,
+                        child: _ReactionPicker(
+                          emojis: widget.quickEmojis,
+                          onPick: (emoji) =>
+                              _close(() => widget.onReact(emoji)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: menuTop,
+                left: messageActionScreenMargin,
+                right: messageActionScreenMargin,
+                child: Align(
+                  alignment: crossAlign,
+                  child: ScaleTransition(
+                    scale: scale,
+                    alignment: menuOrigin,
+                    child: FadeTransition(
+                      opacity: fade,
+                      child: _ActionMenu(
+                        items: widget.actions,
+                        rowHeight: messageActionMenuRowHeight,
+                        onSelected: (item) => _close(item.onTap),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
-}
-
-class _CutoutClipper extends CustomClipper<Path> {
-  _CutoutClipper(this.holeRect, this.holeRadius);
-
-  final Rect holeRect;
-  final BorderRadius holeRadius;
-
-  @override
-  Path getClip(Size size) {
-    final screen = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-    // Matches the bubble's own per-corner radius (its tail corner is much
-    // sharper than the rest) rather than a uniform radius — a uniform hole
-    // left a sliver of scrim showing at the tail corner, reading as a dirty
-    // smudge right on the bubble it was supposed to be highlighting.
-    final hole = Path()..addRRect(holeRadius.toRRect(holeRect));
-    return Path.combine(PathOperation.difference, screen, hole);
-  }
-
-  @override
-  bool shouldReclip(covariant _CutoutClipper oldClipper) =>
-      oldClipper.holeRect != holeRect || oldClipper.holeRadius != holeRadius;
 }
 
 class _ReactionPicker extends StatelessWidget {
@@ -264,7 +281,8 @@ class _ReactionPicker extends StatelessWidget {
 }
 
 class _ActionMenu extends StatelessWidget {
-  const _ActionMenu({required this.items, required this.rowHeight, required this.onSelected});
+  const _ActionMenu(
+      {required this.items, required this.rowHeight, required this.onSelected});
 
   final List<MessageActionItem> items;
   final double rowHeight;
@@ -304,14 +322,18 @@ class _ActionMenu extends StatelessWidget {
                         Icon(
                           item.icon,
                           size: 17,
-                          color: item.isDestructive ? scheme.error : scheme.onSurface.withValues(alpha: 0.75),
+                          color: item.isDestructive
+                              ? scheme.error
+                              : scheme.onSurface.withValues(alpha: 0.75),
                         ),
                         const SizedBox(width: 12),
                         Text(
                           item.label,
                           style: TextStyle(
                             fontSize: 13.5,
-                            color: item.isDestructive ? scheme.error : scheme.onSurface,
+                            color: item.isDestructive
+                                ? scheme.error
+                                : scheme.onSurface,
                           ),
                         ),
                       ],

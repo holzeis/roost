@@ -22,18 +22,32 @@ import 'media_message.dart';
 import 'message_action_overlay.dart';
 import 'reply_preview.dart';
 
-class ChatScreen extends ConsumerWidget {
+class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.roomId, this.room});
 
   final String roomId;
   final ApiRoom? room;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends ConsumerState<ChatScreen> {
+  // Lets a long-press find the composer's current on-screen position (which
+  // moves with the keyboard) so the reaction picker/action menu never cover
+  // it — a plain field here rather than minted inside build() so it stays
+  // the same key across rebuilds instead of orphaning itself the moment
+  // anything above this widget rebuilds it.
+  final _composerKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final roomId = widget.roomId;
+    final room = widget.room;
     final me = ref.watch(meProvider);
     final usersById = ref.watch(usersByIdProvider);
     final roomAsync = room != null
-        ? AsyncData<ApiRoom>(room!)
+        ? AsyncData<ApiRoom>(room)
         : ref.watch(roomProvider(roomId));
     final isGroup = roomAsync.valueOrNull?.isGroup ?? false;
     final typingUsers = ref.watch(typingUsersProvider(roomId));
@@ -68,10 +82,11 @@ class ChatScreen extends ConsumerWidget {
                     meId: me.value!.id,
                     usersById: usersById.valueOrNull ?? const {},
                     isGroup: isGroup,
+                    composerKey: _composerKey,
                   )
                 : const Center(child: CircularProgressIndicator()),
           ),
-          _MessageComposer(roomId: roomId),
+          _MessageComposer(key: _composerKey, roomId: roomId),
         ],
       ),
     );
@@ -81,7 +96,8 @@ class ChatScreen extends ConsumerWidget {
 /// FR4.1/FR4.2: begins a call and jumps straight to CallScreen — unlike an
 /// accepting callee (see IncomingCallScreen), the caller never goes through
 /// the incoming-call screen for their own call.
-Future<void> _startCall(BuildContext context, WidgetRef ref, String roomId, bool isGroup) async {
+Future<void> _startCall(
+    BuildContext context, WidgetRef ref, String roomId, bool isGroup) async {
   try {
     final message = await ref.read(apiClientProvider).startCall(roomId);
     if (context.mounted) {
@@ -89,7 +105,8 @@ Future<void> _startCall(BuildContext context, WidgetRef ref, String roomId, bool
     }
   } catch (error) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not start call: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start call: $error')));
     }
   }
 }
@@ -176,12 +193,14 @@ class _MessageList extends ConsumerStatefulWidget {
     required this.meId,
     required this.usersById,
     required this.isGroup,
+    required this.composerKey,
   });
 
   final String roomId;
   final String meId;
   final Map<String, ApiContact> usersById;
   final bool isGroup;
+  final GlobalKey composerKey;
 
   @override
   ConsumerState<_MessageList> createState() => _MessageListState();
@@ -190,20 +209,30 @@ class _MessageList extends ConsumerStatefulWidget {
 class _MessageListState extends ConsumerState<_MessageList> {
   final _itemScrollController = ItemScrollController();
   final _itemPositionsListener = ItemPositionsListener.create();
-  final _scrollOffsetController = ScrollOffsetController();
   Timer? _seenDebounce;
 
   // Keyed by message id and reused across rebuilds, rather than minted fresh
-  // inside _MessageRow on every build — openActions() there now awaits a
-  // scroll before opening the overlay, and a rebuild during that await (e.g.
-  // from a seen-status ack) would otherwise swap in a new _MessageRow with a
-  // brand new key, silently detaching the one the long-press closure had
-  // captured and leaving the overlay anchored to whatever bubble happens to
-  // hold the stale key afterward instead of the one actually pressed.
+  // inside _MessageRow on every build — a rebuild between a long-press and
+  // the overlay actually opening (e.g. from a seen-status ack) would
+  // otherwise swap in a new _MessageRow with a brand new key, silently
+  // detaching the one the long-press closure had captured and leaving the
+  // overlay anchored to whatever bubble happens to hold the stale key
+  // afterward instead of the one actually pressed.
   final _bubbleKeys = <String, GlobalKey>{};
 
   GlobalKey _bubbleKeyFor(String messageId) =>
       _bubbleKeys.putIfAbsent(messageId, GlobalKey.new);
+
+  // The message currently duplicated into an open action overlay (see
+  // message_action_overlay.dart) — its real bubble hides for as long as
+  // this is set, so the lifted copy reads as the one message having moved
+  // rather than a second, dimmed ghost of it sitting right next to the
+  // copy the whole time.
+  String? _liftedMessageId;
+
+  void _setLifted(String? messageId) {
+    if (mounted) setState(() => _liftedMessageId = messageId);
+  }
 
   @override
   void initState() {
@@ -226,16 +255,18 @@ class _MessageListState extends ConsumerState<_MessageList> {
     _seenDebounce?.cancel();
     _seenDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      final reversed =
-          (ref.read(messagesProvider(widget.roomId)).valueOrNull ?? const <ApiMessage>[])
-              .reversed
-              .toList();
+      final reversed = (ref.read(messagesProvider(widget.roomId)).valueOrNull ??
+              const <ApiMessage>[])
+          .reversed
+          .toList();
       final visibleIds = [
         for (final position in _itemPositionsListener.itemPositions.value)
           if (position.index >= 0 && position.index < reversed.length)
             reversed[position.index].id,
       ];
-      unawaited(ref.read(messagesProvider(widget.roomId).notifier).ackSeen(visibleIds));
+      unawaited(ref
+          .read(messagesProvider(widget.roomId).notifier)
+          .ackSeen(visibleIds));
     });
   }
 
@@ -252,33 +283,6 @@ class _MessageListState extends ConsumerState<_MessageList> {
         alignment: 0.4);
   }
 
-  /// Scrolls by exactly [delta] pixels on the underlying `ScrollController`
-  /// (positive moves on-screen content *down* on this `reverse: true` list —
-  /// confirmed empirically, since it's the opposite of a plain list) — used
-  /// to make room for the reaction picker/action menu when a message is too
-  /// close to either edge of the list to fit them, per _MessageRow's own
-  /// fit check.
-  ///
-  /// Deliberately not `ItemScrollController.scrollTo`'s index+alignment API:
-  /// on this `reverse: true` list, `alignment` turned out not to map onto a
-  /// predictable pixel offset — a request computed to shift a bubble by
-  /// ~79px (using the "0 = top of view, 1 = bottom" semantics the docs
-  /// describe for a *non*-reversed list) instead moved it by 381px, nearly
-  /// 5x more than asked for, landing the popup over a different message
-  /// entirely. `ScrollOffsetController.animateScroll` instead scrolls the
-  /// underlying `ScrollController` by a literal relative pixel amount, with
-  /// no index/alignment translation to get wrong.
-  Future<void> _scrollByOffset(double delta) async {
-    await _scrollOffsetController.animateScroll(
-      offset: delta,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-    );
-    final settled = Completer<void>();
-    WidgetsBinding.instance.addPostFrameCallback((_) => settled.complete());
-    await settled.future;
-  }
-
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(messagesProvider(widget.roomId));
@@ -293,8 +297,10 @@ class _MessageListState extends ConsumerState<_MessageList> {
             child: Text(
               'No messages yet. Say hello!',
               style: TextStyle(
-                  color:
-                      Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.5)),
             ),
           );
         }
@@ -307,7 +313,6 @@ class _MessageListState extends ConsumerState<_MessageList> {
           reverse: true,
           itemScrollController: _itemScrollController,
           itemPositionsListener: _itemPositionsListener,
-          scrollOffsetController: _scrollOffsetController,
           padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
           itemCount: reversed.length,
           itemBuilder: (context, index) {
@@ -343,7 +348,9 @@ class _MessageListState extends ConsumerState<_MessageList> {
                 meId: widget.meId,
                 usersById: widget.usersById,
                 onJumpToReply: (id) => _jumpToMessage(id, reversed),
-                scrollByOffset: _scrollByOffset,
+                composerKey: widget.composerKey,
+                isLifted: _liftedMessageId == message.id,
+                onLiftedChange: _setLifted,
               ),
             );
           },
@@ -367,7 +374,8 @@ WidgetSpan _statusIconSpan(String status, Color onPrimary) {
     alignment: PlaceholderAlignment.middle,
     child: Padding(
       padding: const EdgeInsets.only(left: 3),
-      child: Icon(icon, size: 12, color: onPrimary.withValues(alpha: seen ? 1 : 0.62)),
+      child: Icon(icon,
+          size: 12, color: onPrimary.withValues(alpha: seen ? 1 : 0.62)),
     ),
   );
 }
@@ -387,7 +395,9 @@ class _MessageRow extends ConsumerWidget {
     required this.meId,
     required this.usersById,
     required this.onJumpToReply,
-    required this.scrollByOffset,
+    required this.composerKey,
+    required this.isLifted,
+    required this.onLiftedChange,
   });
 
   // Owned by _MessageListState and reused across rebuilds for this message
@@ -407,10 +417,16 @@ class _MessageRow extends ConsumerWidget {
   final Map<String, ApiContact> usersById;
   final void Function(String messageId) onJumpToReply;
 
-  // Lets a long-press scroll this row into a spot with room for both the
-  // reaction picker above and the action menu below before opening them —
-  // see openActions() below.
-  final Future<void> Function(double delta) scrollByOffset;
+  // Owned by _ChatScreenState — lets a long-press find the composer's
+  // current on-screen position (moves with the keyboard) so the picker/menu
+  // never cover it. See openActions() below.
+  final GlobalKey composerKey;
+
+  // Whether this message is currently duplicated into an open action
+  // overlay — while true, the real bubble here hides so the lifted copy
+  // reads as this one message having moved, not a second copy of it.
+  final bool isLifted;
+  final void Function(String? messageId) onLiftedChange;
 
   String _nameFor(String userId) =>
       userId == meId ? 'You' : (usersById[userId]?.displayName ?? '?');
@@ -438,8 +454,7 @@ class _MessageRow extends ConsumerWidget {
       bottomRight: fromMe ? tail : ChatBubbleStyle.radius,
     );
 
-    final bubble = Container(
-      key: bubbleKey,
+    final bubbleContent = Container(
       constraints:
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
       padding: isMedia || isLocation
@@ -456,7 +471,8 @@ class _MessageRow extends ConsumerWidget {
         children: [
           if (message.forwarded)
             Padding(
-              padding: EdgeInsets.only(bottom: 2, left: isMedia || isLocation ? 5 : 0),
+              padding: EdgeInsets.only(
+                  bottom: 2, left: isMedia || isLocation ? 5 : 0),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -479,7 +495,8 @@ class _MessageRow extends ConsumerWidget {
             ),
           if (message.replyTo != null)
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: isMedia || isLocation ? 5 : 0),
+              padding: EdgeInsets.symmetric(
+                  horizontal: isMedia || isLocation ? 5 : 0),
               child: ReplyQuoteChip(
                 snippet: message.replyTo!,
                 senderName: _nameFor(message.replyTo!.senderId),
@@ -571,34 +588,48 @@ class _MessageRow extends ConsumerWidget {
     // rather than relying on Positioned overflow past a smaller reported
     // size. Horizontally too: the badge is flush with the bubble's own edge
     // (right: 0 / left: 0), not poking past it, for the same reason.
+    //
+    // Factored into a function rather than a single `bubbleWithReactions`
+    // value: openActions() below duplicates the bubble's content into the
+    // overlay so it can be lifted to a new position without touching the
+    // real list underneath, and that duplicate can't reuse `bubbleKey` —
+    // GlobalKeys can't appear twice in the tree at once — so it needs its
+    // own, otherwise-identical instance built from unkeyed `bubbleContent`.
     const reactionBadgeProtrusion = 14.0;
-    final bubbleWithReactions = message.reactions.isEmpty
-        ? bubble
-        : Stack(
+    Widget withReactions(Widget bubbleWidget) {
+      if (message.reactions.isEmpty) return bubbleWidget;
+      return Stack(
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [bubble, const SizedBox(height: reactionBadgeProtrusion)],
-              ),
-              Positioned(
-                bottom: 0,
-                right: fromMe ? null : 0,
-                left: fromMe ? 0 : null,
-                child: Wrap(
-                  spacing: 3,
-                  children: [
-                    for (final reaction in message.reactions)
-                      _ReactionChip(
-                        reaction: reaction,
-                        onTap: () => ref
-                            .read(messagesProvider(roomId).notifier)
-                            .toggleReaction(message.id, reaction.emoji),
-                      ),
-                  ],
-                ),
-              ),
+              bubbleWidget,
+              const SizedBox(height: reactionBadgeProtrusion)
             ],
-          );
+          ),
+          Positioned(
+            bottom: 0,
+            right: fromMe ? null : 0,
+            left: fromMe ? 0 : null,
+            child: Wrap(
+              spacing: 3,
+              children: [
+                for (final reaction in message.reactions)
+                  _ReactionChip(
+                    reaction: reaction,
+                    onTap: () => ref
+                        .read(messagesProvider(roomId).notifier)
+                        .toggleReaction(message.id, reaction.emoji),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    final bubble = KeyedSubtree(key: bubbleKey, child: bubbleContent);
+    final bubbleWithReactions = withReactions(bubble);
 
     final actions = _buildActions(context, ref);
     // FR: don't offer an emoji the caller has already reacted with — there's
@@ -613,68 +644,60 @@ class _MessageRow extends ConsumerWidget {
         if (!reactedEmojis.contains(emoji)) emoji,
     ];
 
-    Future<void> openActions() async {
-      final neededAbove = availableEmojis.isEmpty
+    // Fully synchronous — no scroll to await — so there's no gap between
+    // measuring and using these values for anything to go stale in.
+    void openActions() {
+      final bubbleBox =
+          bubbleKey.currentContext?.findRenderObject() as RenderBox?;
+      if (bubbleBox == null || !bubbleBox.attached) return;
+      final bubbleRect = bubbleBox.localToGlobal(Offset.zero) & bubbleBox.size;
+
+      // The composer's own current position already reflects the keyboard,
+      // open or not — it's measured fresh right here rather than assumed,
+      // so this holds either way without any extra keyboard-aware logic.
+      final composerBox =
+          composerKey.currentContext?.findRenderObject() as RenderBox?;
+      final composerTop = (composerBox != null && composerBox.attached)
+          ? composerBox.localToGlobal(Offset.zero).dy
+          : MediaQuery.of(context).size.height;
+
+      final pickerClearance = availableEmojis.isEmpty
           ? 0.0
-          : messageActionPickerHeight + messageActionGap * 2 + messageActionScreenMargin;
-      final neededBelow = actions.length * messageActionMenuRowHeight +
-          messageActionGap * 2 +
-          messageActionScreenMargin;
+          : messageActionPickerHeight + messageActionGap;
+      final menuClearance =
+          actions.length * messageActionMenuRowHeight + messageActionGap;
 
-      // Scroll this message into a spot with room for both the picker above
-      // and the menu below *before* opening either — moving the popup to
-      // fit around a cramped position, rather than moving the message, is
-      // what let the layout end up ambiguous about which side either piece
-      // was really anchored to. Measured against the full screen (not just
-      // the list's own viewport, which stops above the composer) since
-      // that's what showMessageActionOverlay itself positions against.
-      //
-      // Re-measures and re-scrolls up to a few times rather than trusting a
-      // single estimate: a request sized for exactly the deficit could
-      // still leave a shortfall (clamped at a scroll extent, a rounding
-      // difference against the overlay's own math, ...), and the previous
-      // one-shot version left the menu overlapping the very message it was
-      // opened on when that happened.
-      for (var attempt = 0; attempt < 3; attempt++) {
-        final bubbleBox = bubbleKey.currentContext?.findRenderObject() as RenderBox?;
-        if (bubbleBox == null || !bubbleBox.attached || !context.mounted) break;
-        final bubbleRect = bubbleBox.localToGlobal(Offset.zero) & bubbleBox.size;
-        final screenHeight = MediaQuery.of(context).size.height;
+      // The message is *displayed* somewhere between these two bounds —
+      // never scrolled there, since scrolling moves every other message in
+      // the list too. minTop leaves room for the picker above; maxBottom
+      // leaves room for the menu below *and* keeps the composer clear.
+      final minTop = messageActionScreenMargin + pickerClearance;
+      final maxBottom = composerTop - messageActionGap - menuClearance;
 
-        final spaceAbove = bubbleRect.top;
-        final spaceBelow = screenHeight - bubbleRect.bottom;
-
-        // Only scroll when something doesn't actually fit, and only by the
-        // exact deficit — never re-centering a message that already fits.
-        // On this list, a positive delta moves on-screen content *down*
-        // (confirmed empirically: a +108 request measurably moved a bubble
-        // down by 108, three times over) — the opposite of a plain
-        // (non-reversed) ScrollController, where increasing offset always
-        // moves content up. `reverse: true` flips that here.
-        double? delta;
-        if (neededAbove > 0 && spaceAbove < neededAbove) {
-          delta = neededAbove - spaceAbove;
-        } else if (spaceBelow < neededBelow) {
-          delta = -(neededBelow - spaceBelow);
-        }
-
-        if (delta == null) break;
-        await scrollByOffset(delta);
+      var displayTop = bubbleRect.top;
+      if (displayTop + bubbleRect.height > maxBottom) {
+        displayTop = maxBottom - bubbleRect.height;
+      }
+      if (displayTop < minTop) {
+        displayTop = minTop;
       }
 
-      if (!context.mounted) return;
+      onLiftedChange(message.id);
       showMessageActionOverlay(
         context: context,
-        anchorKey: bubbleKey,
+        originalRect: bubbleRect,
+        displayTop: displayTop,
         alignEnd: fromMe,
-        bubbleBorderRadius: borderRadius,
+        bubbleContent: withReactions(bubbleContent),
         quickEmojis: availableEmojis,
         onReact: (emoji) => ref
             .read(messagesProvider(roomId).notifier)
             .toggleReaction(message.id, emoji),
         actions: actions,
+        onDismissed: () => onLiftedChange(null),
       );
     }
+
 
     return Row(
       mainAxisAlignment: align,
@@ -683,7 +706,7 @@ class _MessageRow extends ConsumerWidget {
         if (!fromMe) avatarSlot,
         GestureDetector(
           onLongPress: openActions,
-          child: bubbleWithReactions,
+          child: Opacity(opacity: isLifted ? 0 : 1, child: bubbleWithReactions),
         ),
       ],
     );
@@ -805,8 +828,11 @@ class _ReactionChip extends StatelessWidget {
           '${reaction.emoji} ${reaction.count}',
           style: TextStyle(
             fontSize: 11,
-            fontWeight: reaction.reactedByMe ? FontWeight.w700 : FontWeight.w400,
-            color: reaction.reactedByMe ? ochreColor(context) : scheme.onSurface.withValues(alpha: 0.7),
+            fontWeight:
+                reaction.reactedByMe ? FontWeight.w700 : FontWeight.w400,
+            color: reaction.reactedByMe
+                ? ochreColor(context)
+                : scheme.onSurface.withValues(alpha: 0.7),
           ),
         ),
       ),
@@ -815,7 +841,7 @@ class _ReactionChip extends StatelessWidget {
 }
 
 class _MessageComposer extends ConsumerStatefulWidget {
-  const _MessageComposer({required this.roomId});
+  const _MessageComposer({super.key, required this.roomId});
   final String roomId;
 
   @override
@@ -860,14 +886,16 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
 
     final now = DateTime.now();
-    final shouldPing = _lastTypingPing == null || now.difference(_lastTypingPing!) >= const Duration(seconds: 3);
+    final shouldPing = _lastTypingPing == null ||
+        now.difference(_lastTypingPing!) >= const Duration(seconds: 3);
     if (shouldPing) {
       _lastTypingPing = now;
       _typingSignaled = true;
       ref.read(messagesProvider(widget.roomId).notifier).notifyTyping(true);
     }
     _typingAutoStop?.cancel();
-    _typingAutoStop = Timer(const Duration(seconds: 5), () => _notifyTyping(false));
+    _typingAutoStop =
+        Timer(const Duration(seconds: 5), () => _notifyTyping(false));
   }
 
   @override
@@ -1021,7 +1049,8 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
               padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Share your location for…', style: TextStyle(fontWeight: FontWeight.w600)),
+                child: Text('Share your location for…',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
               ),
             ),
             ListTile(
@@ -1057,8 +1086,8 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
       await ref.read(locationShareProvider(widget.roomId).notifier).start(ttl);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Could not share your location: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not share your location: $error')));
       }
     }
   }
