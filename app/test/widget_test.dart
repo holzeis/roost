@@ -367,9 +367,70 @@ void main() {
     await tester.tap(find.text('Reply'));
     await tester.pumpAndSettle();
 
-    // Reply hands off to the regular composer draft and returns to the chat.
-    expect(find.byIcon(TablerIcons.moodSmile), findsNothing); // viewer is gone
+    // Reply hands off to the regular composer draft and returns to the chat
+    // (the app bar title is chat-screen-only — the viewer has none).
+    expect(find.text('Family'), findsOneWidget);
     expect(find.textContaining('Replying to'), findsOneWidget);
+  });
+
+  testWidgets('The viewer shows an existing reaction and lets the viewer change it', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+
+    // React with 👍 first.
+    await tester.tap(find.byIcon(TablerIcons.moodSmile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('👍'));
+    await tester.pumpAndSettle();
+
+    // The add button is now the reaction itself, showing what was picked —
+    // not the plain smile icon anymore.
+    expect(find.byIcon(TablerIcons.moodSmile), findsNothing);
+    expect(find.text('👍 1'), findsOneWidget);
+
+    // Tapping it again reopens the picker; picking a different emoji swaps
+    // the reaction rather than adding a second one alongside it.
+    await tester.tap(find.text('👍 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('❤️'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('👍 1'), findsNothing);
+    expect(find.text('❤️ 1'), findsOneWidget);
+  });
+
+  testWidgets('The viewer shows someone else\'s reaction beside the add button', (tester) async {
+    final api = _seededApiClient();
+    final messages = api.messagesByRoom['room-family']!;
+    final imageIndex = messages.indexWhere((m) => m.id == 'm3');
+    messages[imageIndex] = messages[imageIndex].copyWith(
+      reactions: const [ApiReaction(emoji: '😮', count: 1, reactedByMe: false)],
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+
+    // Mom's reaction sits next to the still-available add button — it isn't
+    // the viewer's own reaction, so it doesn't replace it.
+    expect(find.byIcon(TablerIcons.moodSmile), findsOneWidget);
+    expect(find.text('😮 1'), findsOneWidget);
+
+    // Tapping someone else's reaction adds that same emoji as the viewer's
+    // own — it merges into the same emoji's count rather than sitting
+    // beside it as a second entry.
+    await tester.tap(find.text('😮 1'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('😮 2'), findsOneWidget);
+    expect(find.byIcon(TablerIcons.moodSmile), findsNothing);
   });
 
   testWidgets('Contacts screen lists other users with presence', (tester) async {

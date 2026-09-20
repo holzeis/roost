@@ -75,10 +75,22 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
         duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
   }
 
+  /// Tapping a quick-react emoji here always leaves the viewer's own
+  /// reaction as a single emoji — picking a different one than whatever the
+  /// viewer already has swaps it, rather than stacking a second reaction
+  /// alongside it (the data model allows multiple, and the regular chat
+  /// bubble's own per-emoji chips still work that way, but "tap it again to
+  /// change the reaction" only makes sense as a single-reaction control).
+  /// Picking the same emoji already reacted with just toggles it off, same
+  /// as tapping a reaction chip anywhere else in the app.
   Future<void> _react(ApiMessage message, String emoji) async {
-    await ref
-        .read(messagesProvider(widget.roomId).notifier)
-        .toggleReaction(message.id, emoji);
+    final controller = ref.read(messagesProvider(widget.roomId).notifier);
+    for (final existing in message.reactions) {
+      if (existing.reactedByMe && existing.emoji != emoji) {
+        await controller.toggleReaction(message.id, existing.emoji);
+      }
+    }
+    await controller.toggleReaction(message.id, emoji);
   }
 
   void _reply(ApiMessage message) {
@@ -195,6 +207,7 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
                     _ViewerHeader(senderName: senderName, timeLabel: timeLabel),
                     const Spacer(),
                     _ReactReplyRow(
+                      reactions: current.reactions,
                       onReact: (emoji) => _react(current, emoji),
                       onReply: () => _reply(current),
                     ),
@@ -266,19 +279,57 @@ class _ViewerHeader extends StatelessWidget {
 /// photo per the WhatsApp-style reference. Reply hands off to the regular
 /// composer draft and returns to the chat screen — the same reply flow as
 /// everywhere else, just entered from here.
+///
+/// The react side shows the current state of `reactions`: the viewer's own
+/// reaction (if any) replaces the add button outright — tapping it reopens
+/// the picker to change it — and everyone else's reactions sit beside it as
+/// plain chips, tapping one adding that same emoji as the viewer's own.
 class _ReactReplyRow extends StatelessWidget {
-  const _ReactReplyRow({required this.onReact, required this.onReply});
+  const _ReactReplyRow({
+    required this.reactions,
+    required this.onReact,
+    required this.onReply,
+  });
+  final List<ApiReaction> reactions;
   final void Function(String emoji) onReact;
   final VoidCallback onReply;
 
   @override
   Widget build(BuildContext context) {
+    ApiReaction? myReaction;
+    final othersReactions = <ApiReaction>[];
+    for (final reaction in reactions) {
+      if (reaction.reactedByMe) {
+        myReaction ??= reaction;
+      } else {
+        othersReactions.add(reaction);
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _ReactButton(onReact: onReact),
+          Flexible(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _ReactButton(onReact: onReact, myReaction: myReaction),
+                  for (final reaction in othersReactions) ...[
+                    const SizedBox(width: 6),
+                    _ViewerReactionChip(
+                      reaction: reaction,
+                      onTap: () => onReact(reaction.emoji),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           Material(
             color: Colors.white.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(20),
@@ -304,9 +355,41 @@ class _ReactReplyRow extends StatelessWidget {
   }
 }
 
+/// A read-only-looking chip for someone else's reaction — tapping it still
+/// acts (adds that emoji as the viewer's own, via the same onReact as
+/// everything else here), it just isn't drawn as a button the way the
+/// add/change control is.
+class _ViewerReactionChip extends StatelessWidget {
+  const _ViewerReactionChip({required this.reaction, required this.onTap});
+  final ApiReaction reaction;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text('${reaction.emoji} ${reaction.count}',
+              style: const TextStyle(color: Colors.white, fontSize: 14)),
+        ),
+      ),
+    );
+  }
+}
+
+/// The add-reaction control, bottom-left — an emoji icon with no reaction
+/// yet, or the viewer's own current reaction once they've picked one (tap
+/// either state to open the picker; picking a different emoji changes it,
+/// picking the same one removes it — see _MediaViewerScreenState._react).
 class _ReactButton extends StatefulWidget {
-  const _ReactButton({required this.onReact});
+  const _ReactButton({required this.onReact, this.myReaction});
   final void Function(String emoji) onReact;
+  final ApiReaction? myReaction;
 
   @override
   State<_ReactButton> createState() => _ReactButtonState();
@@ -366,6 +449,22 @@ class _ReactButtonState extends State<_ReactButton> {
 
   @override
   Widget build(BuildContext context) {
+    final myReaction = widget.myReaction;
+    if (myReaction != null) {
+      return Material(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openPicker(context),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text('${myReaction.emoji} ${myReaction.count}',
+                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      );
+    }
     return Material(
       color: Colors.white.withValues(alpha: 0.15),
       shape: const CircleBorder(),
