@@ -375,7 +375,7 @@ WidgetSpan _statusIconSpan(String status, Color onPrimary) {
     child: Padding(
       padding: const EdgeInsets.only(left: 3),
       child: Icon(icon,
-          size: 12, color: onPrimary.withValues(alpha: seen ? 1 : 0.62)),
+          size: 13, color: onPrimary.withValues(alpha: seen ? 1 : 0.62)),
     ),
   );
 }
@@ -459,7 +459,7 @@ class _MessageRow extends ConsumerWidget {
           BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
       padding: isMedia || isLocation
           ? const EdgeInsets.all(3)
-          : const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: fromMe ? scheme.primary : scheme.surface,
         borderRadius: borderRadius,
@@ -522,7 +522,7 @@ class _MessageRow extends ConsumerWidget {
                 child: Text(
                   senderName,
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 14.5,
                     fontWeight: FontWeight.w700,
                     color: colorForAvatarSeed(senderName),
                   ),
@@ -531,8 +531,8 @@ class _MessageRow extends ConsumerWidget {
             Text.rich(
               TextSpan(
                 style: TextStyle(
-                    fontSize: 14.5,
-                    height: 1.28,
+                    fontSize: 16.5,
+                    height: 1.3,
                     color: fromMe ? scheme.onPrimary : scheme.onSurface),
                 children: [
                   TextSpan(text: message.body ?? ''),
@@ -541,7 +541,7 @@ class _MessageRow extends ConsumerWidget {
                         '${message.editedAt != null ? ' (edited)' : ''}  $timeLabel',
                     style: roostMono(
                       context,
-                      fontSize: 10.5,
+                      fontSize: 11.5,
                       color: (fromMe ? scheme.onPrimary : scheme.onSurface)
                           .withValues(alpha: 0.62),
                     ),
