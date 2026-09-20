@@ -465,6 +465,7 @@ class _ReactButtonState extends State<_ReactButton> {
                   close();
                   widget.onReact(emoji);
                 },
+                onRequestDismiss: close,
               ),
             ),
           ),

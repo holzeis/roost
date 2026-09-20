@@ -240,6 +240,7 @@ class _MessageActionContentState extends State<_MessageActionContent>
                       child: ReactionPicker(
                         selectedEmojis: widget.selectedEmojis,
                         onPick: (emoji) => _close(() => widget.onReact(emoji)),
+                        onRequestDismiss: () => _close(),
                       ),
                     ),
                   ),
@@ -287,10 +288,18 @@ class ReactionPicker extends ConsumerWidget {
     super.key,
     required this.onPick,
     this.selectedEmojis = const {},
+    this.onRequestDismiss,
   });
 
   final void Function(String emoji) onPick;
   final Set<String> selectedEmojis;
+
+  /// Called right before opening the full emoji picker (the "+"), so the
+  /// caller can close whatever is hosting this picker first — the
+  /// long-press action overlay, or the media viewer's own react popup.
+  /// Without this, that host stayed open and visible underneath the emoji
+  /// picker's own bottom sheet instead of getting out of its way.
+  final VoidCallback? onRequestDismiss;
 
   void _pick(WidgetRef ref, String emoji) {
     ref.read(quickReactionsProvider.notifier).recordUse(emoji);
@@ -329,8 +338,10 @@ class ReactionPicker extends ConsumerWidget {
               ),
             InkWell(
               borderRadius: BorderRadius.circular(999),
-              onTap: () =>
-                  pickCustomEmoji(context, (emoji) => _pick(ref, emoji)),
+              onTap: () {
+                onRequestDismiss?.call();
+                pickCustomEmoji(context, (emoji) => _pick(ref, emoji));
+              },
               child: Padding(
                 padding: const EdgeInsets.all(7),
                 child: Icon(TablerIcons.plus,

@@ -366,6 +366,7 @@ void main() {
 
     await tester.longPress(find.textContaining("Dinner's at 7"));
     await tester.pumpAndSettle();
+    expect(find.text('Reply'), findsOneWidget); // the action menu is up
 
     // Scoped to the picker: the composer's own "+" attach-tray button uses
     // the same icon and is still on screen underneath.
@@ -381,6 +382,12 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byType(EmojiPicker), findsOneWidget);
     expect(find.byType(Tab), findsWidgets);
+
+    // The action overlay (scrim, lifted bubble, Reply/Forward/Copy menu)
+    // is gone rather than stacked underneath the emoji picker's own sheet.
+    expect(find.text('Reply'), findsNothing);
+    expect(find.text('Forward'), findsNothing);
+    expect(find.text('Copy'), findsNothing);
   });
 
   testWidgets('Replying to a message shows a draft bar and tags the sent reply', (tester) async {
