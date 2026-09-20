@@ -8,6 +8,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
+import 'package:roost/features/chat/message_action_overlay.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
 import 'package:roost/router/app_router.dart';
@@ -150,6 +151,84 @@ void main() {
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
   });
 
+  testWidgets('The "+" attach tray shows Photos/Camera/Location and swaps with the keyboard', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(TablerIcons.plus), findsOneWidget);
+    expect(find.byIcon(TablerIcons.keyboard), findsNothing);
+
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Photos'), findsOneWidget);
+    expect(find.text('Camera'), findsOneWidget);
+    expect(find.text('Location'), findsOneWidget);
+    // The leading icon swapped to a keyboard glyph while the tray is open.
+    expect(find.byIcon(TablerIcons.plus), findsNothing);
+    expect(find.byIcon(TablerIcons.keyboard), findsOneWidget);
+
+    // Tapping Location closes the tray and opens the usual location sheet.
+    await tester.tap(find.text('Location'));
+    await tester.pumpAndSettle();
+    expect(find.text('15 minutes'), findsOneWidget);
+    expect(find.text('Photos'), findsNothing);
+
+    await tester.tapAt(const Offset(200, 100)); // dismiss the sheet
+    await tester.pumpAndSettle();
+    expect(find.byIcon(TablerIcons.plus), findsOneWidget);
+
+    // Reopen the tray, then swap back to the keyboard directly.
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+    expect(find.text('Photos'), findsOneWidget);
+
+    await tester.tap(find.byIcon(TablerIcons.keyboard));
+    await tester.pumpAndSettle();
+    expect(find.text('Photos'), findsNothing);
+    expect(find.byIcon(TablerIcons.plus), findsOneWidget);
+  });
+
+  testWidgets('The attach tray\'s Photos option sends whatever the gallery picker returns', (tester) async {
+    final originalPlatform = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]), name: 'trip.jpg');
+    addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Photos'));
+    await tester.pumpAndSettle();
+
+    expect(
+      api.messagesByRoom['room-family']!.any((m) => m.kind == 'image' && m.senderId == 'me'),
+      isTrue,
+    );
+  });
+
+  testWidgets('Tapping directly into the message field closes the attach tray', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+    expect(find.text('Photos'), findsOneWidget);
+
+    await tester.tap(find.byType(TextField).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Photos'), findsNothing);
+    expect(find.byIcon(TablerIcons.plus), findsOneWidget);
+  });
+
   testWidgets('There is no send button; hitting the keyboard\'s send action sends the message', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
@@ -255,7 +334,10 @@ void main() {
     await tester.longPress(find.textContaining("Dinner's at 7"));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(TablerIcons.plus));
+    // Scoped to the picker: the composer's own new "+" attach-tray button
+    // uses the same icon and is still on screen underneath.
+    await tester.tap(find.descendant(
+        of: find.byType(ReactionPicker), matching: find.byIcon(TablerIcons.plus)));
     await tester.pumpAndSettle();
 
     // .last: the composer's own TextField is still in the tree underneath.

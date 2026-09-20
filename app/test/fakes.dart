@@ -29,6 +29,14 @@ class FakeImagePickerPlatform extends ImagePickerPlatform {
   }) async {
     return XFile.fromData(bytes, name: name, mimeType: mimeType);
   }
+
+  /// Backs pickMultipleMedia (the attach tray's "Photos" option) — a single
+  /// fixed file is enough to prove the multi-pick path sends what it's
+  /// given, without needing a real multi-select UI under test.
+  @override
+  Future<List<XFile>> getMedia({required MediaOptions options}) async {
+    return [XFile.fromData(bytes, name: name, mimeType: mimeType)];
+  }
 }
 
 /// In-memory stand-ins for the network layer, used by widget tests so they

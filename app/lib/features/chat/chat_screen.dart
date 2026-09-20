@@ -1171,7 +1171,13 @@ class _MessageComposer extends ConsumerStatefulWidget {
 
 class _MessageComposerState extends ConsumerState<_MessageComposer> {
   final _controller = TextEditingController();
+  final _focusNode = FocusNode();
   bool _sending = false;
+
+  // The "+"/keyboard-toggle attach tray (Photos/Camera/Location), shown in
+  // the space the system keyboard would otherwise occupy rather than as a
+  // modal sheet — see _toggleAttachTray.
+  bool _showAttachTray = false;
 
   bool _typingSignaled = false;
   DateTime? _lastTypingPing;
@@ -1181,6 +1187,25 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   void initState() {
     super.initState();
     _controller.addListener(_onTextChanged);
+    // Tapping directly into the field while the tray is open should swap
+    // back to the keyboard, the same as tapping the keyboard-toggle icon
+    // does — otherwise the tray would just sit there covering the keyboard
+    // that focusing the field just brought up underneath it.
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus && _showAttachTray) {
+        setState(() => _showAttachTray = false);
+      }
+    });
+  }
+
+  void _toggleAttachTray() {
+    if (_showAttachTray) {
+      setState(() => _showAttachTray = false);
+      _focusNode.requestFocus();
+    } else {
+      _focusNode.unfocus();
+      setState(() => _showAttachTray = true);
+    }
   }
 
   void _onTextChanged() {
@@ -1226,6 +1251,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     _typingAutoStop?.cancel();
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -1278,6 +1304,37 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
             contentType: contentType,
             kind: video ? 'video' : 'image',
           );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not upload: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// The attach tray's "Photos" option: unlike the single-file
+  /// _pickAndSendMedia, this lets the gallery picker return more than one
+  /// file (images and videos mixed) and sends each in turn.
+  Future<void> _pickAndSendMultipleMedia() async {
+    final files = await ImagePicker().pickMultipleMedia();
+    if (files.isEmpty) return;
+
+    setState(() => _sending = true);
+    try {
+      for (final file in files) {
+        final bytes = await file.readAsBytes();
+        final contentType =
+            file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg';
+        final isVideo = contentType.startsWith('video/');
+        await ref.read(messagesProvider(widget.roomId).notifier).sendMedia(
+              bytes: bytes,
+              filename: file.name,
+              contentType: contentType,
+              kind: isVideo ? 'video' : 'image',
+            );
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1452,6 +1509,15 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  // Toggles between "+" (open the attach tray below,
+                  // dismissing the keyboard) and a keyboard glyph (close the
+                  // tray, bring the keyboard back) — see _toggleAttachTray.
+                  IconButton(
+                    icon: Icon(
+                        _showAttachTray ? TablerIcons.keyboard : TablerIcons.plus,
+                        color: scheme.onSurface.withValues(alpha: 0.6)),
+                    onPressed: _toggleAttachTray,
+                  ),
                   Expanded(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(minHeight: 42),
@@ -1470,6 +1536,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                         ),
                         child: TextField(
                           controller: _controller,
+                          focusNode: _focusNode,
                           minLines: 1,
                           maxLines: 5,
                           textCapitalization: TextCapitalization.sentences,
@@ -1507,6 +1574,120 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                 ],
               ),
             ),
+            // Occupies roughly the space the system keyboard would, rather
+            // than a modal sheet over it — see _toggleAttachTray's own doc
+            // comment for why this needs a real FocusNode instead of just
+            // calling FocusScope.of(context).unfocus() ad hoc.
+            if (_showAttachTray)
+              _AttachTray(
+                onPhotos: () {
+                  setState(() => _showAttachTray = false);
+                  _pickAndSendMultipleMedia();
+                },
+                onCamera: () {
+                  setState(() => _showAttachTray = false);
+                  _pickAndSendMedia(video: false, source: ImageSource.camera);
+                },
+                onLocation: () {
+                  setState(() => _showAttachTray = false);
+                  _showLocationTtlSheet();
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The composer's "+" attach tray: Photos / Camera / Location, laid out the
+/// way the system keyboard's own emoji/suggestions area would be — filling
+/// the space the keyboard just vacated rather than a modal sheet on top of
+/// it. A fixed height, roughly what a keyboard occupies, rather than sizing
+/// to content: this is meant to read as "the keyboard, but for attachments"
+/// swapping in and out at a stable size, not a panel that jumps around.
+class _AttachTray extends StatelessWidget {
+  const _AttachTray({
+    required this.onPhotos,
+    required this.onCamera,
+    required this.onLocation,
+  });
+
+  final VoidCallback onPhotos;
+  final VoidCallback onCamera;
+  final VoidCallback onLocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 220,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _AttachOption(
+            icon: TablerIcons.photo,
+            label: 'Photos',
+            color: const Color(0xFF3F7CE0),
+            onTap: onPhotos,
+          ),
+          _AttachOption(
+            icon: TablerIcons.camera,
+            label: 'Camera',
+            color: scheme.onSurface.withValues(alpha: 0.75),
+            onTap: onCamera,
+          ),
+          _AttachOption(
+            icon: TablerIcons.mapPin,
+            label: 'Location',
+            color: const Color(0xFF2FA97A),
+            onTap: onLocation,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachOption extends StatelessWidget {
+  const _AttachOption({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 30,
+              backgroundColor: color,
+              child: Icon(icon, color: Colors.white, size: 26),
+            ),
+            const SizedBox(height: 8),
+            Text(label,
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 13)),
           ],
         ),
       ),
