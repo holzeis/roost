@@ -90,7 +90,13 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         })
         ..on<lk.TrackSubscribedEvent>((_) => mounted ? setState(() {}) : null)
         ..on<lk.TrackUnsubscribedEvent>((_) => mounted ? setState(() {}) : null)
-        ..on<lk.LocalTrackPublishedEvent>((_) => mounted ? setState(() {}) : null);
+        ..on<lk.LocalTrackPublishedEvent>((_) => mounted ? setState(() {}) : null)
+        // setCameraEnabled(false) mutes the track rather than unpublishing
+        // it (the publication and track object both stick around, just
+        // stopped) — so a disabled camera, ours or a remote participant's,
+        // only shows up as one of these, never as the track disappearing.
+        ..on<lk.TrackMutedEvent>((_) => mounted ? setState(() {}) : null)
+        ..on<lk.TrackUnmutedEvent>((_) => mounted ? setState(() {}) : null);
 
       await _room.connect(livekitUrl, token);
 
@@ -255,7 +261,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                       cameraOn: _cameraOn,
                       nameFor: nameFor,
                     )
-                  : _GridLayout(room: _room, remote: remote, cameraOn: _cameraOn, nameFor: nameFor),
+                  : _GridLayout(room: _room, remote: remote, nameFor: nameFor),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -371,11 +377,10 @@ class _SoloLayout extends StatelessWidget {
 }
 
 class _GridLayout extends StatelessWidget {
-  const _GridLayout({required this.room, required this.remote, required this.cameraOn, required this.nameFor});
+  const _GridLayout({required this.room, required this.remote, required this.nameFor});
 
   final lk.Room room;
   final List<lk.RemoteParticipant> remote;
-  final bool cameraOn;
   final String Function(String) nameFor;
 
   @override
@@ -409,6 +414,12 @@ class _ParticipantTile extends StatelessWidget {
     final videoPubs = participant?.videoTrackPublications ?? const [];
     final videoTrack = videoPubs.isEmpty ? null : videoPubs.first.track;
     final subscribed = videoPubs.isEmpty ? false : videoPubs.first.subscribed;
+    // A disabled camera mutes the publication rather than removing it (true
+    // for both a remote participant and ourselves), so a still-present,
+    // still-subscribed track can be showing nothing — checked here instead
+    // of trusting track-existence alone.
+    final muted = videoPubs.isEmpty ? false : videoPubs.first.muted;
+    final showVideo = videoTrack != null && subscribed && !muted;
 
     return Container(
       decoration: BoxDecoration(
@@ -417,7 +428,7 @@ class _ParticipantTile extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          if (videoTrack != null && subscribed)
+          if (showVideo)
             Positioned.fill(child: lk.VideoTrackRenderer(videoTrack as lk.VideoTrack))
           else
             Center(
