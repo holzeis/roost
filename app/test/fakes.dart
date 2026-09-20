@@ -191,7 +191,8 @@ class FakeApiClient extends ApiClient {
       final matches = list.where((m) => m.id == messageId);
       if (matches.isNotEmpty) {
         final m = matches.first;
-        return ApiMessageSnippet(id: m.id, senderId: m.senderId, kind: m.kind, body: m.body);
+        return ApiMessageSnippet(
+            id: m.id, senderId: m.senderId, kind: m.kind, body: m.body, mediaId: m.mediaId);
       }
     }
     return null;
@@ -404,6 +405,7 @@ class FakeApiClient extends ApiClient {
                 'senderId': m.replyTo!.senderId,
                 'kind': m.replyTo!.kind,
                 'body': m.replyTo!.body,
+                'mediaId': m.replyTo!.mediaId,
               },
         'forwarded': m.forwarded,
         'status': m.status,

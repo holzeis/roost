@@ -446,6 +446,39 @@ void main() {
     expect(find.textContaining("Dinner's at 7"), findsNWidgets(2));
   });
 
+  testWidgets('Replying to a photo shows a thumbnail in the draft bar and the sent reply', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final imagesBeforeReply = find.byType(Image).evaluate().length;
+
+    await tester.longPress(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reply'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Replying to'), findsOneWidget);
+    expect(find.text('Photo'), findsOneWidget); // label — this message has no caption
+    // The draft bar's own thumbnail is a new Image widget (fake:// isn't a
+    // real network scheme, so it falls through to the same error-icon
+    // fallback as everywhere else, but the widget itself confirms a
+    // thumbnail was attempted, which is what mediaId being threaded through
+    // the draft actually enables here).
+    expect(find.byType(Image).evaluate().length, greaterThan(imagesBeforeReply));
+
+    await tester.enterText(find.byType(TextField).last, 'nice shot');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    final sent = api.messagesByRoom['room-family']!.firstWhere((m) => m.body == 'nice shot');
+    expect(sent.replyToMessageId, 'm3');
+    // The sent reply's own quote chip also carries a thumbnail attempt.
+    expect(find.byType(Image).evaluate().length, greaterThan(imagesBeforeReply));
+  });
+
   testWidgets('Editing a recent message updates its body in place', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);

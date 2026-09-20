@@ -213,19 +213,26 @@ class ApiLocationShare {
 
 /// A trimmed preview of another message, embedded in a reply (FR1.10).
 class ApiMessageSnippet {
-  const ApiMessageSnippet({required this.id, required this.senderId, required this.kind, this.body});
+  const ApiMessageSnippet(
+      {required this.id, required this.senderId, required this.kind, this.body, this.mediaId});
 
   factory ApiMessageSnippet.fromJson(Map<String, dynamic> json) => ApiMessageSnippet(
         id: json['id'] as String,
         senderId: json['senderId'] as String,
         kind: json['kind'] as String,
         body: json['body'] as String?,
+        mediaId: json['mediaId'] as String?,
       );
 
   final String id;
   final String senderId;
   final String kind;
   final String? body;
+  // Lets a reply to a photo/video render a thumbnail instead of just a
+  // "Photo"/"Video" label (FR1.10), even once the original message itself
+  // has scrolled out of the loaded window — the snippet carries its own
+  // copy rather than depending on the original still being around.
+  final String? mediaId;
 }
 
 class ApiReaction {
