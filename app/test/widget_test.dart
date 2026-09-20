@@ -386,4 +386,39 @@ void main() {
     expect(find.text('Dark'), findsOneWidget);
     expect(find.text('System'), findsWidgets);
   });
+
+  testWidgets('Tapping a missed call message asks for confirmation instead of joining immediately', (tester) async {
+    final api = _seededApiClient();
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'callmsg-1',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'call',
+        createdAt: DateTime.now(),
+        call: ApiCall(id: 'call-1', status: 'missed', startedAt: DateTime.now()),
+      ),
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Missed call'), findsOneWidget);
+    await tester.tap(find.text('Missed call'));
+    await tester.pumpAndSettle();
+
+    // The sheet, not a call screen — tapping a call message must not join
+    // or start a call on its own.
+    expect(find.text('Call back?'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('Call'), findsOneWidget);
+    expect(find.text('Missed call'), findsOneWidget); // still on the chat screen
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Call back?'), findsNothing);
+    expect(find.text('Family'), findsOneWidget); // chat screen, undisturbed
+  });
 }

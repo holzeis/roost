@@ -8,9 +8,11 @@ import '../../providers/chat_providers.dart';
 
 /// The inline content of a call message bubble (FR4.8): an icon + label
 /// reflecting the call's outcome (missed/declined/completed, with a
-/// duration once it's over) or "Ringing…" while still active. Tapping a
-/// finished call starts a new one (FR4.1/FR4.2); tapping a still-ringing
-/// one joins it, the same way accepting from the incoming-call screen does.
+/// duration once it's over) or "Ringing…" while still active. Tapping any
+/// call message — finished, missed, or still ringing — asks for
+/// confirmation first via a bottom sheet rather than joining or starting a
+/// call immediately, since that's a heavier action than any other tap in
+/// the chat and shouldn't be one accidental tap away.
 class CallBubbleContent extends ConsumerWidget {
   const CallBubbleContent({super.key, required this.message, required this.roomId, required this.isGroup, required this.textColor});
 
@@ -18,6 +20,48 @@ class CallBubbleContent extends ConsumerWidget {
   final String roomId;
   final bool isGroup;
   final Color textColor;
+
+  void _confirm(BuildContext context, WidgetRef ref, String label) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      icon: const Icon(TablerIcons.phone, size: 18),
+                      label: const Text('Call'),
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _join(context, ref);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _join(BuildContext context, WidgetRef ref) async {
     final call = message.call;
@@ -47,29 +91,34 @@ class CallBubbleContent extends ConsumerWidget {
     final status = call?.status ?? 'ringing';
     final IconData icon;
     final String label;
+    final String confirmLabel;
     switch (status) {
       case 'missed':
         icon = TablerIcons.phoneX;
         label = 'Missed call';
+        confirmLabel = 'Call back?';
       case 'declined':
         icon = TablerIcons.phoneX;
         label = 'Declined';
+        confirmLabel = 'Call back?';
       case 'completed':
         icon = TablerIcons.phoneCall;
         label = _durationLabel(call);
+        confirmLabel = 'Start a new call?';
       default:
         icon = TablerIcons.phone;
         label = 'Ringing…';
+        confirmLabel = 'Join this call?';
     }
 
     return InkWell(
-      onTap: () => _join(context, ref),
+      onTap: () => _confirm(context, ref, confirmLabel),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: textColor),
+          Icon(icon, size: 17, color: textColor),
           const SizedBox(width: 6),
-          Text(label, style: TextStyle(fontSize: 13.5, color: textColor)),
+          Text(label, style: TextStyle(fontSize: 16.5, height: 1.3, color: textColor)),
         ],
       ),
     );
