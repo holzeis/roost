@@ -7,8 +7,8 @@ import 'package:flutter/material.dart';
 /// openActions computes that before this ever opens) — kept in sync with the
 /// actual widget sizes below rather than re-guessed at the call site.
 const messageActionGap = 8.0;
-const messageActionPickerHeight = 46.0;
-const messageActionMenuRowHeight = 40.0;
+const messageActionPickerHeight = 58.0;
+const messageActionMenuRowHeight = 50.0;
 const messageActionScreenMargin = 12.0;
 
 /// One row in the action menu (Reply, Forward, Copy, ...). Kept as plain
@@ -283,7 +283,7 @@ class _ReactionPicker extends StatelessWidget {
       shadowColor: Colors.black.withValues(alpha: 0.35),
       borderRadius: BorderRadius.circular(999),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -292,8 +292,8 @@ class _ReactionPicker extends StatelessWidget {
                 borderRadius: BorderRadius.circular(999),
                 onTap: () => onPick(emoji),
                 child: Padding(
-                  padding: const EdgeInsets.all(5),
-                  child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                  padding: const EdgeInsets.all(7),
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
                 ),
               ),
           ],
@@ -326,35 +326,44 @@ class _ActionMenu extends StatelessWidget {
         color: scheme.surface,
         elevation: 12,
         shadowColor: Colors.black.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final item in items)
+            for (var i = 0; i < items.length; i++) ...[
+              // A destructive action (Delete) reads as its own section, set
+              // apart from the routine ones above it by a divider, rather
+              // than just a red row in the middle of the same list.
+              if (items[i].isDestructive && i > 0)
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: scheme.onSurface.withValues(alpha: 0.08),
+                ),
               InkWell(
-                onTap: () => onSelected(item),
+                onTap: () => onSelected(items[i]),
                 child: SizedBox(
                   height: rowHeight,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          item.icon,
-                          size: 17,
-                          color: item.isDestructive
+                          items[i].icon,
+                          size: 21,
+                          color: items[i].isDestructive
                               ? scheme.error
                               : scheme.onSurface.withValues(alpha: 0.75),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 14),
                         Text(
-                          item.label,
+                          items[i].label,
                           style: TextStyle(
-                            fontSize: 13.5,
-                            color: item.isDestructive
+                            fontSize: 17,
+                            color: items[i].isDestructive
                                 ? scheme.error
                                 : scheme.onSurface,
                           ),
@@ -364,6 +373,7 @@ class _ActionMenu extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
           ],
         ),
       ),
