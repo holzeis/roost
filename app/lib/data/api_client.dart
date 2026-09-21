@@ -174,6 +174,13 @@ class ApiClient {
     _checkOk(res);
   }
 
+  /// Deletes a non-media message (FR1.15) — image/video messages go through
+  /// [deleteMedia] instead, which also removes the underlying file.
+  Future<void> deleteMessage(String messageId) async {
+    final res = await _http.delete(_uri('/api/messages/$messageId'));
+    _checkOk(res);
+  }
+
   /// The URL a widget can load a media object's bytes from directly (e.g.
   /// Image.network) — same endpoint as downloadMedia, just not fetched here.
   String mediaUrl(String mediaId) => '$_baseUrl/api/media/$mediaId';

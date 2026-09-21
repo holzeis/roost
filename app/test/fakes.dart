@@ -278,6 +278,18 @@ class FakeApiClient extends ApiClient {
   }
 
   @override
+  Future<void> deleteMessage(String messageId) async {
+    for (final entry in messagesByRoom.entries) {
+      final matches = entry.value.where((m) => m.id == messageId);
+      if (matches.isEmpty) continue;
+      final message = matches.first;
+      entry.value.removeWhere((m) => m.id == messageId);
+      ws.emit(WsEvent('message.deleted', {'messageId': message.id, 'roomId': message.roomId}));
+      return;
+    }
+  }
+
+  @override
   String mediaUrl(String mediaId) => 'fake://media/$mediaId';
 
   int _nextLocationMessageId = 1;

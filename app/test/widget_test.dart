@@ -531,6 +531,42 @@ void main() {
     expect(find.text('Editing message'), findsNothing);
   });
 
+  testWidgets('Deleting a text message asks for confirmation and can be cancelled', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining('On my way, leaving now'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete'), findsOneWidget);
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    // FR1.15: a confirmation sheet, not an immediate delete.
+    expect(find.text('Delete this message?'), findsOneWidget);
+    expect(find.textContaining('On my way, leaving now'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // Cancelling leaves the message untouched.
+    expect(find.textContaining('On my way, leaving now'), findsOneWidget);
+    expect(api.messagesByRoom['room-family']!.any((m) => m.id == 'm2'), isTrue);
+
+    await tester.longPress(find.textContaining('On my way, leaving now'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('On my way, leaving now'), findsNothing);
+    expect(api.messagesByRoom['room-family']!.any((m) => m.id == 'm2'), isFalse);
+  });
+
   testWidgets('Image messages render inline and can be deleted', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
@@ -550,6 +586,12 @@ void main() {
     expect(find.text('Delete'), findsOneWidget);
 
     await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    // Deleting is destructive, so it's confirmed via a bottom sheet first
+    // rather than acting immediately (FR1.15/FR2.5).
+    expect(find.text('Delete this message?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
     expect(find.byIcon(TablerIcons.photoOff), findsNothing);
@@ -692,6 +734,12 @@ void main() {
 
     expect(find.text('Delete'), findsOneWidget);
     await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    // Same confirm-before-deleting sheet as the chat screen's own action
+    // menu (FR1.15/FR2.5).
+    expect(find.text('Delete this photo/video?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
     // Nothing else to view (m3 was the only image) — back on the chat.

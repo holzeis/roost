@@ -14,7 +14,7 @@ import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import 'forward_sheet.dart';
 import 'media_message.dart';
-import 'message_action_overlay.dart' show ReactionPicker;
+import 'message_action_overlay.dart' show ReactionPicker, confirmDelete;
 
 /// The image/video subset of a room's messages, in the same order they were
 /// given — the gallery this viewer pages through.
@@ -141,15 +141,17 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
     }
   }
 
-  /// Same immediate, no-confirmation delete as the chat screen's own
-  /// action-menu "Delete" for a media message (chat_screen.dart's
-  /// _buildActions) — kept consistent with that existing behavior rather
-  /// than introducing a new confirmation step just for this entry point.
-  /// Pops back to the chat once nothing's left to show; otherwise the
-  /// gallery just continues on whatever's left, via _mediaMessages's own
-  /// ref.watch.
+  /// Same confirm-then-delete flow as the chat screen's own action-menu
+  /// "Delete" for a media message (chat_screen.dart's _buildActions, via
+  /// confirmDelete) — kept consistent with that existing behavior. Pops
+  /// back to the chat once nothing's left to show; otherwise the gallery
+  /// just continues on whatever's left, via _mediaMessages's own ref.watch.
   Future<void> _delete(ApiMessage message) async {
     if (_busy) return;
+    if (!await confirmDelete(context, title: 'Delete this photo/video?')) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {

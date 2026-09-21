@@ -230,6 +230,12 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     await ref.read(apiClientProvider).deleteMedia(mediaId);
   }
 
+  /// Deletes a non-media message (FR1.15) — same message.deleted broadcast
+  /// as deleteMedia, just for text/location/call messages.
+  Future<void> deleteMessage(String messageId) async {
+    await ref.read(apiClientProvider).deleteMessage(messageId);
+  }
+
   /// Adds or removes the caller's own reaction (FR1.9). Like send, this
   /// doesn't mutate state directly — the server broadcasts the change back
   /// over the WebSocket to every room member including the actor, and

@@ -402,6 +402,54 @@ Future<void> pickCustomEmoji(
   if (emoji != null && emoji.isNotEmpty) onPick(emoji);
 }
 
+/// Asks for confirmation before a destructive delete (FR1.15/FR2.5), via a
+/// bottom sheet rather than an immediate action — the same "ask first, then
+/// pop and act" pattern as CallBubbleContent's own confirm-before-joining
+/// sheet. Returns true only if the sheet's own destructive button was
+/// tapped; dismissing it any other way (swipe, tap outside) counts as
+/// cancel.
+Future<bool> confirmDelete(BuildContext context, {required String title}) async {
+  final confirmed = await showModalBottomSheet<bool>(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                        backgroundColor: Theme.of(sheetContext).colorScheme.error),
+                    icon: const Icon(TablerIcons.trash, size: 18),
+                    label: const Text('Delete'),
+                    onPressed: () => Navigator.of(sheetContext).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return confirmed ?? false;
+}
+
 class _ActionMenu extends StatelessWidget {
   const _ActionMenu(
       {required this.items, required this.rowHeight, required this.onSelected});

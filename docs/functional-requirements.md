@@ -20,6 +20,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR1.12 | Users can copy a text message's content to the clipboard | Could |
 | FR1.13 | Users can edit their own text messages within 1 minute of sending | Could |
 | FR1.14 | Users see a rich preview (title/description/image) for links shared in a message | Could |
+| FR1.15 | Users can delete their own messages (any kind), with a confirmation prompt before it happens | Should |
 
 ## 2. Media sharing (images & video)
 

@@ -1104,17 +1104,26 @@ class _MessageRow extends ConsumerWidget {
             }
           },
         ),
-      if (isMedia && fromMe)
+      // FR1.15/FR2.5: any of the caller's own messages except a call record
+      // (that's shared call history, not authored content) can be deleted,
+      // always behind a confirmation sheet first.
+      if (fromMe && !isCall)
         MessageActionItem(
           icon: TablerIcons.trash,
           label: 'Delete',
           isDestructive: true,
           onTap: () async {
+            final confirmed =
+                await confirmDelete(context, title: 'Delete this message?');
+            if (!confirmed || !context.mounted) return;
             final messenger = ScaffoldMessenger.of(context);
             try {
-              await ref
-                  .read(messagesProvider(roomId).notifier)
-                  .deleteMedia(message.mediaId!);
+              final notifier = ref.read(messagesProvider(roomId).notifier);
+              if (isMedia) {
+                await notifier.deleteMedia(message.mediaId!);
+              } else {
+                await notifier.deleteMessage(message.id);
+              }
             } catch (error) {
               messenger.showSnackBar(
                   SnackBar(content: Text('Could not delete: $error')));

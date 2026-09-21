@@ -624,6 +624,50 @@ func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleDeleteMessage implements FR1.15 for every kind except image/video —
+// those go through handleDeleteMedia instead, since deleting the underlying
+// file (not just the row) is that endpoint's job.
+func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+
+	message, err := s.Store.GetMessage(r.Context(), messageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return
+	}
+	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return
+	}
+	if message.SenderID != userID {
+		writeError(w, http.StatusForbidden, "only the sender can delete this message")
+		return
+	}
+	if message.Kind == models.MessageKindImage || message.Kind == models.MessageKindVideo {
+		writeError(w, http.StatusBadRequest, "delete this message's media instead, via DELETE /api/media/:id")
+		return
+	}
+
+	if err := s.Store.DeleteMessage(r.Context(), messageID); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete message")
+		return
+	}
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.deleted", Payload: map[string]string{
+			"messageId": message.ID, "roomId": message.RoomID,
+		}})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUser(w, r)
 	if !ok {

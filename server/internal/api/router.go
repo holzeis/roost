@@ -64,6 +64,7 @@ func (s *Server) Router() http.Handler {
 			r.Put("/messages/{messageID}/reactions/{emoji}", s.handleAddReaction)
 			r.Delete("/messages/{messageID}/reactions/{emoji}", s.handleRemoveReaction)
 			r.Patch("/messages/{messageID}", s.handleEditMessage)
+			r.Delete("/messages/{messageID}", s.handleDeleteMessage)
 			r.Post("/messages/{messageID}/forward", s.handleForwardMessage)
 			r.Patch("/messages/{messageID}/location", s.handleUpdateLocation)
 			r.Post("/messages/{messageID}/location/end", s.handleEndLocationShare)

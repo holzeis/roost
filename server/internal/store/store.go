@@ -545,6 +545,19 @@ func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, erro
 	return scanMessage(s.pool.QueryRow(ctx, q, id))
 }
 
+// DeleteMessage implements FR1.15 for every kind except image/video, which
+// go through DeleteMediaObject instead (deleting the underlying file is
+// this store's job there, not just the row). Reactions and a location
+// subtype row cascade automatically (see migration 0001); a reply pointing
+// at this message is left in place with reply_to_message_id set to null
+// (ON DELETE SET NULL, migration 0003) rather than also being deleted.
+func (s *Store) DeleteMessage(ctx context.Context, id string) error {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM messages WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("store: delete message: %w", err)
+	}
+	return nil
+}
+
 // GetMessageByMediaID finds the message a media object belongs to — used
 // before deleting the media object (which cascades to delete this message
 // row, see migration 0002) so the caller can still broadcast which room and
