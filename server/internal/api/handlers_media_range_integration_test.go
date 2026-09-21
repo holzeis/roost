@@ -43,7 +43,7 @@ func TestHandleGetMedia_ServesPartialContentForARangeRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
-	if _, err := s.Store.CreateMediaMessage(ctx, room.ID, user.ID, "video", mediaObj.ID, nil, false); err != nil {
+	if _, err := s.Store.CreateMediaMessage(ctx, room.ID, user.ID, "video", mediaObj.ID, nil, nil, false); err != nil {
 		t.Fatalf("create media message: %v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestHandleGetMedia_RejectsAnUnsatisfiableRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
-	if _, err := s.Store.CreateMediaMessage(ctx, room.ID, user.ID, "video", mediaObj.ID, nil, false); err != nil {
+	if _, err := s.Store.CreateMediaMessage(ctx, room.ID, user.ID, "video", mediaObj.ID, nil, nil, false); err != nil {
 		t.Fatalf("create media message: %v", err)
 	}
 

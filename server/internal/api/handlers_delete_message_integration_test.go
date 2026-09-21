@@ -115,7 +115,7 @@ func TestHandleDeleteMessage_RejectsImageAndVideoKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
-	msg, err := s.Store.CreateMediaMessage(ctx, room.ID, user.ID, "image", mediaObj.ID, nil, false)
+	msg, err := s.Store.CreateMediaMessage(ctx, room.ID, user.ID, "image", mediaObj.ID, nil, nil, false)
 	if err != nil {
 		t.Fatalf("create media message: %v", err)
 	}

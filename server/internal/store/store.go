@@ -533,11 +533,14 @@ func (s *Store) DeleteMediaObject(ctx context.Context, id string) error {
 // kind is "image" or "video", body is left null, media_id points at the
 // already-created media_objects row. replyTo/forwarded mean the same as on
 // CreateTextMessage.
-func (s *Store) CreateMediaMessage(ctx context.Context, roomID, senderID, kind, mediaID string, replyTo *string, forwarded bool) (models.Message, error) {
+// caption is the FR2.6 optional caption a sender can attach when sharing a
+// photo/video, stored in the same body column a text message uses — nil
+// leaves it unset, same as before this existed.
+func (s *Store) CreateMediaMessage(ctx context.Context, roomID, senderID, kind, mediaID string, caption *string, replyTo *string, forwarded bool) (models.Message, error) {
 	const q = `
-		INSERT INTO messages (room_id, sender_id, kind, media_id, reply_to_message_id, forwarded) VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO messages (room_id, sender_id, kind, body, media_id, reply_to_message_id, forwarded) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
-	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, kind, mediaID, replyTo, forwarded))
+	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, kind, caption, mediaID, replyTo, forwarded))
 }
 
 func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, error) {

@@ -150,11 +150,15 @@ class ApiClient {
     required String contentType,
     required String kind,
     String? replyToMessageId,
+    String? caption,
   }) async {
     final request = http.MultipartRequest('POST', _uri('/api/rooms/$roomId/media'))
       ..fields['kind'] = kind
       ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(contentType)));
     if (replyToMessageId != null) request.fields['replyToMessageId'] = replyToMessageId;
+    // FR2.6: an optional caption shown under the photo/video, same as a
+    // text message's own body.
+    if (caption != null && caption.isNotEmpty) request.fields['caption'] = caption;
     final streamed = await _http.send(request);
     final res = await http.Response.fromStream(streamed);
     _checkOk(res);

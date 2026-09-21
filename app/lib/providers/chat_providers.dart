@@ -198,6 +198,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     required String contentType,
     required String kind,
     String? replyToMessageId,
+    String? caption,
   }) async {
     await ref.read(apiClientProvider).uploadMedia(
           roomId,
@@ -206,6 +207,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
           contentType: contentType,
           kind: kind,
           replyToMessageId: replyToMessageId,
+          caption: caption,
         );
   }
 

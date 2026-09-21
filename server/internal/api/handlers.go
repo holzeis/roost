@@ -384,6 +384,12 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 		}
 		replyToMessageID = &v
 	}
+	// FR2.6: an optional caption, same as WhatsApp/iMessage's own attach
+	// flow — absent means no caption, same as before this existed.
+	var caption *string
+	if v := r.FormValue("caption"); v != "" {
+		caption = &v
+	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -409,7 +415,7 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := s.Store.CreateMediaMessage(r.Context(), roomID, userID, kind, mediaObj.ID, replyToMessageID, false)
+	msg, err := s.Store.CreateMediaMessage(r.Context(), roomID, userID, kind, mediaObj.ID, caption, replyToMessageID, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create message")
 		return
@@ -969,7 +975,7 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "could not duplicate media")
 			return
 		}
-		forwarded, err = s.Store.CreateMediaMessage(r.Context(), body.RoomID, userID, string(original.Kind), mediaID, nil, true)
+		forwarded, err = s.Store.CreateMediaMessage(r.Context(), body.RoomID, userID, string(original.Kind), mediaID, original.Body, nil, true)
 	default:
 		writeError(w, http.StatusBadRequest, "this message type can't be forwarded")
 		return

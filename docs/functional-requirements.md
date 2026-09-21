@@ -31,6 +31,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR2.3 | Shared images and videos can be viewed/played inline and downloaded | Must |
 | FR2.4 | Shared media persists indefinitely and is not automatically deleted | Must |
 | FR2.5 | Users can manually delete media they've shared | Should |
+| FR2.6 | Users can attach an optional caption to a photo/video when sharing it | Should |
 
 ## 3. Location sharing
 

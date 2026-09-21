@@ -18,6 +18,7 @@ import '../../widgets/back_button.dart';
 import 'call_message.dart';
 import 'forward_sheet.dart';
 import 'link_preview_card.dart';
+import 'media_caption_screen.dart';
 import 'location_message.dart';
 import 'media_message.dart';
 import 'message_action_overlay.dart';
@@ -1298,6 +1299,13 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     }
   }
 
+  /// Every media-sending entry point (camera capture, a single gallery
+  /// pick, and — via [_pickAndSendMultipleMedia] — a multi-select gallery
+  /// pick) routes through [MediaCaptionScreen] first (FR2.6): the picker
+  /// itself has no way to collect a caption, so this is a review step in
+  /// between, same shape as WhatsApp/iMessage's own attach flow. Backing
+  /// out of that screen (its "caption" comes back null) cancels the send
+  /// entirely — nothing gets uploaded.
   Future<void> _pickAndSendMedia(
       {required bool video, ImageSource source = ImageSource.gallery}) async {
     final picker = ImagePicker();
@@ -1305,6 +1313,15 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
         ? await picker.pickVideo(source: source)
         : await picker.pickImage(source: source);
     if (file == null) return;
+
+    if (!mounted) return;
+    final caption = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) =>
+            MediaCaptionScreen(media: [PendingMedia(file: file, isVideo: video)]),
+      ),
+    );
+    if (caption == null) return;
 
     setState(() => _sending = true);
     try {
@@ -1317,6 +1334,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
             filename: file.name,
             contentType: contentType,
             kind: video ? 'video' : 'image',
+            caption: caption.isEmpty ? null : caption,
           );
     } catch (error) {
       if (mounted) {
@@ -1330,23 +1348,48 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
 
   /// The attach tray's "Photos" option: unlike the single-file
   /// _pickAndSendMedia, this lets the gallery picker return more than one
-  /// file (images and videos mixed) and sends each in turn.
+  /// file (images and videos mixed) and sends each in turn. A shared
+  /// caption (if any) attaches only to the last file sent, matching
+  /// WhatsApp's own multi-select behavior — the whole batch reads as one
+  /// captioned share in the chat rather than the same text repeated under
+  /// every photo.
   Future<void> _pickAndSendMultipleMedia() async {
-    final files = await ImagePicker().pickMultipleMedia();
-    if (files.isEmpty) return;
+    final picked = await ImagePicker().pickMultipleMedia();
+    if (picked.isEmpty) return;
+
+    final files = [
+      for (final file in picked)
+        (
+          file: file,
+          isVideo: (file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg')
+              .startsWith('video/'),
+        ),
+    ];
+
+    if (!mounted) return;
+    final caption = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => MediaCaptionScreen(media: [
+          for (final f in files) PendingMedia(file: f.file, isVideo: f.isVideo),
+        ]),
+      ),
+    );
+    if (caption == null) return;
 
     setState(() => _sending = true);
     try {
-      for (final file in files) {
+      for (var i = 0; i < files.length; i++) {
+        final (file: file, isVideo: isVideo) = files[i];
         final bytes = await file.readAsBytes();
         final contentType =
             file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg';
-        final isVideo = contentType.startsWith('video/');
+        final isLast = i == files.length - 1;
         await ref.read(messagesProvider(widget.roomId).notifier).sendMedia(
               bytes: bytes,
               filename: file.name,
               contentType: contentType,
               kind: isVideo ? 'video' : 'image',
+              caption: (isLast && caption.isNotEmpty) ? caption : null,
             );
       }
     } catch (error) {

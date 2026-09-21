@@ -239,6 +239,7 @@ class FakeApiClient extends ApiClient {
     required String contentType,
     required String kind,
     String? replyToMessageId,
+    String? caption,
   }) async {
     final mediaId = 'media-${_nextMediaId++}';
     mediaBytesById[mediaId] = bytes;
@@ -247,6 +248,7 @@ class FakeApiClient extends ApiClient {
       roomId: roomId,
       senderId: me.id,
       kind: kind,
+      body: caption,
       mediaId: mediaId,
       createdAt: DateTime.now(),
       replyToMessageId: replyToMessageId,

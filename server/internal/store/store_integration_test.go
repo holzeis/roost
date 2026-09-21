@@ -459,7 +459,7 @@ func TestStore_MediaMessages(t *testing.T) {
 		t.Fatalf("expected fetched media object to match what was created, got %+v", fetched)
 	}
 
-	msg, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", media.ID, nil, false)
+	msg, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", media.ID, nil, nil, false)
 	if err != nil {
 		t.Fatalf("create media message: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestStore_ReplyPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
-	photo, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", mediaObj.ID, nil, false)
+	photo, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", mediaObj.ID, nil, nil, false)
 	if err != nil {
 		t.Fatalf("create photo message: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestStore_ForwardDuplicatesMedia(t *testing.T) {
 		t.Fatal("expected the duplicated media object to have its own id, distinct from the source")
 	}
 
-	forwarded, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", dup.ID, nil, true)
+	forwarded, err := s.CreateMediaMessage(ctx, room.ID, alice.ID, "image", dup.ID, nil, nil, true)
 	if err != nil {
 		t.Fatalf("create forwarded message: %v", err)
 	}

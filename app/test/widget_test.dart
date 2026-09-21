@@ -291,8 +291,11 @@ void main() {
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
 
     // A plain tap goes straight to the camera — no chooser in between —
-    // and sends whatever comes back as an image message.
+    // then the caption review screen (FR2.6), and sends whatever comes
+    // back as an image message once "send" is tapped there.
     await tester.tap(find.byIcon(TablerIcons.camera));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
     await tester.pumpAndSettle();
 
     expect(
@@ -365,9 +368,19 @@ void main() {
     await tester.tap(find.text('Photos'));
     await tester.pumpAndSettle();
 
+    // Goes through the caption review screen (FR2.6) before actually
+    // sending anything.
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    // The seed data already has an image message from "me" (m3), so this
+    // counts rather than just checking any(...) exists — otherwise the
+    // assertion would pass even if nothing new were ever sent.
     expect(
-      api.messagesByRoom['room-family']!.any((m) => m.kind == 'image' && m.senderId == 'me'),
-      isTrue,
+      api.messagesByRoom['room-family']!
+          .where((m) => m.kind == 'image' && m.senderId == 'me')
+          .length,
+      2,
     );
   });
 
@@ -390,11 +403,61 @@ void main() {
 
     await tester.tap(find.text('Video'));
     await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
 
     expect(
       api.messagesByRoom['room-family']!.any((m) => m.kind == 'video' && m.senderId == 'me'),
       isTrue,
     );
+  });
+
+  testWidgets('Typing a caption on the review screen attaches it to the sent photo (FR2.6)', (tester) async {
+    final originalPlatform = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
+    addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(TablerIcons.camera));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add a caption'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Weekend trip!');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    final sent = api.messagesByRoom['room-family']!
+        .where((m) => m.kind == 'image' && m.senderId == 'me')
+        .last;
+    expect(sent.body, 'Weekend trip!');
+  });
+
+  testWidgets('Backing out of the caption review screen sends nothing (FR2.6)', (tester) async {
+    final originalPlatform = ImagePickerPlatform.instance;
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
+    addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final before = api.messagesByRoom['room-family']!.length;
+
+    await tester.tap(find.byIcon(TablerIcons.camera));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+
+    expect(api.messagesByRoom['room-family']!.length, before);
+    // Back on the chat screen, not stuck on the review screen.
+    expect(find.text('Add a caption'), findsNothing);
   });
 
   testWidgets('Tapping directly into the message field closes the attach tray', (tester) async {
