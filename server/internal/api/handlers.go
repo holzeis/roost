@@ -125,9 +125,10 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 }
 
 type contactDTO struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	Online      bool   `json:"online"`
+	ID            string  `json:"id"`
+	DisplayName   string  `json:"displayName"`
+	Online        bool    `json:"online"`
+	AvatarMediaID *string `json:"avatarMediaId,omitempty"`
 }
 
 // handleListUsers backs the Contacts/New group screens (FR6.3): everyone
@@ -149,7 +150,12 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		if u.ID == me.ID {
 			continue
 		}
-		contacts = append(contacts, contactDTO{ID: u.ID, DisplayName: u.DisplayName, Online: s.Hub.IsOnline(u.ID)})
+		contacts = append(contacts, contactDTO{
+			ID:            u.ID,
+			DisplayName:   u.DisplayName,
+			Online:        s.Hub.IsOnline(u.ID),
+			AvatarMediaID: u.AvatarMediaID,
+		})
 	}
 	writeJSON(w, http.StatusOK, contacts)
 }

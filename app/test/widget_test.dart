@@ -19,6 +19,7 @@ import 'package:roost/features/chat/message_action_overlay.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
 import 'package:roost/router/app_router.dart';
+import 'package:roost/widgets/avatar.dart';
 
 import 'fakes.dart';
 
@@ -800,6 +801,25 @@ void main() {
     expect(find.text('Mom'), findsNWidgets(2));
     expect(find.text('Dev User'), findsNothing);
     expect(find.text('Me'), findsNothing);
+  });
+
+  testWidgets('A sender with a profile picture shows it instead of their initial', (tester) async {
+    final api = _seededApiClient();
+    api.contacts = const [
+      ApiContact(id: 'user-mom', displayName: 'Mom', online: true, avatarMediaId: 'avatar-mom'),
+      ApiContact(id: 'user-dad', displayName: 'Dad', online: false),
+    ];
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // Checks the wiring reached the avatar widget with the right id, rather
+    // than asserting on an actual decoded image — fake:// isn't a real
+    // network scheme, so nothing ever really renders under test (same as
+    // every other avatar/media widget in this suite).
+    final avatars = tester.widgetList<InitialAvatar>(find.byType(InitialAvatar));
+    expect(avatars.any((a) => a.avatarMediaId == 'avatar-mom'), isTrue);
   });
 
   testWidgets('Tapping an image opens the full-screen viewer, where react and reply both work',

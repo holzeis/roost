@@ -115,6 +115,15 @@ String roomDisplayName(ApiRoom room, String meId, Map<String, ApiContact> usersB
   return usersById[otherId]?.displayName ?? 'Direct message';
 }
 
+/// The one person behind a 1:1 room's own avatar — null for a named group,
+/// which has no single user's picture to show instead of its own name's
+/// initial.
+String? roomAvatarMediaId(ApiRoom room, String meId, Map<String, ApiContact> usersById) {
+  if (room.name != null && room.name!.isNotEmpty) return null;
+  final otherId = room.members.firstWhere((id) => id != meId, orElse: () => '');
+  return usersById[otherId]?.avatarMediaId;
+}
+
 String _lastMessagePreview(ApiRoom room) {
   switch (room.lastMessageKind) {
     case 'location':
@@ -159,6 +168,7 @@ class _RoomTile extends StatelessWidget {
               initial: name.isNotEmpty ? name[0].toUpperCase() : '?',
               seed: name,
               size: 52,
+              avatarMediaId: roomAvatarMediaId(room, meId, usersById),
             ),
             const SizedBox(width: 14),
             Expanded(

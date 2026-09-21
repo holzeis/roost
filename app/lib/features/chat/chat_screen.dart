@@ -145,11 +145,16 @@ class _ChatTitle extends StatelessWidget {
     if (room == null) return const SizedBox.shrink();
 
     String title = room.name ?? '';
+    // Only a 1:1 room has one specific person's avatar to show — a group's
+    // own title has no single user behind it, so this stays null there.
+    String? avatarMediaId;
     if (title.isEmpty) {
       final meId = me.valueOrNull?.id;
       final otherId =
           room.members.firstWhere((id) => id != meId, orElse: () => '');
-      title = usersById.valueOrNull?[otherId]?.displayName ?? 'Direct message';
+      final other = usersById.valueOrNull?[otherId];
+      title = other?.displayName ?? 'Direct message';
+      avatarMediaId = other?.avatarMediaId;
     }
     final typingLabel = _typingLabel(me.valueOrNull?.id);
 
@@ -158,6 +163,7 @@ class _ChatTitle extends StatelessWidget {
         InitialAvatar(
             initial: title.isNotEmpty ? title[0].toUpperCase() : '?',
             seed: title,
+            avatarMediaId: avatarMediaId,
             size: 34),
         const SizedBox(width: 10),
         Expanded(
@@ -890,7 +896,7 @@ class _MessageRow extends ConsumerWidget {
     );
 
     final avatarSlot = SizedBox(
-      width: 26,
+      width: 34,
       child: (!fromMe && isLastInGroup)
           ? Padding(
               padding: const EdgeInsets.only(right: 6),
@@ -898,7 +904,8 @@ class _MessageRow extends ConsumerWidget {
                 initial:
                     senderName.isNotEmpty ? senderName[0].toUpperCase() : '?',
                 seed: senderName,
-                size: 22,
+                size: 30,
+                avatarMediaId: usersById[message.senderId]?.avatarMediaId,
               ),
             )
           : null,
@@ -1153,7 +1160,7 @@ class _ReactionChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
           color: scheme.surface,
           borderRadius: BorderRadius.circular(999),
@@ -1163,7 +1170,7 @@ class _ReactionChip extends StatelessWidget {
         child: Text(
           '${reaction.emoji} ${reaction.count}',
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 15,
             fontWeight:
                 reaction.reactedByMe ? FontWeight.w700 : FontWeight.w400,
             color: reaction.reactedByMe

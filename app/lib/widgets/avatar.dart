@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../providers/chat_providers.dart';
 
 /// A muted, theme-agnostic palette so avatars read as intentional accents
 /// rather than clashing with either light or dark surfaces — the same
@@ -30,12 +33,13 @@ Color colorForAvatarSeed(String seed) {
   return _avatarPalette[hash % _avatarPalette.length];
 }
 
-class InitialAvatar extends StatelessWidget {
+class InitialAvatar extends ConsumerWidget {
   const InitialAvatar({
     super.key,
     required this.initial,
     this.size = 32,
     this.presenceOnline,
+    this.avatarMediaId,
     String? seed,
   }) : _seed = seed ?? initial;
 
@@ -43,31 +47,48 @@ class InitialAvatar extends StatelessWidget {
   final double size;
   final String _seed;
 
+  /// When set, the user's own uploaded profile picture renders instead of
+  /// [initial] — falling back to it if the image fails to load, so a
+  /// missing/broken avatar never leaves a blank tile.
+  final String? avatarMediaId;
+
   /// null = no presence dot; true = online; false = offline/last-seen.
   final bool? presenceOnline;
 
-  @override
-  Widget build(BuildContext context) {
-    // A rounded square ("squircle") rather than a full circle — echoes the
-    // corner rounding on the app's own badge mark (assets/logo/roost-logo.svg)
-    // instead of the generic circular-avatar default.
-    final radius = BorderRadius.circular(size * 0.34);
-    final avatar = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: colorForAvatarSeed(_seed),
-        borderRadius: radius,
-      ),
-      child: Text(
+  Widget _glyph() => Text(
         initial,
         style: TextStyle(
           fontSize: size * 0.4,
           fontWeight: FontWeight.w600,
           color: Colors.white,
         ),
+      );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // A rounded square ("squircle") rather than a full circle — echoes the
+    // corner rounding on the app's own badge mark (assets/logo/roost-logo.svg)
+    // instead of the generic circular-avatar default.
+    final radius = BorderRadius.circular(size * 0.34);
+    final mediaId = avatarMediaId;
+    final avatar = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      clipBehavior: mediaId != null ? Clip.antiAlias : Clip.none,
+      decoration: BoxDecoration(
+        color: colorForAvatarSeed(_seed),
+        borderRadius: radius,
       ),
+      child: mediaId != null
+          ? Image.network(
+              ref.watch(apiClientProvider).mediaUrl(mediaId),
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) => _glyph(),
+            )
+          : _glyph(),
     );
 
     if (presenceOnline == null) return avatar;

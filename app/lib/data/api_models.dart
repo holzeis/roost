@@ -19,17 +19,20 @@ class ApiUser {
 }
 
 class ApiContact {
-  const ApiContact({required this.id, required this.displayName, required this.online});
+  const ApiContact(
+      {required this.id, required this.displayName, required this.online, this.avatarMediaId});
 
   factory ApiContact.fromJson(Map<String, dynamic> json) => ApiContact(
         id: json['id'] as String,
         displayName: json['displayName'] as String,
         online: json['online'] as bool? ?? false,
+        avatarMediaId: json['avatarMediaId'] as String?,
       );
 
   final String id;
   final String displayName;
   final bool online;
+  final String? avatarMediaId;
 }
 
 class ApiRoom {
