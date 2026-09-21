@@ -134,7 +134,7 @@ void main() {
     expect(find.text('Message'), findsOneWidget); // the composer's hint text
   });
 
-  testWidgets("The composer's message field renders as a full pill, not a square", (tester) async {
+  testWidgets("The composer's message field renders as a rounded box, not a square", (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
@@ -144,7 +144,7 @@ void main() {
     // TextField to filled:true with a *square* fallback fill shape once
     // there's no OutlineInputBorder to borrow a radius from — that fill
     // paints right over this field's own rounded DecoratedBox background,
-    // squaring off what should read as a pill, unless this field opts out
+    // squaring off what should read as rounded, unless this field opts out
     // of the theme's fill with an explicit filled:false of its own.
     final field = tester.widget<TextField>(find.byType(TextField).last);
     expect(field.decoration?.filled, isFalse);
@@ -153,7 +153,7 @@ void main() {
       find.ancestor(of: find.byType(TextField).last, matching: find.byType(DecoratedBox)).first,
     );
     final decoration = decoratedBox.decoration as BoxDecoration;
-    expect((decoration.borderRadius as BorderRadius?)?.topLeft.x, greaterThanOrEqualTo(999));
+    expect((decoration.borderRadius as BorderRadius?)?.topLeft.x, greaterThanOrEqualTo(12));
   });
 
   testWidgets('The chat title uses the message body font, not the AppBar\'s display serif', (tester) async {

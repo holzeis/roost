@@ -1480,13 +1480,10 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: scheme.surface,
-                          // A large fixed radius rather than one tied to the
-                          // field's own height guarantees a full pill/stadium
-                          // shape regardless of exact height (same idiom as
-                          // ReactionPicker/_ReactionChip elsewhere), instead
-                          // of a merely-rounded rectangle if the field's
-                          // actual height ever drifts from what 22 assumes.
-                          borderRadius: BorderRadius.circular(999),
+                          // A moderate fixed radius (not a full pill/stadium
+                          // shape) so the field reads as a rounded box even
+                          // as it grows to several lines tall.
+                          borderRadius: BorderRadius.circular(18),
                           border: Border.all(
                               color: scheme.onSurface.withValues(alpha: 0.08)),
                         ),
