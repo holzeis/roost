@@ -50,6 +50,14 @@ class _QuoteThumbnail extends ConsumerWidget {
         width: 40,
         height: 40,
         fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            width: 40,
+            height: 40,
+            color: tint.withValues(alpha: 0.1),
+          );
+        },
         errorBuilder: (context, error, stack) => Container(
           width: 40,
           height: 40,
