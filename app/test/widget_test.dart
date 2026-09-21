@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+import 'package:photo_view/photo_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
@@ -103,6 +107,102 @@ Future<void> _pumpApp(WidgetTester tester, FakeApiClient api, {List<Override> ex
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// A minimal VideoPlayerPlatform standing in for the real platform channel
+/// (which flutter_test can't drive at all — there's no real decoder), just
+/// enough to exercise media_viewer_screen.dart's own play/pause/looping
+/// logic: an "initialized" event fires shortly after creation so
+/// VideoPlayerController.initialize() resolves, and every call the
+/// controller makes back down (play/pause/setLooping/seekTo) is recorded so
+/// tests can assert on what the widget actually asked for, since nothing
+/// here really plays anything.
+class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
+  final Map<int, StreamController<VideoEvent>> _events = {};
+  int _nextId = 0;
+  final List<String> calls = [];
+
+  @override
+  Future<void> init() async {}
+
+  int _create() {
+    final id = _nextId++;
+    final controller = StreamController<VideoEvent>.broadcast();
+    _events[id] = controller;
+    // A broadcast StreamController drops events added before anyone's
+    // listening — VideoPlayerController.initialize() awaits create()
+    // first and only subscribes to videoEventsFor() afterward, so a plain
+    // scheduleMicrotask() here fires (and is lost) before that
+    // subscription exists, since it runs on the very next microtask
+    // flush during that same await. A zero-duration Future.delayed is
+    // scheduled on the event queue instead, after every pending
+    // microtask (including that subscription) has already run.
+    Future.delayed(Duration.zero, () => controller.add(VideoEvent(
+          eventType: VideoEventType.initialized,
+          duration: const Duration(seconds: 5),
+          size: const Size(640, 360),
+        )));
+    return id;
+  }
+
+  // The installed video_player (2.9.5) still calls the deprecated create()
+  // directly rather than createWithOptions() — both need to work the same
+  // way here since which one actually gets called is an implementation
+  // detail of that package version, not something to depend on.
+  @override
+  Future<int?> create(DataSource dataSource) async => _create();
+
+  @override
+  Future<int?> createWithOptions(VideoCreationOptions options) async => _create();
+
+  @override
+  Stream<VideoEvent> videoEventsFor(int playerId) => _events[playerId]!.stream;
+
+  @override
+  Future<void> setLooping(int playerId, bool looping) async {
+    calls.add('setLooping($looping)');
+  }
+
+  @override
+  Future<void> play(int playerId) async => calls.add('play');
+
+  @override
+  Future<void> pause(int playerId) async => calls.add('pause');
+
+  @override
+  Future<void> setVolume(int playerId, double volume) async {}
+
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
+
+  @override
+  Future<void> seekTo(int playerId, Duration position) async {
+    calls.add('seekTo($position)');
+  }
+
+  @override
+  Future<Duration> getPosition(int playerId) async => Duration.zero;
+
+  // A real player fills whatever space its ancestors (AspectRatio, in
+  // media_viewer_screen.dart) give it — SizedBox.shrink() here would force
+  // zero size regardless of incoming constraints, leaving nothing for a
+  // test's tap to actually hit (the gallery behind it catches the tap
+  // instead, silently landing on the wrong widget). Same deprecated-vs-new
+  // split as create()/createWithOptions() above.
+  @override
+  Widget buildView(int playerId) => const ColoredBox(color: Colors.black);
+
+  @override
+  Widget buildViewWithOptions(VideoViewOptions options) =>
+      const ColoredBox(color: Colors.black);
+
+  @override
+  Future<void> setMixWithOthers(bool mixWithOthers) async {}
+
+  @override
+  Future<void> dispose(int playerId) async {
+    await _events.remove(playerId)?.close();
+  }
 }
 
 void main() {
@@ -439,6 +539,22 @@ void main() {
     expect(find.text('Reply'), findsNothing);
     expect(find.text('Forward'), findsNothing);
     expect(find.text('Copy'), findsNothing);
+
+    // Regression test: picking an emoji from this picker used to never
+    // reach the message at all. onRequestDismiss (fired the instant "+"
+    // opened this sheet) closes the action-overlay host immediately,
+    // including reversing its animation and disposing its controller — so
+    // by the time this async sheet's own result comes back (real users take
+    // seconds to browse/tap; here it's simulated directly on the widget's
+    // own callback, mirroring what the package does internally on a tap),
+    // routing the picked emoji back through that host's close() a second
+    // time threw on the already-disposed controller, silently swallowing
+    // the pick before onReact ever ran.
+    final picker = tester.widget<EmojiPicker>(find.byType(EmojiPicker));
+    picker.onEmojiSelected!(Category.SYMBOLS, const Emoji('🎉', 'party popper'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🎉 1'), findsOneWidget);
   });
 
   testWidgets('Replying to a message shows a draft bar and tags the sent reply', (tester) async {
@@ -694,6 +810,33 @@ void main() {
     expect(find.text('❤️ 1'), findsOneWidget);
   });
 
+  testWidgets('Picking a custom emoji in the viewer applies it as a reaction', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(TablerIcons.moodSmile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+        of: find.byType(ReactionPicker), matching: find.byIcon(TablerIcons.plus)));
+    await tester.pumpAndSettle();
+
+    // Regression test: the viewer's own react popup closes itself
+    // (OverlayEntry.remove()) the instant "+" opens this sheet, via
+    // onRequestDismiss. The picked emoji's own onPick used to call that
+    // same close() a second time, which threw on the already-removed
+    // entry and silently dropped the reaction before it ever applied.
+    final picker = tester.widget<EmojiPicker>(find.byType(EmojiPicker));
+    picker.onEmojiSelected!(Category.SYMBOLS, const Emoji('🎉', 'party popper'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🎉 1'), findsOneWidget);
+  });
+
   testWidgets('The viewer shows someone else\'s reaction beside the add button', (tester) async {
     final api = _seededApiClient();
     final messages = api.messagesByRoom['room-family']!;
@@ -745,6 +888,100 @@ void main() {
     // Nothing else to view (m3 was the only image) — back on the chat.
     expect(find.text('Family'), findsOneWidget);
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
+  });
+
+  testWidgets('A video in the viewer never autoplays or loops, and tapping toggles play/pause',
+      (tester) async {
+    final originalPlatform = VideoPlayerPlatform.instance;
+    final fakeVideo = _FakeVideoPlayerPlatform();
+    VideoPlayerPlatform.instance = fakeVideo;
+    addTearDown(() => VideoPlayerPlatform.instance = originalPlatform);
+
+    final api = _seededApiClient();
+    // The seeded image message (m3) would otherwise become the gallery's
+    // neighboring page here — photo_view eagerly builds it too, and its
+    // fake:// URL fails to decode (expected, same as every other test that
+    // touches media-1) in a way that isn't relevant to what this test is
+    // actually checking, so it's left out.
+    api.messagesByRoom['room-family']!.removeWhere((m) => m.kind == 'image');
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'm-video',
+        roomId: 'room-family',
+        senderId: 'me',
+        kind: 'video',
+        mediaId: 'media-video',
+        createdAt: DateTime.now(),
+      ),
+    );
+    api.mediaBytesById['media-video'] = const [1, 2, 3];
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(TablerIcons.playerPlayFilled));
+    await tester.pumpAndSettle();
+
+    // Regression test: this used to setLooping(true) and call play() the
+    // moment the video finished initializing, with no way to pause it.
+    expect(fakeVideo.calls, isNot(contains('play')));
+    expect(fakeVideo.calls, isNot(contains('setLooping(true)')));
+
+    // The chat bubble behind this route has its own video thumbnail (and
+    // so its own VideoPlayer/AnimatedOpacity) that stays mounted, offstage,
+    // underneath — .last is the one this pushed viewer route just built.
+    final playIcon = find.byIcon(Icons.play_arrow);
+    expect(playIcon, findsOneWidget);
+    var overlay = tester.widget<AnimatedOpacity>(
+      find.ancestor(of: playIcon, matching: find.byType(AnimatedOpacity)).first,
+    );
+    // The play button overlay is visible (opacity 1) while paused.
+    expect(overlay.opacity, 1.0);
+
+    // photo_view's own pan/zoom gesture layer transforms its child outside
+    // the normal RenderBox chain, so a simulated tap's coordinates don't
+    // reliably land back on that child under flutter_test — the same
+    // "don't fight a package's own gesture/animation internals" tradeoff
+    // this suite already makes for the emoji picker's tab-switching.
+    // Invoking PhotoView's own onTapUp directly exercises the real,
+    // production-wired path (PhotoViewGalleryPageOptions.onTapUp →
+    // _videoToggles[i] → _InlineVideoPage's _togglePlay → the controller)
+    // without depending on that gesture arena actually resolving.
+    final photoView = tester.widget<PhotoView>(find.byType(PhotoView));
+    final fakeTapDetails = TapUpDetails(
+      globalPosition: Offset.zero,
+      localPosition: Offset.zero,
+      kind: PointerDeviceKind.touch,
+    );
+    const fakeControllerValue = PhotoViewControllerValue(
+      position: Offset.zero,
+      scale: 1.0,
+      rotation: 0.0,
+      rotationFocusPoint: null,
+    );
+
+    photoView.onTapUp!(tester.element(find.byType(PhotoView)), fakeTapDetails, fakeControllerValue);
+    await tester.pump();
+
+    expect(fakeVideo.calls, contains('play'));
+    overlay = tester.widget<AnimatedOpacity>(
+      find.ancestor(of: playIcon, matching: find.byType(AnimatedOpacity)).first,
+    );
+    expect(overlay.opacity, 0.0);
+
+    photoView.onTapUp!(tester.element(find.byType(PhotoView)), fakeTapDetails, fakeControllerValue);
+    await tester.pump();
+
+    expect(fakeVideo.calls, contains('pause'));
+    overlay = tester.widget<AnimatedOpacity>(
+      find.ancestor(of: playIcon, matching: find.byType(AnimatedOpacity)).first,
+    );
+    expect(overlay.opacity, 1.0);
+
+    // Drains the neighboring image page's own (harmless, expected —
+    // fake:// isn't a real scheme) decode failure before the test ends,
+    // rather than leaving it to surface asynchronously during teardown.
+    await tester.pumpAndSettle();
   });
 
   testWidgets('Contacts screen lists other users with presence', (tester) async {

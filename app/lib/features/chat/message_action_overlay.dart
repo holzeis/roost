@@ -124,7 +124,20 @@ class _MessageActionContentState extends State<_MessageActionContent>
     reverseDuration: const Duration(milliseconds: 180),
   )..forward();
 
+  // Set the moment the first _close() call starts — the "+" custom-emoji
+  // flow calls onRequestDismiss (closing this immediately) and then, much
+  // later, once the user actually picks an emoji from that picker's own
+  // async sheet, calls back through onPick — which used to route through
+  // _close() a second time. By then _controller was already disposed,
+  // .reverse() threw, and the picked emoji never reached onReact at all.
+  bool _closing = false;
+
   Future<void> _close([VoidCallback? then]) async {
+    if (_closing) {
+      then?.call();
+      return;
+    }
+    _closing = true;
     await _controller.reverse();
     then?.call();
     // Removes the overlay entry *and* tells the caller to un-hide the real
@@ -306,6 +319,19 @@ class ReactionPicker extends ConsumerWidget {
     onPick(emoji);
   }
 
+  // Same as _pick, but via a ProviderContainer captured up front rather
+  // than a WidgetRef — used only for the "+" custom-emoji picker below,
+  // whose result comes back long after (real users take seconds to
+  // browse/tap) onRequestDismiss may have already torn this widget down.
+  // A WidgetRef tied to that (by-then-disposed) element throws the moment
+  // it's read; a container captured while the element was still alive
+  // keeps working regardless, since it isn't tied to any one widget's
+  // lifecycle.
+  void _pickCustom(ProviderContainer container, String emoji) {
+    container.read(quickReactionsProvider.notifier).recordUse(emoji);
+    onPick(emoji);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final emojis =
@@ -339,8 +365,9 @@ class ReactionPicker extends ConsumerWidget {
             InkWell(
               borderRadius: BorderRadius.circular(999),
               onTap: () {
+                final container = ProviderScope.containerOf(context, listen: false);
                 onRequestDismiss?.call();
-                pickCustomEmoji(context, (emoji) => _pick(ref, emoji));
+                pickCustomEmoji(context, (emoji) => _pickCustom(container, emoji));
               },
               child: Padding(
                 padding: const EdgeInsets.all(7),
@@ -392,6 +419,35 @@ Future<void> pickCustomEmoji(
             bottomActionBarConfig: BottomActionBarConfig(
               backgroundColor: scheme.surface,
               buttonColor: scheme.primary,
+              // The package's own DefaultBottomActionBar has no padding at
+              // all (a plain spaceBetween Row) — its search/backspace
+              // buttons end up flush against the sheet's edges, reading as
+              // misaligned. No padding knob exists on this config, so this
+              // reuses the package's own SearchButton/BackspaceButton just
+              // with breathing room around them, rather than styling
+              // anything from scratch.
+              customBottomActionBar: (config, state, showSearchView) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: config.bottomActionBarConfig.buttonColor,
+                      child: SearchButton(
+                        config,
+                        showSearchView,
+                        config.bottomActionBarConfig.buttonIconColor,
+                      ),
+                    ),
+                    BackspaceButton(
+                      config,
+                      state.onBackspacePressed,
+                      state.onBackspaceLongPressed,
+                      config.bottomActionBarConfig.buttonIconColor,
+                    ),
+                  ],
+                ),
+              ),
             ),
             searchViewConfig: SearchViewConfig(backgroundColor: scheme.surface),
           ),

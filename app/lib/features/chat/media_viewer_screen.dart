@@ -50,6 +50,15 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
   bool _overlaysVisible = true;
   bool _busy = false;
 
+  // PhotoViewGalleryPageOptions' own onTapUp is the only tap hook PhotoView's
+  // gesture arena actually honors on a page — a GestureDetector nested
+  // inside its customChild never wins that arena, so a video page's own
+  // play/pause toggle has to be reached through here instead. Each
+  // _InlineVideoPage hands its toggle in once its controller exists (via
+  // onTogglePlayReady), keyed by page index since PhotoView can build more
+  // than one page (neighbors) at a time.
+  final Map<int, VoidCallback> _videoToggles = {};
+
   List<ApiMessage> _mediaMessages(WidgetRef ref) => mediaMessagesIn(
       ref.watch(messagesProvider(widget.roomId)).valueOrNull ?? const []);
 
@@ -208,8 +217,11 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
                   child: _InlineVideoPage(
                     url: apiClient.mediaUrl(message.mediaId!),
                     isCurrent: i == index,
+                    onTogglePlayReady: (toggle) => _videoToggles[i] = toggle,
                   ),
-                  onTapUp: (_, __, ___) => _toggleOverlays(),
+                  // A tap toggles play/pause here rather than the overlay
+                  // chrome — the more expected convention for a video.
+                  onTapUp: (_, __, ___) => _videoToggles[i]?.call(),
                   minScale: PhotoViewComputedScale.contained,
                   initialScale: PhotoViewComputedScale.contained,
                 );
@@ -436,6 +448,12 @@ class _ReactButtonState extends State<_ReactButton> {
     final overlay = Overlay.of(context, rootOverlay: true);
     late final OverlayEntry entry;
     void close() {
+      // Idempotent: onRequestDismiss (fired the moment "+" opens the
+      // custom-emoji sheet) already calls this once, well before the
+      // sheet's own async result comes back through onPick's close() —
+      // entry.remove() a second time on an already-removed entry throws,
+      // which used to abort onPick's closure before it reached onReact.
+      if (_entry == null) return;
       entry.remove();
       _entry = null;
     }
@@ -659,9 +677,17 @@ class _ActionButton extends StatelessWidget {
 /// otherwise, so swiping away from a playing video doesn't leave it running
 /// off-screen with sound.
 class _InlineVideoPage extends StatefulWidget {
-  const _InlineVideoPage({required this.url, required this.isCurrent});
+  const _InlineVideoPage({
+    required this.url,
+    required this.isCurrent,
+    this.onTogglePlayReady,
+  });
   final String url;
   final bool isCurrent;
+  // Hands the parent this page's own play/pause toggle once it exists —
+  // see _MediaViewerScreenState's own doc comment on _videoToggles for why
+  // taps can't just be handled by a GestureDetector nested in here.
+  final void Function(VoidCallback togglePlay)? onTogglePlayReady;
 
   @override
   State<_InlineVideoPage> createState() => _InlineVideoPageState();
@@ -674,28 +700,57 @@ class _InlineVideoPageState extends State<_InlineVideoPage> {
   @override
   void initState() {
     super.initState();
+    // Never loops (the default) and never autoplays — opens paused on the
+    // first frame with a play button overlay, same as a static photo, until
+    // the viewer taps it.
     _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..setLooping(true)
+      ..addListener(_rewindOnEnd)
       ..initialize().then((_) {
         if (!mounted) return;
         setState(() => _ready = true);
-        if (widget.isCurrent) _controller.play();
       });
+    widget.onTogglePlayReady?.call(_togglePlay);
+  }
+
+  // video_player doesn't loop by default, but once playback reaches the end
+  // it just sits paused on the last frame rather than resetting — without
+  // this, a later tap-to-play would call play() at a position already at
+  // the very end, which has no visible effect. Rewinding here means "play
+  // it once, then only again if the viewer taps play again" actually
+  // restarts from the beginning.
+  void _rewindOnEnd() {
+    final value = _controller.value;
+    if (value.isInitialized &&
+        !value.isPlaying &&
+        value.duration > Duration.zero &&
+        value.position >= value.duration) {
+      _controller.seekTo(Duration.zero);
+    }
+  }
+
+  void _togglePlay() {
+    if (!_ready) return;
+    if (_controller.value.isPlaying) {
+      _controller.pause();
+    } else {
+      _controller.play();
+    }
   }
 
   @override
   void didUpdateWidget(covariant _InlineVideoPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_ready) return;
-    if (widget.isCurrent && !_controller.value.isPlaying) {
-      _controller.play();
-    } else if (!widget.isCurrent && _controller.value.isPlaying) {
+    // Swiping away from a playing video pauses it, so it doesn't keep
+    // running with sound off-screen — swiping back never auto-resumes it,
+    // matching "don't autoplay" for every path, not just the initial open.
+    if (_ready && !widget.isCurrent && _controller.value.isPlaying) {
       _controller.pause();
     }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_rewindOnEnd);
     _controller.dispose();
     super.dispose();
   }
@@ -708,7 +763,34 @@ class _InlineVideoPageState extends State<_InlineVideoPage> {
     return Center(
       child: AspectRatio(
         aspectRatio: _controller.value.aspectRatio,
-        child: VideoPlayer(_controller),
+        // No GestureDetector here — PhotoViewGalleryPageOptions' own
+        // onTapUp (wired to _togglePlay via onTogglePlayReady) is the tap
+        // handler PhotoView's gesture arena actually honors on this page;
+        // one nested here would just lose that arena and never fire.
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            VideoPlayer(_controller),
+            ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: _controller,
+              builder: (context, value, child) => AnimatedOpacity(
+                opacity: value.isPlaying ? 0 : 1,
+                duration: const Duration(milliseconds: 150),
+                child: child,
+              ),
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.play_arrow, color: Colors.white, size: 44),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
