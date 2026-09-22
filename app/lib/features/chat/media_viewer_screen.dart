@@ -420,7 +420,8 @@ class _ViewerReactionChip extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Text('${reaction.emoji} ${reaction.count}',
+          child: Text(
+              reaction.count > 1 ? '${reaction.emoji} ${reaction.count}' : reaction.emoji,
               style: const TextStyle(color: Colors.white, fontSize: 14)),
         ),
       ),
@@ -514,7 +515,8 @@ class _ReactButtonState extends State<_ReactButton> {
           onTap: () => _openPicker(context),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Text('${myReaction.emoji} ${myReaction.count}',
+            child: Text(
+                myReaction.count > 1 ? '${myReaction.emoji} ${myReaction.count}' : myReaction.emoji,
                 style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
           ),
         ),

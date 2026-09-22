@@ -1179,7 +1179,7 @@ class _ReactionChip extends StatelessWidget {
           boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
         ),
         child: Text(
-          '${reaction.emoji} ${reaction.count}',
+          reaction.count > 1 ? '${reaction.emoji} ${reaction.count}' : reaction.emoji,
           style: TextStyle(
             fontSize: 15,
             fontWeight:

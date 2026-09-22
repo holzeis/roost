@@ -576,13 +576,14 @@ void main() {
     await tester.tap(find.text('👍'));
     await tester.pumpAndSettle();
 
-    expect(find.text('👍 1'), findsOneWidget);
+    // A single reaction shows just the emoji, no count.
+    expect(find.text('👍'), findsOneWidget);
 
     // Tapping the now-present chip toggles it back off.
-    await tester.tap(find.text('👍 1'));
+    await tester.tap(find.text('👍'));
     await tester.pumpAndSettle();
 
-    expect(find.text('👍 1'), findsNothing);
+    expect(find.text('👍'), findsNothing);
   });
 
   testWidgets('A reacted-with emoji stays visible (highlighted) in the picker, not hidden', (tester) async {
@@ -602,7 +603,10 @@ void main() {
     await tester.longPress(find.textContaining("Dinner's at 7"));
     await tester.pumpAndSettle();
 
-    expect(find.text('👍'), findsOneWidget);
+    // Two 👍 on screen now: the picker's own tile, and the reaction chip
+    // still showing (as a bare emoji, with only 1 reaction) underneath.
+    expect(find.descendant(of: find.byType(ReactionPicker), matching: find.text('👍')),
+        findsOneWidget);
   });
 
   testWidgets('The "+" in the reaction picker opens an emoji-only picker, not the system keyboard', (tester) async {
@@ -650,7 +654,7 @@ void main() {
     picker.onEmojiSelected!(Category.SYMBOLS, const Emoji('🎉', 'party popper'));
     await tester.pumpAndSettle();
 
-    expect(find.text('🎉 1'), findsOneWidget);
+    expect(find.text('🎉'), findsOneWidget);
   });
 
   testWidgets('Replying to a message shows a draft bar and tags the sent reply', (tester) async {
@@ -897,7 +901,7 @@ void main() {
     // that state actually renders, same as the long-press reaction test.
     await tester.tap(find.byIcon(TablerIcons.chevronLeft));
     await tester.pumpAndSettle();
-    expect(find.text('👍 1'), findsOneWidget);
+    expect(find.text('👍'), findsOneWidget);
 
     await tester.tap(find.byIcon(TablerIcons.photoOff));
     await tester.pumpAndSettle();
@@ -928,17 +932,17 @@ void main() {
     // The add button is now the reaction itself, showing what was picked —
     // not the plain smile icon anymore.
     expect(find.byIcon(TablerIcons.moodSmile), findsNothing);
-    expect(find.text('👍 1'), findsOneWidget);
+    expect(find.text('👍'), findsOneWidget);
 
     // Tapping it again reopens the picker; picking a different emoji swaps
     // the reaction rather than adding a second one alongside it.
-    await tester.tap(find.text('👍 1'));
+    await tester.tap(find.text('👍'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('❤️'));
     await tester.pumpAndSettle();
 
-    expect(find.text('👍 1'), findsNothing);
-    expect(find.text('❤️ 1'), findsOneWidget);
+    expect(find.text('👍'), findsNothing);
+    expect(find.text('❤️'), findsOneWidget);
   });
 
   testWidgets('Picking a custom emoji in the viewer applies it as a reaction', (tester) async {
@@ -965,7 +969,7 @@ void main() {
     picker.onEmojiSelected!(Category.SYMBOLS, const Emoji('🎉', 'party popper'));
     await tester.pumpAndSettle();
 
-    expect(find.text('🎉 1'), findsOneWidget);
+    expect(find.text('🎉'), findsOneWidget);
   });
 
   testWidgets('The viewer shows someone else\'s reaction beside the add button', (tester) async {
@@ -985,12 +989,13 @@ void main() {
     // Mom's reaction sits next to the still-available add button — it isn't
     // the viewer's own reaction, so it doesn't replace it.
     expect(find.byIcon(TablerIcons.moodSmile), findsOneWidget);
-    expect(find.text('😮 1'), findsOneWidget);
+    // A single reaction shows just the emoji, no count.
+    expect(find.text('😮'), findsOneWidget);
 
     // Tapping someone else's reaction adds that same emoji as the viewer's
     // own — it merges into the same emoji's count rather than sitting
     // beside it as a second entry.
-    await tester.tap(find.text('😮 1'));
+    await tester.tap(find.text('😮'));
     await tester.pumpAndSettle();
 
     expect(find.text('😮 2'), findsOneWidget);
