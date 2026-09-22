@@ -874,6 +874,44 @@ void main() {
     expect(avatars.any((a) => a.avatarMediaId == 'avatar-mom'), isTrue);
   });
 
+  testWidgets('A 1:1 chat does not repeat the other person\'s avatar on every message', (tester) async {
+    final api = _seededApiClient();
+    api.rooms = [
+      ...api.rooms,
+      ApiRoom(
+        id: 'room-dm',
+        isGroup: false,
+        createdBy: 'me',
+        createdAt: DateTime.now(),
+        members: const ['me', 'user-mom'],
+        lastMessageBody: 'See you soon',
+        lastMessageKind: 'text',
+        lastMessageAt: DateTime.now(),
+      ),
+    ];
+    api.messagesByRoom['room-dm'] = [
+      ApiMessage(
+        id: 'dm1',
+        roomId: 'room-dm',
+        senderId: 'user-mom',
+        kind: 'text',
+        body: 'See you soon',
+        createdAt: DateTime.now(),
+      ),
+    ];
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Mom'));
+    await tester.pumpAndSettle();
+
+    // The AppBar title already carries the other person's avatar (size 34)
+    // in a 1:1 chat — the per-message avatar (size 30) next to their
+    // message bubble would only be there to tell multiple senders apart,
+    // which a 1:1 chat never needs.
+    final avatars = tester.widgetList<InitialAvatar>(find.byType(InitialAvatar));
+    expect(avatars.where((a) => a.size == 30), isEmpty);
+  });
+
   testWidgets('Tapping an image opens the full-screen viewer, where react and reply both work',
       (tester) async {
     final api = _seededApiClient();

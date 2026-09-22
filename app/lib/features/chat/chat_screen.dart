@@ -1048,7 +1048,10 @@ class _MessageRow extends ConsumerWidget {
       mainAxisAlignment: align,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        if (!fromMe) avatarSlot,
+        // A 1:1 chat's AppBar already shows the other person's picture —
+        // repeating it on every one of their messages is only useful once
+        // there's more than one "other" sender to tell apart.
+        if (!fromMe && isGroup) avatarSlot,
         GestureDetector(
           onLongPress: openActions,
           child: Opacity(opacity: isLifted ? 0 : 1, child: bubbleWithReactions),
