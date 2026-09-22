@@ -15,6 +15,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/chat/location_message.dart';
+import 'package:roost/features/chat/media_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
@@ -809,6 +810,22 @@ void main() {
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
+  testWidgets('An inline photo is as wide as a long text bubble, not a small fixed box', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final screenWidth = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+    final expectedMaxWidth = screenWidth * 0.74;
+
+    final constrainedBox = tester.widget<ConstrainedBox>(find
+        .descendant(of: find.byType(MediaBubbleContent), matching: find.byType(ConstrainedBox))
+        .first);
+    expect(constrainedBox.constraints.maxWidth, expectedMaxWidth);
+  });
+
   testWidgets('A group chat names who shared a photo, but never for the viewer\'s own', (tester) async {
     final api = _seededApiClient();
     api.messagesByRoom['room-family']!.add(
@@ -1168,6 +1185,14 @@ void main() {
         .ancestor(of: find.byType(LocationBubbleContent), matching: find.byType(Container))
         .first);
     expect(bubbleContainer.padding, EdgeInsets.zero);
+
+    // Same width cap as a long text bubble, not the old smaller fixed box.
+    final screenWidth = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+    final expectedMaxWidth = screenWidth * 0.74;
+    final constrainedBox = tester.widget<ConstrainedBox>(find
+        .descendant(of: find.byType(LocationBubbleContent), matching: find.byType(ConstrainedBox))
+        .first);
+    expect(constrainedBox.constraints.maxWidth, expectedMaxWidth);
   });
 
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {

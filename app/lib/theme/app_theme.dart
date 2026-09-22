@@ -55,6 +55,13 @@ class ChatBubbleStyle {
   static const radius = Radius.circular(15);
   static const tailRadius = Radius.circular(5);
 
+  /// The cap every message bubble's content sizes against — a long text
+  /// message, a photo/video, and a location-share preview all read as the
+  /// same "column" down the chat rather than media looking cramped next to
+  /// a wide text bubble.
+  static double maxWidth(BuildContext context) =>
+      MediaQuery.of(context).size.width * 0.74;
+
   static List<BoxShadow> shadow(Brightness brightness) => [
         BoxShadow(
           color: Colors.black.withValues(alpha: brightness == Brightness.dark ? 0.28 : 0.06),

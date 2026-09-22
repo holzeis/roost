@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../theme/app_theme.dart';
 
 /// The inline content of an image/video message bubble (FR2.3: viewed
 /// inline). Text messages don't go through this — see chat_screen.dart.
@@ -32,7 +33,11 @@ class MediaBubbleContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final url = ref.watch(apiClientProvider).mediaUrl(message.mediaId!);
-    const box = BoxConstraints(maxWidth: 220, maxHeight: 220);
+    // Same cap as a long text bubble (ChatBubbleStyle.maxWidth) rather than
+    // a smaller fixed size, so photos/videos read as the same width as the
+    // rest of the conversation instead of looking cramped.
+    final maxWidth = ChatBubbleStyle.maxWidth(context);
+    final box = BoxConstraints(maxWidth: maxWidth, maxHeight: maxWidth);
     void openViewer() =>
         context.push('/chat/${message.roomId}/media/${message.id}');
 

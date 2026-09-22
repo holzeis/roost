@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
+import '../../theme/app_theme.dart';
 import '../../util/time_format.dart';
 
 /// The inline content of a location-share message bubble (FR3.7): a small
@@ -57,8 +58,13 @@ class _LocationBubbleContentState extends State<LocationBubbleContent> {
   @override
   Widget build(BuildContext context) {
     final share = widget.message.location;
-    const box = BoxConstraints(maxWidth: 220, maxHeight: 160);
     if (share == null) return const SizedBox.shrink();
+
+    // Same cap as a long text bubble (ChatBubbleStyle.maxWidth), keeping
+    // the map preview's original width:height ratio (220:160) rather than
+    // going square like a photo.
+    final maxWidth = ChatBubbleStyle.maxWidth(context);
+    final box = BoxConstraints(maxWidth: maxWidth, maxHeight: maxWidth * 160 / 220);
 
     final active = share.isActive();
     final position = LatLng(share.lat, share.lng);
