@@ -608,6 +608,16 @@ class _DatePill extends StatelessWidget {
   }
 }
 
+/// Where the scrollbar thumb's top edge sits within a track of height
+/// [track], for a thumb of height [thumbHeight] at history position
+/// [fraction] (0 = newest/bottom, 1 = oldest/top — see [_HistoryScrollbar]).
+/// fraction 0 sits at the *bottom* of the track and fraction 1 at its top —
+/// the reverse of a plain `top * fraction` placement, which would put the
+/// thumb at the top of the track while viewing the newest messages.
+double scrollbarThumbTop(double track, double thumbHeight, double fraction) {
+  return (track - thumbHeight).clamp(0.0, double.infinity) * (1 - fraction);
+}
+
 /// A minimal history indicator standing in for a native scrollbar —
 /// scrollable_positioned_list doesn't provide one. `fraction` is an
 /// approximation of how far back through history the visible window is (0 =
@@ -625,7 +635,7 @@ class _HistoryScrollbar extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final track = constraints.maxHeight;
-        final top = (track - _thumbHeight).clamp(0.0, double.infinity) * fraction;
+        final top = scrollbarThumbTop(track, _thumbHeight, fraction);
         return SizedBox(
           width: 4,
           height: track,
