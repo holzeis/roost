@@ -70,6 +70,17 @@ Color chatWallpaperColor(BuildContext context) {
       : RoostColors.lightChatWallpaper;
 }
 
+/// The chat screen's tiled doodle wallpaper (assets/wallpaper/) — its own
+/// base color already matches [chatWallpaperColor] in each theme, drawn
+/// once and repeated behind the message list. Only 2.0x/3.0x variants
+/// exist (no 1x file); Flutter's asset resolution finds those from this
+/// same base path regardless.
+AssetImage chatWallpaperImage(BuildContext context) {
+  return AssetImage(Theme.of(context).brightness == Brightness.dark
+      ? 'assets/wallpaper/chat_doodle_dark.png'
+      : 'assets/wallpaper/chat_doodle_light.png');
+}
+
 Color ochreColor(BuildContext context) {
   return Theme.of(context).brightness == Brightness.dark
       ? RoostColors.darkOchre

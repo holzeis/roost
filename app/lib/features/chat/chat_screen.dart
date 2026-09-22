@@ -75,21 +75,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: me.hasValue
-                ? _MessageList(
-                    roomId: roomId,
-                    meId: me.value!.id,
-                    usersById: usersById.valueOrNull ?? const {},
-                    isGroup: isGroup,
-                    composerKey: _composerKey,
-                  )
-                : const Center(child: CircularProgressIndicator()),
+      body: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: chatWallpaperImage(context),
+            repeat: ImageRepeat.repeat,
+            alignment: Alignment.topLeft,
           ),
-          _MessageComposer(key: _composerKey, roomId: roomId),
-        ],
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: me.hasValue
+                  ? _MessageList(
+                      roomId: roomId,
+                      meId: me.value!.id,
+                      usersById: usersById.valueOrNull ?? const {},
+                      isGroup: isGroup,
+                      composerKey: _composerKey,
+                    )
+                  : const Center(child: CircularProgressIndicator()),
+            ),
+            _MessageComposer(key: _composerKey, roomId: roomId),
+          ],
+        ),
       ),
     );
   }

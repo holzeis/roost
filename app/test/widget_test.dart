@@ -19,6 +19,7 @@ import 'package:roost/features/chat/message_action_overlay.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
 import 'package:roost/router/app_router.dart';
+import 'package:roost/theme/app_theme.dart';
 import 'package:roost/widgets/avatar.dart';
 
 import 'fakes.dart';
@@ -233,6 +234,36 @@ void main() {
 
     expect(find.textContaining("Dinner's at 7"), findsOneWidget);
     expect(find.text('Message'), findsOneWidget); // the composer's hint text
+  });
+
+  testWidgets('The chat screen tiles the doodle wallpaper behind the message list', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final decoratedBox = tester.widgetList<Container>(find.byType(Container)).firstWhere(
+          (c) => c.decoration is BoxDecoration &&
+              (c.decoration as BoxDecoration).image?.repeat == ImageRepeat.repeat,
+        );
+    final image = (decoratedBox.decoration as BoxDecoration).image!.image;
+    expect(image, isA<AssetImage>());
+    expect((image as AssetImage).assetName, 'assets/wallpaper/chat_doodle_light.png');
+  });
+
+  testWidgets('chatWallpaperImage resolves the dark asset under a dark theme', (tester) async {
+    AssetImage? resolved;
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(brightness: Brightness.dark),
+      home: Builder(
+        builder: (context) {
+          resolved = chatWallpaperImage(context);
+          return const SizedBox.shrink();
+        },
+      ),
+    ));
+
+    expect(resolved!.assetName, 'assets/wallpaper/chat_doodle_dark.png');
   });
 
   testWidgets("The composer's message field renders as a rounded box, not a square", (tester) async {
