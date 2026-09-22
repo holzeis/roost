@@ -810,7 +810,7 @@ void main() {
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
-  testWidgets('An inline photo is as wide as a long text bubble, not a small fixed box', (tester) async {
+  testWidgets('An inline photo is wider than a long text bubble, not a small fixed box', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
 
@@ -818,7 +818,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final screenWidth = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-    final expectedMaxWidth = screenWidth * 0.74;
+    final expectedMaxWidth = screenWidth * 0.88;
 
     final constrainedBox = tester.widget<ConstrainedBox>(find
         .descendant(of: find.byType(MediaBubbleContent), matching: find.byType(ConstrainedBox))
@@ -1186,9 +1186,9 @@ void main() {
         .first);
     expect(bubbleContainer.padding, EdgeInsets.zero);
 
-    // Same width cap as a long text bubble, not the old smaller fixed box.
+    // Wider than a long text bubble, not the old smaller fixed box.
     final screenWidth = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-    final expectedMaxWidth = screenWidth * 0.74;
+    final expectedMaxWidth = screenWidth * 0.88;
     final constrainedBox = tester.widget<ConstrainedBox>(find
         .descendant(of: find.byType(LocationBubbleContent), matching: find.byType(ConstrainedBox))
         .first);

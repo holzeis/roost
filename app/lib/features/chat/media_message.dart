@@ -33,10 +33,10 @@ class MediaBubbleContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final url = ref.watch(apiClientProvider).mediaUrl(message.mediaId!);
-    // Same cap as a long text bubble (ChatBubbleStyle.maxWidth) rather than
-    // a smaller fixed size, so photos/videos read as the same width as the
-    // rest of the conversation instead of looking cramped.
-    final maxWidth = ChatBubbleStyle.maxWidth(context);
+    // Media gets its own (wider) cap than a text bubble — see
+    // ChatBubbleStyle.mediaMaxWidth — so photos/videos fill more of the row
+    // instead of looking cramped next to a long message.
+    final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
     final box = BoxConstraints(maxWidth: maxWidth, maxHeight: maxWidth);
     void openViewer() =>
         context.push('/chat/${message.roomId}/media/${message.id}');

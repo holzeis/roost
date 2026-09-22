@@ -60,10 +60,10 @@ class _LocationBubbleContentState extends State<LocationBubbleContent> {
     final share = widget.message.location;
     if (share == null) return const SizedBox.shrink();
 
-    // Same cap as a long text bubble (ChatBubbleStyle.maxWidth), keeping
-    // the map preview's original width:height ratio (220:160) rather than
-    // going square like a photo.
-    final maxWidth = ChatBubbleStyle.maxWidth(context);
+    // Media gets its own (wider) cap than a text bubble — see
+    // ChatBubbleStyle.mediaMaxWidth — keeping the map preview's original
+    // width:height ratio (220:160) rather than going square like a photo.
+    final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
     final box = BoxConstraints(maxWidth: maxWidth, maxHeight: maxWidth * 160 / 220);
 
     final active = share.isActive();

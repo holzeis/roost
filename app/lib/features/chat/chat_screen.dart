@@ -783,7 +783,10 @@ class _MessageRow extends ConsumerWidget {
         : borderRadius;
 
     final bubbleContent = Container(
-      constraints: BoxConstraints(maxWidth: ChatBubbleStyle.maxWidth(context)),
+      constraints: BoxConstraints(
+          maxWidth: isFrameless
+              ? ChatBubbleStyle.mediaMaxWidth(context)
+              : ChatBubbleStyle.maxWidth(context)),
       padding: isFrameless
           ? EdgeInsets.zero
           : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
