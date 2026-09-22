@@ -62,9 +62,12 @@ class ChatBubbleStyle {
   /// The (wider) cap a photo/video/location-share preview sizes against —
   /// media reads better filling more of the available row than a long
   /// text bubble does, so it gets its own, larger cap rather than sharing
-  /// [maxWidth].
+  /// [maxWidth]. A portrait photo never actually reaches this cap (its own
+  /// aspect ratio keeps it narrower once [maxHeight] limits it) — this only
+  /// widens square/landscape photos, video (always square), and the
+  /// location preview (fixed aspect), which otherwise fill the cap exactly.
   static double mediaMaxWidth(BuildContext context) =>
-      MediaQuery.of(context).size.width * 0.88;
+      MediaQuery.of(context).size.width * 0.78;
 
   static List<BoxShadow> shadow(Brightness brightness) => [
         BoxShadow(

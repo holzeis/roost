@@ -818,7 +818,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final screenWidth = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-    final expectedMaxWidth = screenWidth * 0.88;
+    final expectedMaxWidth = screenWidth * 0.78;
 
     final constrainedBox = tester.widget<ConstrainedBox>(find
         .descendant(of: find.byType(MediaBubbleContent), matching: find.byType(ConstrainedBox))
@@ -1188,7 +1188,7 @@ void main() {
 
     // Wider than a long text bubble, not the old smaller fixed box.
     final screenWidth = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-    final expectedMaxWidth = screenWidth * 0.88;
+    final expectedMaxWidth = screenWidth * 0.78;
     final constrainedBox = tester.widget<ConstrainedBox>(find
         .descendant(of: find.byType(LocationBubbleContent), matching: find.byType(ConstrainedBox))
         .first);
