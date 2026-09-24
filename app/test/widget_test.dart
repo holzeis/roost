@@ -698,6 +698,73 @@ void main() {
     expect(find.textContaining('Replying to'), findsOneWidget);
   });
 
+  testWidgets('Swiping an own (right-aligned) message visibly moves the bubble mid-drag', (tester) async {
+    // Regression test: an own message sits flush against the row's own
+    // right edge, so the earlier "grow a leading slot" implementation had
+    // nowhere to push it and showed no motion at all — chat_screen.dart now
+    // Transform.translates the bubble itself instead, which can move
+    // regardless of which edge it's anchored to.
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // A single large moveBy loses most of its distance to the drag
+    // recognizer's own touch-slop handling — several smaller ones (as a
+    // real, continuous finger drag would generate) get past it.
+    final gesture =
+        await tester.startGesture(tester.getCenter(find.textContaining('On my way, leaving now')));
+    await tester.pump();
+    for (var i = 0; i < 3; i++) {
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+    }
+
+    final transforms = tester.widgetList<Transform>(find.ancestor(
+        of: find.textContaining('On my way, leaving now'), matching: find.byType(Transform)));
+    expect(transforms.any((t) => t.transform.storage[12] > 0), isTrue);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('The reply icon fades in progressively as the swipe continues', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    double currentOpacity() => tester
+        .widget<Opacity>(find
+            .ancestor(of: find.byIcon(TablerIcons.arrowBackUp), matching: find.byType(Opacity))
+            .first)
+        .opacity;
+
+    // The very first moveBy is consumed by the drag recognizer's own
+    // touch-slop before any onHorizontalDragUpdate fires at all (see the
+    // bubble-movement test above) — two moves are needed before there's
+    // any progress to read, and a third for it to have grown further.
+    final gesture = await tester.startGesture(tester.getCenter(find.textContaining("Dinner's at 7")));
+    await tester.pump();
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    final earlyOpacity = currentOpacity();
+
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    final laterOpacity = currentOpacity();
+
+    expect(earlyOpacity, greaterThan(0));
+    expect(laterOpacity, greaterThan(earlyOpacity));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('A short swipe (under the threshold) does not start a reply', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);

@@ -1238,44 +1238,48 @@ class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        ClipRect(
-          child: SizedBox(
-            width: _dragX,
-            height: _iconSize,
-            child: OverflowBox(
-              minWidth: _iconSize,
-              maxWidth: _iconSize,
-              minHeight: _iconSize,
-              maxHeight: _iconSize,
-              alignment: Alignment.centerRight,
-              child: Container(
-                width: _iconSize,
-                height: _iconSize,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _armed
-                      ? ochreColor(context).withValues(alpha: 0.2)
-                      : scheme.onSurface.withValues(alpha: 0.08),
-                ),
-                child: Icon(TablerIcons.arrowBackUp,
-                    size: 16,
-                    color: _armed ? ochreColor(context) : scheme.onSurface.withValues(alpha: 0.5)),
+    // Fully faded in well before the release threshold, not right at it.
+    final iconOpacity = (_dragX / (_threshold * 0.7)).clamp(0.0, 1.0);
+
+    return GestureDetector(
+      onLongPress: widget.onLongPress,
+      onHorizontalDragStart: _onDragStart,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: _onDragEnd,
+      // clipBehavior: none — a bubble already flush against the row's own
+      // edge (an own/right-aligned message has nowhere else to go) needs to
+      // visually spill past this stack's bounds to show any movement at
+      // all; only the outer message list's own viewport ends up clipping
+      // it, at the actual edge of the screen.
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.centerLeft,
+        children: [
+          // Sits behind the bubble at rest, fully covered by it — dragging
+          // the bubble right uncovers this from the left, same effect as a
+          // reveal mask, plus its own opacity fade for a softer entrance.
+          Opacity(
+            opacity: iconOpacity,
+            child: Container(
+              width: _iconSize,
+              height: _iconSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _armed
+                    ? ochreColor(context).withValues(alpha: 0.2)
+                    : scheme.onSurface.withValues(alpha: 0.08),
               ),
+              child: Icon(TablerIcons.arrowBackUp,
+                  size: 16,
+                  color: _armed ? ochreColor(context) : scheme.onSurface.withValues(alpha: 0.5)),
             ),
           ),
-        ),
-        GestureDetector(
-          onLongPress: widget.onLongPress,
-          onHorizontalDragStart: _onDragStart,
-          onHorizontalDragUpdate: _onDragUpdate,
-          onHorizontalDragEnd: _onDragEnd,
-          child: widget.child,
-        ),
-      ],
+          Transform.translate(
+            offset: Offset(_dragX, 0),
+            child: widget.child,
+          ),
+        ],
+      ),
     );
   }
 }
