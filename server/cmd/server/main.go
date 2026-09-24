@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"roost/server/internal/config"
 	"roost/server/internal/db"
 	"roost/server/internal/livekit"
+	"roost/server/internal/push"
 	"roost/server/internal/storage"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
@@ -58,11 +60,17 @@ func run() error {
 		return err
 	}
 
+	pushSender, err := newPushSender(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	srv := &api.Server{
 		Store:   store.New(pool),
 		Hub:     ws.NewHub(),
 		LiveKit: livekit.NewMinter(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret),
 		Media:   media,
+		Push:    pushSender,
 	}
 
 	listener, cleanup, err := newListener(ctx, cfg.ListenAddr, &srv.Resolver)
@@ -150,6 +158,42 @@ func newListener(ctx context.Context, listenAddr string, resolver *auth.Resolver
 		return nil, nil, err
 	}
 	return l, func() { ts.Close() }, nil
+}
+
+// newPushSender builds the FR5.1 call-wake sender from whichever of the
+// APNs/FCM credential sets are actually configured — either, both, or
+// neither (push.MultiSender treats a nil concrete sender as a no-op per
+// platform). Falls back entirely to push.NoopSender when neither is set,
+// same as local dev without any push credentials at all.
+func newPushSender(ctx context.Context, cfg config.Config) (push.Sender, error) {
+	var multi push.MultiSender
+	var configured bool
+
+	if cfg.APNSKeyID != "" && cfg.APNSTeamID != "" && cfg.APNSPrivateKey != "" {
+		sender, err := push.NewAPNsSender(
+			cfg.APNSKeyID, cfg.APNSTeamID, []byte(cfg.APNSPrivateKey), cfg.APNSBundleID, cfg.APNSProduction,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("configure apns sender: %w", err)
+		}
+		multi.APNs = sender
+		configured = true
+	}
+
+	if cfg.FCMServiceAccountJSON != "" {
+		sender, err := push.NewFCMSender(ctx, []byte(cfg.FCMServiceAccountJSON))
+		if err != nil {
+			return nil, fmt.Errorf("configure fcm sender: %w", err)
+		}
+		multi.FCM = sender
+		configured = true
+	}
+
+	if !configured {
+		slog.Warn("no APNs/FCM credentials configured; push notifications are disabled (push.NoopSender)")
+		return push.NoopSender{}, nil
+	}
+	return multi, nil
 }
 
 func probeMux() http.Handler {

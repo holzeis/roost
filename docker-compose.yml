@@ -69,6 +69,15 @@ services:
       LIVEKIT_URL: "ws://livekit:7880"
       LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-devkey}"
       LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-devsecret-devsecret-devsecret}"
+      # FR5.1 push (see server/internal/push) — unlike LiveKit above, there's
+      # no safe dev fallback value for these, so they're left unset unless
+      # your own .env sets them; unset means the server falls back to
+      # push.NoopSender and local dev works the same as always, just without
+      # a real call-wake push actually going out.
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_PRIVATE_KEY: "${APNS_PRIVATE_KEY:-}"
+      FCM_SERVICE_ACCOUNT_JSON: "${FCM_SERVICE_ACCOUNT_JSON:-}"
       # Local dev only: bypasses real Tailscale identity resolution with a
       # fixed fake identity, since there's no tailnet to join from a laptop
       # docker-compose stack. Never set this in production. See

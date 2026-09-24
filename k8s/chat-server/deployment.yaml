@@ -104,6 +104,35 @@ spec:
                 secretKeyRef:
                   name: roost-secrets
                   key: livekit-api-secret
+            # FR5.1 push (see server/internal/push) — optional: true on all
+            # four, since these keys won't exist in roost-secrets until push
+            # is actually configured (see docs/ios-dev-setup.md); an unset
+            # value here just means the server falls back to
+            # push.NoopSender, same as local dev.
+            - name: APNS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: apns-key-id
+                  optional: true
+            - name: APNS_TEAM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: apns-team-id
+                  optional: true
+            - name: APNS_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: apns-private-key
+                  optional: true
+            - name: FCM_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: fcm-service-account-json
+                  optional: true
           volumeMounts:
             - name: tsnet-state
               mountPath: /var/lib/tsnet

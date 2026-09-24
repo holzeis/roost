@@ -1,0 +1,254 @@
+//go:build integration
+
+// Run with both DATABASE_URL and the S3_* vars set — the docker-compose
+// stack's postgres/minio services work:
+// DATABASE_URL=postgres://... S3_ENDPOINT=localhost:9000 S3_ACCESS_KEY=roost S3_SECRET_KEY=roost-dev-password \
+//   go test -tags=integration ./internal/api/...
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"roost/server/internal/push"
+	"roost/server/internal/session"
+	"roost/server/internal/ws"
+)
+
+// fakeWSConn is the minimal ws.Conn a test needs to mark a user "online"
+// via Hub.Register, without a real socket.
+type fakeWSConn struct{}
+
+func (fakeWSConn) Send(ws.Event) error { return nil }
+
+// fakePushSender records every SendCallWake call so a test can assert
+// exactly who got pushed to (and who didn't) — this project's established
+// fakes-over-mocks convention (see app/test/fakes.dart's FakeApiClient).
+type fakePushSender struct {
+	mu    sync.Mutex
+	calls []fakePushCall
+}
+
+type fakePushCall struct {
+	deviceToken string
+	platform    string
+	payload     push.CallWakePayload
+}
+
+func (f *fakePushSender) SendCallWake(_ context.Context, deviceToken, platform string, payload push.CallWakePayload) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fakePushCall{deviceToken, platform, payload})
+	return nil
+}
+
+func (f *fakePushSender) SendMessageNotification(context.Context, string, string, push.MessagePayload) error {
+	return nil
+}
+
+func (f *fakePushSender) callsSnapshot() []fakePushCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]fakePushCall(nil), f.calls...)
+}
+
+// TestHandleRegisterDevice_UpsertsAndReturnsTheDevice covers the client
+// half of FR5.1 — POST /api/devices records a push-capable device for the
+// caller.
+func TestHandleRegisterDevice_UpsertsAndReturnsTheDevice(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("register-device-%d@github", run), "Registrant")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	body := strings.NewReader(`{"platform":"ios","pushToken":"voip-abc123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/devices", body)
+	req = req.WithContext(session.WithUser(req.Context(), user))
+	rec := httptest.NewRecorder()
+
+	s.handleRegisterDevice(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		ID       string `json:"id"`
+		UserID   string `json:"userId"`
+		Platform string `json:"platform"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.UserID != user.ID || got.Platform != "ios" {
+		t.Fatalf("unexpected device in response: %+v", got)
+	}
+
+	devices, err := s.Store.ListDevicesForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 1 || devices[0].PushToken != "voip-abc123" {
+		t.Fatalf("expected the registered device to be stored, got %+v", devices)
+	}
+}
+
+// TestHandleRegisterDevice_RejectsUnknownPlatform guards the platform CHECK
+// constraint (migration 0001: platform IN ('ios','android')) with a clean
+// 400 rather than a raw DB constraint-violation error reaching the client.
+func TestHandleRegisterDevice_RejectsUnknownPlatform(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bad-platform-%d@github", run), "Bad Platform")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	body := strings.NewReader(`{"platform":"windows-phone","pushToken":"abc"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/devices", body)
+	req = req.WithContext(session.WithUser(req.Context(), user))
+	rec := httptest.NewRecorder()
+
+	s.handleRegisterDevice(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleStartCall_PushesTheOfflineCalleeButNotAnOnlineOne is FR5.1's
+// core behavior: a callee with no live WebSocket connection gets a push
+// call-wake to each of their registered devices; a callee who's actually
+// online gets none, since the WebSocket delivery already reached them.
+func TestHandleStartCall_PushesTheOfflineCalleeButNotAnOnlineOne(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	caller, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("caller-%d@github", run), "Caller")
+	if err != nil {
+		t.Fatalf("create caller: %v", err)
+	}
+	offlineCallee, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("offline-callee-%d@github", run), "Offline Callee")
+	if err != nil {
+		t.Fatalf("create offline callee: %v", err)
+	}
+	onlineCallee, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("online-callee-%d@github", run), "Online Callee")
+	if err != nil {
+		t.Fatalf("create online callee: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, offlineCallee.ID, "ios", "voip-offline-callee"); err != nil {
+		t.Fatalf("register offline callee's device: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, onlineCallee.ID, "android", "fcm-online-callee"); err != nil {
+		t.Fatalf("register online callee's device: %v", err)
+	}
+	// Only onlineCallee has a live WS connection — offlineCallee has none,
+	// which is exactly the "fall back to push" signal (Hub.SendToUser
+	// returns false for them).
+	s.Hub.Register(onlineCallee.ID, fakeWSConn{})
+
+	room, err := s.Store.CreateRoom(ctx, caller.ID, nil, true, []string{caller.ID, offlineCallee.ID, onlineCallee.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/calls", nil)
+	req = req.WithContext(session.WithUser(req.Context(), caller))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleStartCall(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID   string `json:"id"`
+		Call struct {
+			ID string `json:"id"`
+		} `json:"call"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	calls := pushSender.callsSnapshot()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 push call-wake (to the offline callee only), got %d: %+v", len(calls), calls)
+	}
+	got := calls[0]
+	if got.deviceToken != "voip-offline-callee" || got.platform != "ios" {
+		t.Fatalf("push went to the wrong device: %+v", got)
+	}
+	if got.payload.RoomID != room.ID || got.payload.MessageID != created.ID ||
+		got.payload.CallID != created.Call.ID || got.payload.CallerID != caller.ID {
+		t.Fatalf("unexpected push payload: %+v (want room=%s message=%s call=%s caller=%s)",
+			got.payload, room.ID, created.ID, created.Call.ID, caller.ID)
+	}
+	if created.Call.ID == "" {
+		t.Fatal("expected the created call message to carry a non-empty call id")
+	}
+	if got.payload.CallerName != caller.DisplayName {
+		t.Fatalf("expected caller name %q in payload, got %q", caller.DisplayName, got.payload.CallerName)
+	}
+}
+
+// TestHandleStartCall_NoPushWhenEveryoneIsOnline guards against pushing
+// unnecessarily — push is a fallback, not sent alongside a successful
+// WebSocket delivery.
+func TestHandleStartCall_NoPushWhenEveryoneIsOnline(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	caller, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("all-online-caller-%d@github", run), "Caller")
+	if err != nil {
+		t.Fatalf("create caller: %v", err)
+	}
+	callee, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("all-online-callee-%d@github", run), "Callee")
+	if err != nil {
+		t.Fatalf("create callee: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-should-not-be-used"); err != nil {
+		t.Fatalf("register callee's device: %v", err)
+	}
+	s.Hub.Register(callee.ID, fakeWSConn{})
+
+	room, err := s.Store.CreateRoom(ctx, caller.ID, nil, false, []string{caller.ID, callee.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/calls", nil)
+	req = req.WithContext(session.WithUser(req.Context(), caller))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleStartCall(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if calls := pushSender.callsSnapshot(); len(calls) != 0 {
+		t.Fatalf("expected no push calls when the callee is online, got %+v", calls)
+	}
+}

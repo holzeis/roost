@@ -21,6 +21,15 @@ type Config struct {
 	LiveKitURL       string
 	LiveKitAPIKey    string
 	LiveKitAPISecret string
+	// APNS*/FCMServiceAccountJSON configure the FR5.1 push-fallback senders
+	// (server/internal/push) — left unset in local dev, which falls back to
+	// push.NoopSender (see server/cmd/server/main.go).
+	APNSKeyID             string
+	APNSTeamID            string
+	APNSPrivateKey        string
+	APNSBundleID          string
+	APNSProduction        bool
+	FCMServiceAccountJSON string
 }
 
 func Load() (Config, error) {
@@ -35,6 +44,13 @@ func Load() (Config, error) {
 		LiveKitURL:       os.Getenv("LIVEKIT_URL"),
 		LiveKitAPIKey:    os.Getenv("LIVEKIT_API_KEY"),
 		LiveKitAPISecret: os.Getenv("LIVEKIT_API_SECRET"),
+
+		APNSKeyID:             os.Getenv("APNS_KEY_ID"),
+		APNSTeamID:            os.Getenv("APNS_TEAM_ID"),
+		APNSPrivateKey:        os.Getenv("APNS_PRIVATE_KEY"),
+		APNSBundleID:          getenv("APNS_BUNDLE_ID", "me.holzeis.roost.roost"),
+		APNSProduction:        os.Getenv("APNS_PRODUCTION") == "true",
+		FCMServiceAccountJSON: os.Getenv("FCM_SERVICE_ACCOUNT_JSON"),
 	}
 
 	var missing []string

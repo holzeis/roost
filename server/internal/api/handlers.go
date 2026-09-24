@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"roost/server/internal/linkpreview"
 	"roost/server/internal/models"
+	"roost/server/internal/push"
 	"roost/server/internal/session"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
@@ -122,6 +124,41 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleRegisterDevice implements the client half of FR5.1 — a client
+// re-registers its push token on every app start (see
+// lib/services/push_service.dart), which UpsertDevice treats as an
+// idempotent refresh rather than an error.
+func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
+	u, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var body struct {
+		Platform  string `json:"platform"`
+		PushToken string `json:"pushToken"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.Platform != "ios" && body.Platform != "android" {
+		writeError(w, http.StatusBadRequest, "platform must be ios or android")
+		return
+	}
+	if body.PushToken == "" {
+		writeError(w, http.StatusBadRequest, "pushToken is required")
+		return
+	}
+
+	device, err := s.Store.UpsertDevice(r.Context(), u.ID, body.Platform, body.PushToken)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not register device")
+		return
+	}
+	writeJSON(w, http.StatusOK, device)
 }
 
 type contactDTO struct {
@@ -1169,26 +1206,68 @@ func (s *Server) handleEndLocationShare(w http.ResponseWriter, r *http.Request) 
 // is just another message, so the callee's incoming-call detector
 // (client-side) and the room's normal history both pick this up with no
 // new WebSocket plumbing.
+//
+// FR5.1: a member not currently reachable over the WebSocket (backgrounded
+// or fully closed app) gets a push call-wake fallback instead, to every
+// device they've registered (see handleRegisterDevice). Best-effort — a
+// delivery failure here never fails the API response, since push is a
+// fallback path, not the primary one.
 func (s *Server) handleStartCall(w http.ResponseWriter, r *http.Request) {
-	userID, ok := currentUser(w, r)
+	caller, ok := session.UserFromContext(r.Context())
 	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	roomID := chi.URLParam(r, "roomID")
-	if !s.requireMembership(w, r, userID, roomID) {
+	if !s.requireMembership(w, r, caller.ID, roomID) {
 		return
 	}
 
-	msg, err := s.Store.CreateCall(r.Context(), roomID, userID)
+	msg, err := s.Store.CreateCall(r.Context(), roomID, caller.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not start call")
 		return
 	}
 
 	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
-		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
+		ev := ws.Event{Type: "message.created", Payload: msg}
+		for _, memberID := range memberIDs {
+			if memberID == caller.ID {
+				continue
+			}
+			if s.Hub.SendToUser(memberID, ev) {
+				continue
+			}
+			var callID string
+			if msg.Call != nil {
+				callID = msg.Call.ID
+			}
+			s.pushCallWake(r.Context(), memberID, push.CallWakePayload{
+				RoomID:     roomID,
+				MessageID:  msg.ID,
+				CallID:     callID,
+				CallerID:   caller.ID,
+				CallerName: caller.DisplayName,
+			})
+		}
 	}
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+// pushCallWake sends the FR5.1 call-wake push to every device memberID has
+// registered. Delivery failures are logged and otherwise ignored — see
+// handleStartCall's own doc comment for why.
+func (s *Server) pushCallWake(ctx context.Context, userID string, payload push.CallWakePayload) {
+	devices, err := s.Store.ListDevicesForUser(ctx, userID)
+	if err != nil {
+		slog.Error("push: list devices failed", "user", userID, "error", err)
+		return
+	}
+	for _, d := range devices {
+		if err := s.Push.SendCallWake(ctx, d.PushToken, d.Platform, payload); err != nil {
+			slog.Error("push: call wake failed", "user", userID, "device", d.ID, "platform", d.Platform, "error", err)
+		}
+	}
 }
 
 // callForAction fetches callID and verifies the caller is a member of its

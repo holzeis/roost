@@ -88,6 +88,47 @@ func scanUser(row pgx.Row) (models.User, error) {
 	return u, nil
 }
 
+// UpsertDevice registers or refreshes a push-capable device (FR5.1) — a
+// client re-registers on every app start, so the same (user, token) pair
+// just bumps last_seen_at rather than erroring, matching the migration's
+// UNIQUE(user_id, push_token) constraint.
+func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken string) (models.Device, error) {
+	const q = `
+		INSERT INTO devices (user_id, platform, push_token)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, push_token) DO UPDATE SET last_seen_at = now()
+		RETURNING id, user_id, platform, push_token, last_seen_at`
+	var d models.Device
+	err := s.pool.QueryRow(ctx, q, userID, platform, pushToken).
+		Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.LastSeenAt)
+	if err != nil {
+		return models.Device{}, fmt.Errorf("store: upsert device: %w", err)
+	}
+	return d, nil
+}
+
+// ListDevicesForUser returns every push-capable device registered for
+// userID — the push-fallback path (handleStartCall) sends to all of them,
+// since a user may have both a phone and a tablet registered.
+func (s *Store) ListDevicesForUser(ctx context.Context, userID string) ([]models.Device, error) {
+	const q = `SELECT id, user_id, platform, push_token, last_seen_at FROM devices WHERE user_id = $1`
+	rows, err := s.pool.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list devices: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []models.Device
+	for rows.Next() {
+		var d models.Device
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("store: scan device: %w", err)
+		}
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
+}
+
 // CreateRoom creates a room and adds creatorID plus memberIDs as members.
 func (s *Store) CreateRoom(ctx context.Context, creatorID string, name *string, isGroup bool, memberIDs []string) (models.Room, error) {
 	tx, err := s.pool.Begin(ctx)

@@ -27,6 +27,8 @@ pre-assembled copy.
 | `minio-access-key`, `minio-secret-key` | the minio pod, and chat-server's S3 client |
 | `livekit-api-key`, `livekit-api-secret` | chat-server (mints JWTs) and LiveKit (validates them) — interpolated into LiveKit's `keys:` config |
 | `livekit-node-ip` | LiveKit's advertised ICE address; not actually secret, but deployment-specific, so it lives with the other per-cluster values you fill in. See the two-phase setup below |
+| `apns-key-id`, `apns-team-id`, `apns-private-key` | chat-server's APNs client (FR5.1 call-wake push to iOS) — see `docs/ios-dev-setup.md` for where these come from. Optional (`optional: true` in the Deployment): omit all three and the server falls back to `push.NoopSender` |
+| `fcm-service-account-json` | chat-server's FCM client (FR5.1 call-wake push to Android) — the service-account JSON downloaded from Firebase Console → Project Settings → Service Accounts. Also optional |
 
 Create it in one command (never committed — generate the values here):
 
@@ -40,6 +42,20 @@ kubectl create secret generic roost-secrets -n roost \
   --from-literal=livekit-api-key='roost' \
   --from-literal=livekit-api-secret="$(openssl rand -base64 32)" \
   --from-literal=livekit-node-ip=''
+```
+
+Push (FR5.1) is optional and can be added later, once Apple/Firebase credentials exist:
+
+```sh
+kubectl patch secret roost-secrets -n roost --type=merge -p="$(cat <<EOF
+{"stringData": {
+  "apns-key-id": "<key id>",
+  "apns-team-id": "<team id>",
+  "apns-private-key": "$(cat AuthKey_XXXXXXXXXX.p8)",
+  "fcm-service-account-json": "$(cat service-account.json)"
+}}
+EOF
+)"
 ```
 
 `livekit-node-ip` starts empty and gets filled in after the first deploy —

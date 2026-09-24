@@ -1040,3 +1040,93 @@ func TestStore_Call_GetCallNotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for a nonexistent call, got %v", err)
 	}
 }
+
+// TestStore_UpsertDevice_RegistersAndRefreshes covers FR5.1's device
+// registry: a first registration creates a row, and re-registering the same
+// (user, token) pair — what the client does on every app start — refreshes
+// it in place rather than erroring or duplicating, per the migration's
+// UNIQUE(user_id, push_token) constraint.
+func TestStore_UpsertDevice_RegistersAndRefreshes(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("device-owner-%d@github", run), "Device Owner")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	first, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc")
+	if err != nil {
+		t.Fatalf("upsert device: %v", err)
+	}
+	if first.UserID != user.ID || first.Platform != "ios" || first.PushToken != "voip-token-abc" {
+		t.Fatalf("unexpected device: %+v", first)
+	}
+
+	again, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc")
+	if err != nil {
+		t.Fatalf("re-upsert device: %v", err)
+	}
+	if again.ID != first.ID {
+		t.Fatalf("expected re-registering the same token to refresh the same row, got a new id %s != %s", again.ID, first.ID)
+	}
+
+	devices, err := s.ListDevicesForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("expected exactly 1 device after re-registering the same token, got %d", len(devices))
+	}
+}
+
+// TestStore_ListDevicesForUser_ReturnsEveryRegisteredDevice covers the
+// multi-device case (a phone and a tablet, say) — the push-fallback path
+// (handleStartCall) sends to all of them.
+func TestStore_ListDevicesForUser_ReturnsEveryRegisteredDevice(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("multi-device-%d@github", run), "Multi Device")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "phone-token"); err != nil {
+		t.Fatalf("upsert phone device: %v", err)
+	}
+	if _, err := s.UpsertDevice(ctx, user.ID, "android", "tablet-token"); err != nil {
+		t.Fatalf("upsert tablet device: %v", err)
+	}
+
+	devices, err := s.ListDevicesForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected 2 devices, got %d: %+v", len(devices), devices)
+	}
+}
+
+// TestStore_ListDevicesForUser_EmptyForAUserWithNoDevices guards against a
+// nil/error result being mistaken for "no push fallback needed" — an empty
+// slice and a nil error is the correct "nothing registered" signal.
+func TestStore_ListDevicesForUser_EmptyForAUserWithNoDevices(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("no-devices-%d@github", run), "No Devices")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	devices, err := s.ListDevicesForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 0 {
+		t.Fatalf("expected no devices, got %d", len(devices))
+	}
+}

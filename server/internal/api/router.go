@@ -11,6 +11,7 @@ import (
 
 	"roost/server/internal/auth"
 	"roost/server/internal/livekit"
+	"roost/server/internal/push"
 	"roost/server/internal/storage"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
@@ -21,6 +22,7 @@ type Server struct {
 	Hub      *ws.Hub
 	LiveKit  *livekit.Minter
 	Media    *storage.Store
+	Push     push.Sender
 	Resolver auth.Resolver
 }
 
@@ -44,6 +46,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/me", s.handleGetMe)
 			r.Patch("/me", s.handleUpdateMe)
 			r.Post("/me/avatar", s.handleUploadAvatar)
+			r.Post("/devices", s.handleRegisterDevice)
 
 			r.Get("/users", s.handleListUsers)
 
