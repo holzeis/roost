@@ -54,6 +54,19 @@ class ApiClient {
     return ApiUser.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Registers this device's push token for FR5.1's call-wake fallback —
+  /// see server/internal/api's handleRegisterDevice. Safe to call on every
+  /// app start: the server treats re-registering the same token as a
+  /// refresh, not an error.
+  Future<void> registerDevice({required String platform, required String pushToken}) async {
+    final res = await _http.post(
+      _uri('/api/devices'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'platform': platform, 'pushToken': pushToken}),
+    );
+    _checkOk(res);
+  }
+
   Future<List<ApiContact>> listUsers() async {
     final res = await _http.get(_uri('/api/users'));
     _checkOk(res);

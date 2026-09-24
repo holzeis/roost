@@ -60,6 +60,12 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<!-- FR5.1: voip wakes the app for PushKit/CallKit incoming calls;
+		     remote-notification is required alongside it per Apple's own
+		     PushKit docs, even though this app sends no plain remote pushes
+		     today. See ios/Runner/AppDelegate.swift. -->
+		<string>voip</string>
+		<string>remote-notification</string>
 	</array>
 	<key>GMSApiKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>

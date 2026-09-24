@@ -104,6 +104,42 @@ A few notes specific to this repo:
   the app is already installed — unlock the device and open it from the
   home screen manually.
 
+## Enabling push notifications (FR5.1)
+
+Incoming-call wake via PushKit/CallKit needs the paid Apple Developer
+Program ($99/yr, not the free-Apple-ID path above) and a real physical
+iPhone — per the CallKit caveat further up, there's no real APNs delivery to
+the Simulator. Once enrolled, at <https://developer.apple.com/account/resources>:
+
+1. **App ID**: find (or create) the App ID for `me.holzeis.roost.roost` and
+   enable the **Push Notifications** capability on it.
+2. **APNs Auth Key**: Certificates, Identifiers & Profiles → Keys → create a
+   new key with the **Apple Push Notifications service (APNs)** capability
+   checked, then download the resulting `.p8` file — Apple only lets you
+   download it once. Note the **Key ID** shown on that page, and your
+   **Team ID** (top-right of the developer account page, or Membership
+   Details) — both are plain identifiers, safe to share; the `.p8` file's
+   contents are the actual secret.
+3. **Xcode**: a provisioning profile covering the Push Notifications
+   capability needs to exist for your team/device — letting Xcode manage
+   signing automatically (already the default here, per the real-device
+   section above) regenerates one for you the next time you build to a
+   registered device, as long as step 1 is done first.
+4. **Server config**: set `APNS_KEY_ID`, `APNS_TEAM_ID`, and
+   `APNS_PRIVATE_KEY` (the `.p8` file's contents) via `.env` for local dev,
+   or `kubectl patch secret roost-secrets` for a real deployment — see
+   `k8s/README.md`'s push section. Never paste the `.p8` contents into a
+   chat/conversation; set it directly in the file/secret yourself.
+5. **Build and install** a release build per the section above, on the
+   physical device you registered — `flutter run --release -d <device-id>`.
+
+Android's half of FR5.1 uses Firebase Cloud Messaging instead — create a
+free project at <https://console.firebase.google.com>, then either run
+`flutterfire configure` from `app/` (regenerates
+`app/lib/firebase_options.dart` with real values) or download the project's
+service-account JSON (Project Settings → Service Accounts) and set it as
+`FCM_SERVICE_ACCOUNT_JSON` server-side, same as the APNs values above.
+
 ## Talking to a local chat server
 
 The Simulator runs on your Mac's network namespace, so `docker-compose.yml`'s
