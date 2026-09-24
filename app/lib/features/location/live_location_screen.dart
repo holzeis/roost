@@ -10,6 +10,7 @@ import '../../providers/chat_providers.dart';
 import '../../util/time_format.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
+import 'location_markers.dart';
 
 /// FR3.8: every currently-active location share in a room, together on one
 /// map, live-updating as message.updated events land (see
@@ -67,7 +68,8 @@ class _LiveLocationScreenState extends ConsumerState<LiveLocationScreen> {
   Widget build(BuildContext context) {
     final messagesAsync = ref.watch(messagesProvider(widget.roomId));
     final usersById = ref.watch(usersByIdProvider).valueOrNull ?? const {};
-    final meId = ref.watch(meProvider).valueOrNull?.id;
+    final me = ref.watch(meProvider).valueOrNull;
+    final meId = me?.id;
     final ownShareMessageId = ref.watch(locationShareProvider(widget.roomId));
 
     final shares = (messagesAsync.valueOrNull ?? const <ApiMessage>[])
@@ -80,6 +82,8 @@ class _LiveLocationScreenState extends ConsumerState<LiveLocationScreen> {
     }
 
     String nameFor(String userId) => userId == meId ? 'You' : (usersById[userId]?.displayName ?? '?');
+    String? avatarMediaIdFor(String userId) =>
+        userId == meId ? me?.avatarMediaId : usersById[userId]?.avatarMediaId;
 
     return Scaffold(
       appBar: AppBar(leading: const TablerBackButton(), title: const Text('Live locations')),
@@ -104,6 +108,11 @@ class _LiveLocationScreenState extends ConsumerState<LiveLocationScreen> {
                       Marker(
                         markerId: MarkerId(m.id),
                         position: LatLng(m.location!.lat, m.location!.lng),
+                        // Falls back to the stock pin for the brief moment
+                        // before the avatar marker's own async render
+                        // resolves — see avatarMarkerProvider.
+                        icon: ref.watch(avatarMarkerProvider(m.senderId)).valueOrNull ??
+                            BitmapDescriptor.defaultMarker,
                         infoWindow: InfoWindow(title: nameFor(m.senderId)),
                       ),
                   },
@@ -134,6 +143,7 @@ class _LiveLocationScreenState extends ConsumerState<LiveLocationScreen> {
                                     initial: nameFor(m.senderId).isNotEmpty ? nameFor(m.senderId)[0].toUpperCase() : '?',
                                     seed: nameFor(m.senderId),
                                     size: 22,
+                                    avatarMediaId: avatarMediaIdFor(m.senderId),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(child: Text(nameFor(m.senderId), style: const TextStyle(fontSize: 13.5))),

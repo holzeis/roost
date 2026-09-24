@@ -1333,6 +1333,41 @@ void main() {
     expect(constrainedBox.constraints.maxWidth, expectedMaxWidth);
   });
 
+  testWidgets('Two simultaneous location shares in the same chat both show as sharing live', (tester) async {
+    final api = _seededApiClient();
+    final location = FakeLocationService()..initialPosition = FakeLocationService.testPosition(52.5, 13.4);
+    await _pumpApp(tester, api, extraOverrides: [locationServiceProvider.overrideWithValue(location)]);
+
+    // Mom is already sharing her location when the viewer opens the chat.
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'mom-share',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'location',
+        location:
+            ApiLocationShare(lat: 52.51, lng: 13.41, expiresAt: DateTime.now().add(const Duration(minutes: 20))),
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Location'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15 minutes'));
+    await tester.pumpAndSettle();
+
+    // Both the viewer's own share and Mom's now show as one aggregated
+    // group — each bubble's label says so, not "Live · Xm left" on its own
+    // as if the other share didn't exist.
+    expect(find.textContaining('sharing live'), findsNWidgets(2));
+    expect(find.textContaining('Live ·'), findsNothing);
+  });
+
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
