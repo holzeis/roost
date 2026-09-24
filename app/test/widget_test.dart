@@ -698,6 +698,27 @@ void main() {
     expect(find.textContaining('Replying to'), findsOneWidget);
   });
 
+  testWidgets('The reply only starts on release, not the instant the threshold is crossed', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // Held well past the 48px threshold but not yet released.
+    final gesture = await tester.startGesture(tester.getCenter(find.textContaining("Dinner's at 7")));
+    await tester.pump();
+    for (var i = 0; i < 3; i++) {
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+    }
+    expect(find.textContaining('Replying to'), findsNothing);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Replying to'), findsOneWidget);
+  });
+
   testWidgets('Swiping an own (right-aligned) message visibly moves the bubble mid-drag', (tester) async {
     // Regression test: an own message sits flush against the row's own
     // right edge, so the earlier "grow a leading slot" implementation had

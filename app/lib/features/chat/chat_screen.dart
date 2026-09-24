@@ -1215,21 +1215,28 @@ class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble>
     super.dispose();
   }
 
-  void _onDragStart(DragStartDetails details) => _springBack.stop();
+  void _onDragStart(DragStartDetails details) {
+    _armed = false;
+    _springBack.stop();
+  }
 
+  // Only tracks position while dragging — whether this swipe actually
+  // becomes a reply (the haptic, the icon's "armed" color, the reply
+  // itself) is decided once in _onDragEnd, not continuously here, so
+  // nothing about it happens before the finger actually lifts.
   void _onDragUpdate(DragUpdateDetails details) {
-    final next = (_dragX + details.delta.dx).clamp(0.0, _maxDrag);
-    final crossed = next >= _threshold;
-    if (crossed && !_armed) HapticFeedback.selectionClick();
     setState(() {
-      _dragX = next;
-      _armed = crossed;
+      _dragX = (_dragX + details.delta.dx).clamp(0.0, _maxDrag);
     });
   }
 
   void _onDragEnd(DragEndDetails details) {
-    if (_armed) widget.onReply();
-    _armed = false;
+    final crossed = _dragX >= _threshold;
+    if (crossed) {
+      HapticFeedback.selectionClick();
+      widget.onReply();
+    }
+    _armed = crossed;
     _springBack
       ..value = _dragX
       ..animateTo(0, curve: Curves.easeOut);
