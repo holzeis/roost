@@ -1062,8 +1062,10 @@ class _MessageRow extends ConsumerWidget {
         // repeating it on every one of their messages is only useful once
         // there's more than one "other" sender to tell apart.
         if (!fromMe && isGroup) avatarSlot,
-        GestureDetector(
+        _SwipeToReplyBubble(
           onLongPress: openActions,
+          onReply: () => ref.read(composerDraftProvider(roomId).notifier).state =
+              ReplyDraft(message),
           child: Opacity(opacity: isLifted ? 0 : 1, child: bubbleWithReactions),
         ),
       ],
@@ -1163,6 +1165,118 @@ class _MessageRow extends ConsumerWidget {
           },
         ),
     ];
+  }
+}
+
+/// WhatsApp-style "swipe right to reply", enabled on every message
+/// regardless of kind or sender: dragging the bubble right reveals a reply
+/// icon behind it (peeking out from behind its leading edge as the bubble is
+/// pushed aside, via a growing-then-clipped slot rather than an absolute
+/// overlay — the latter would need to paint outside this row's own bounds
+/// and risks being clipped by the message list's viewport). Releasing past
+/// [_threshold] sets the room's reply draft to the message, same as the
+/// "Reply" action in the long-press menu; either way the bubble springs
+/// back to its resting position.
+class _SwipeToReplyBubble extends StatefulWidget {
+  const _SwipeToReplyBubble({
+    required this.child,
+    required this.onLongPress,
+    required this.onReply,
+  });
+
+  final Widget child;
+  final VoidCallback onLongPress;
+  final VoidCallback onReply;
+
+  @override
+  State<_SwipeToReplyBubble> createState() => _SwipeToReplyBubbleState();
+}
+
+class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble>
+    with SingleTickerProviderStateMixin {
+  static const _iconSize = 32.0;
+  static const _maxDrag = 60.0;
+  static const _threshold = 48.0;
+
+  late final AnimationController _springBack;
+  double _dragX = 0;
+  bool _armed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _springBack = AnimationController(vsync: this, duration: const Duration(milliseconds: 200))
+      ..addListener(() => setState(() => _dragX = _springBack.value));
+  }
+
+  @override
+  void dispose() {
+    _springBack.dispose();
+    super.dispose();
+  }
+
+  void _onDragStart(DragStartDetails details) => _springBack.stop();
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    final next = (_dragX + details.delta.dx).clamp(0.0, _maxDrag);
+    final crossed = next >= _threshold;
+    if (crossed && !_armed) HapticFeedback.selectionClick();
+    setState(() {
+      _dragX = next;
+      _armed = crossed;
+    });
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    if (_armed) widget.onReply();
+    _armed = false;
+    _springBack
+      ..value = _dragX
+      ..animateTo(0, curve: Curves.easeOut);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        ClipRect(
+          child: SizedBox(
+            width: _dragX,
+            height: _iconSize,
+            child: OverflowBox(
+              minWidth: _iconSize,
+              maxWidth: _iconSize,
+              minHeight: _iconSize,
+              maxHeight: _iconSize,
+              alignment: Alignment.centerRight,
+              child: Container(
+                width: _iconSize,
+                height: _iconSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _armed
+                      ? ochreColor(context).withValues(alpha: 0.2)
+                      : scheme.onSurface.withValues(alpha: 0.08),
+                ),
+                child: Icon(TablerIcons.arrowBackUp,
+                    size: 16,
+                    color: _armed ? ochreColor(context) : scheme.onSurface.withValues(alpha: 0.5)),
+              ),
+            ),
+          ),
+        ),
+        GestureDetector(
+          onLongPress: widget.onLongPress,
+          onHorizontalDragStart: _onDragStart,
+          onHorizontalDragUpdate: _onDragUpdate,
+          onHorizontalDragEnd: _onDragEnd,
+          child: widget.child,
+        ),
+      ],
+    );
   }
 }
 

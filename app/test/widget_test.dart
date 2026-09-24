@@ -683,6 +683,34 @@ void main() {
     expect(find.textContaining("Dinner's at 7"), findsNWidgets(2));
   });
 
+  testWidgets('Swiping a message right shows a draft bar for it, same as the Reply action', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // Past the 48px threshold (chat_screen.dart's _SwipeToReplyBubbleState),
+    // well clear of the touch-slop a plain tap/scroll would ignore.
+    await tester.drag(find.textContaining("Dinner's at 7"), const Offset(80, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Replying to'), findsOneWidget);
+  });
+
+  testWidgets('A short swipe (under the threshold) does not start a reply', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.textContaining("Dinner's at 7"), const Offset(35, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Replying to'), findsNothing);
+  });
+
   testWidgets('Replying to a photo shows a thumbnail in the draft bar and the sent reply', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
