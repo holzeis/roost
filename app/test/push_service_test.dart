@@ -1,9 +1,42 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:roost/services/push_service.dart';
 
 void main() {
+  group('isFirebaseConfigured', () {
+    test('a placeholder apiKey is not configured', () {
+      const options = FirebaseOptions(
+        apiKey: 'REPLACE_ME',
+        appId: '1:123:ios:abc',
+        messagingSenderId: '123',
+        projectId: 'roost',
+      );
+      expect(isFirebaseConfigured(options), isFalse);
+    });
+
+    test('a placeholder appId is not configured', () {
+      const options = FirebaseOptions(
+        apiKey: 'AIzaReal',
+        appId: 'REPLACE_ME',
+        messagingSenderId: '123',
+        projectId: 'roost',
+      );
+      expect(isFirebaseConfigured(options), isFalse);
+    });
+
+    test('real-looking credentials are configured', () {
+      const options = FirebaseOptions(
+        apiKey: 'AIzaReal',
+        appId: '1:123:ios:abc',
+        messagingSenderId: '123',
+        projectId: 'roost',
+      );
+      expect(isFirebaseConfigured(options), isTrue);
+    });
+  });
+
   group('routeForAcceptedCall', () {
     test('builds the IncomingCallScreen route from roomId/messageId', () {
       final route = routeForAcceptedCall({'roomId': 'room-1', 'messageId': 'msg-1'});

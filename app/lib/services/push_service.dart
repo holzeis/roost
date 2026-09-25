@@ -77,6 +77,17 @@ String? routeForMessageNotification(Map<String, dynamic>? data) {
 bool isCallWakeMessage(RemoteMessage message) =>
     message.notification == null && message.data['roomId'] != null;
 
+/// Whether [options] are real project credentials rather than the
+/// committed `firebase_options.dart` placeholder. This has to be checked
+/// *before* ever calling `Firebase.initializeApp` — the placeholder's
+/// malformed apiKey/appId fail Firebase's native validation with an
+/// uncaught NSException on iOS, which crashes the whole process rather
+/// than surfacing as a catchable Dart error, so wrapping the call in
+/// try/catch alone (as this file otherwise relies on for "push isn't set
+/// up yet") isn't enough here.
+bool isFirebaseConfigured(FirebaseOptions options) =>
+    options.apiKey != 'REPLACE_ME' && options.appId != 'REPLACE_ME';
+
 /// FCM background messages must be handled by a top-level/static function
 /// (firebase_messaging's own requirement — it runs in a separate isolate
 /// with no access to PushService's own state) — Android's half of FR5.1's
@@ -114,7 +125,28 @@ class PushService {
     // — push is a fallback path, never something the rest of the app
     // depends on succeeding.
     try {
-      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      await FlutterCallkitIncoming.requestNotificationPermission({
+        'title': 'Notification permission',
+        'rationaleMessagePermission':
+            'Notification permission is required to show incoming calls and new messages.',
+        'postNotificationMessageRequired':
+            'Notification permission is required — please allow it from settings.',
+      });
+
+      // iOS call-wake (FR5.1) goes through PushKit/CallKit directly, not
+      // Firebase — register it regardless of whether Firebase itself is
+      // configured yet.
+      if (Platform.isIOS) {
+        final existingVoip = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+        if (existingVoip != null && existingVoip.isNotEmpty) {
+          unawaited(_registerDevice('ios', existingVoip, 'voip'));
+        }
+      }
+
+      final options = DefaultFirebaseOptions.currentPlatform;
+      if (!isFirebaseConfigured(options)) return;
+
+      await Firebase.initializeApp(options: options);
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       FirebaseMessaging.onMessage.listen((message) {
         if (!isCallWakeMessage(message)) return;
@@ -124,26 +156,12 @@ class PushService {
       final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
       if (initialMessage != null) _openMessageNotification(initialMessage.data);
 
-      await FlutterCallkitIncoming.requestNotificationPermission({
-        'title': 'Notification permission',
-        'rationaleMessagePermission':
-            'Notification permission is required to show incoming calls and new messages.',
-        'postNotificationMessageRequired':
-            'Notification permission is required — please allow it from settings.',
-      });
       await FirebaseMessaging.instance.requestPermission();
 
       final platform = Platform.isIOS ? 'ios' : 'android';
       final fcmToken = await FirebaseMessaging.instance.getToken();
       if (fcmToken != null) unawaited(_registerDevice(platform, fcmToken, 'fcm'));
       FirebaseMessaging.instance.onTokenRefresh.listen((token) => _registerDevice(platform, token, 'fcm'));
-
-      if (Platform.isIOS) {
-        final existingVoip = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
-        if (existingVoip != null && existingVoip.isNotEmpty) {
-          unawaited(_registerDevice('ios', existingVoip, 'voip'));
-        }
-      }
     } catch (_) {
       // Ignored — see doc comment above.
     }
