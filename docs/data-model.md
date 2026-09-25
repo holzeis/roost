@@ -25,14 +25,19 @@ on first authenticated request — there's no signup flow (FR6.1).
 
 ### devices
 
-A user's push-capable devices (FR5.1).
+A user's push-capable devices (FR5.1 call wake, FR5.2 message notifications).
+A single physical iOS device can have two rows — PushKit's VoIP token
+(FR5.1) can only receive `apns-push-type: voip` pushes, so it can't double
+as the token for a plain alert notification; Android's one FCM token
+already covers both, so it never has more than one row per registration.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid, PK | |
 | `user_id` | uuid, FK → `users` | |
 | `platform` | text | `ios` \| `android` |
-| `push_token` | text | APNs device token or FCM registration token |
+| `push_token` | text | APNs device token (VoIP or regular) or FCM registration token |
+| `token_type` | text | `fcm` (message notifications, both platforms) \| `voip` (call wake, iOS only) — migration 0005 |
 | `created_at`, `last_seen_at` | timestamptz | |
 
 ### media_objects

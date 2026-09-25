@@ -139,6 +139,11 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Platform  string `json:"platform"`
 		PushToken string `json:"pushToken"`
+		// TokenType: "fcm" (FR5.2 message notifications) or "voip" (FR5.1
+		// call wake) — see models.Device's doc comment. Defaults to "fcm"
+		// so an older client that doesn't send it yet still registers
+		// something sane.
+		TokenType string `json:"tokenType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -152,8 +157,15 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "pushToken is required")
 		return
 	}
+	if body.TokenType == "" {
+		body.TokenType = "fcm"
+	}
+	if body.TokenType != "fcm" && body.TokenType != "voip" {
+		writeError(w, http.StatusBadRequest, "tokenType must be fcm or voip")
+		return
+	}
 
-	device, err := s.Store.UpsertDevice(r.Context(), u.ID, body.Platform, body.PushToken)
+	device, err := s.Store.UpsertDevice(r.Context(), u.ID, body.Platform, body.PushToken, body.TokenType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not register device")
 		return
@@ -328,12 +340,13 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
-	userID, ok := currentUser(w, r)
+	sender, ok := session.UserFromContext(r.Context())
 	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	roomID := chi.URLParam(r, "roomID")
-	if !s.requireMembership(w, r, userID, roomID) {
+	if !s.requireMembership(w, r, sender.ID, roomID) {
 		return
 	}
 
@@ -349,7 +362,7 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := s.Store.CreateTextMessage(r.Context(), roomID, userID, body.Body, body.ReplyToMessageID, false)
+	msg, err := s.Store.CreateTextMessage(r.Context(), roomID, sender.ID, body.Body, body.ReplyToMessageID, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create message")
 		return
@@ -363,9 +376,7 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
-		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
-	}
+	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
 
 	writeJSON(w, http.StatusCreated, msg)
 }
@@ -400,10 +411,12 @@ const maxMediaUploadBytes = 200 << 20 // 200 MiB
 // object and the message referencing it, so there's never a message
 // pointing at bytes that don't exist (upload happens before either DB row).
 func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
-	userID, ok := currentUser(w, r)
+	sender, ok := session.UserFromContext(r.Context())
 	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	userID := sender.ID
 	roomID := chi.URLParam(r, "roomID")
 	if !s.requireMembership(w, r, userID, roomID) {
 		return
@@ -470,9 +483,7 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
-		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
-	}
+	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
 
 	writeJSON(w, http.StatusCreated, msg)
 }
@@ -975,10 +986,12 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 // server-side copy) and its own media_objects row, so deleting either copy
 // never affects the other.
 func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
-	userID, ok := currentUser(w, r)
+	sender, ok := session.UserFromContext(r.Context())
 	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	userID := sender.ID
 	messageID := chi.URLParam(r, "messageID")
 
 	var body struct {
@@ -1028,9 +1041,7 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), body.RoomID); err == nil {
-		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: forwarded})
-	}
+	s.deliverMessageEvent(r.Context(), body.RoomID, sender.ID, sender.DisplayName, forwarded)
 	writeJSON(w, http.StatusCreated, forwarded)
 }
 
@@ -1058,10 +1069,12 @@ func (s *Server) duplicateMedia(ctx context.Context, sourceMediaID, dstRoomID, u
 // duration from FR3.2's small preset set; validated server-side so a client
 // can't request an effectively-unbounded share.
 func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
-	userID, ok := currentUser(w, r)
+	sender, ok := session.UserFromContext(r.Context())
 	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	userID := sender.ID
 	roomID := chi.URLParam(r, "roomID")
 	if !s.requireMembership(w, r, userID, roomID) {
 		return
@@ -1092,9 +1105,7 @@ func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
-		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
-	}
+	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
 	writeJSON(w, http.StatusCreated, msg)
 }
 
@@ -1229,34 +1240,72 @@ func (s *Server) handleStartCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
-		ev := ws.Event{Type: "message.created", Payload: msg}
-		for _, memberID := range memberIDs {
-			if memberID == caller.ID {
-				continue
-			}
-			if s.Hub.SendToUser(memberID, ev) {
-				continue
-			}
+	s.deliverToRoom(r.Context(), roomID, caller.ID, ws.Event{Type: "message.created", Payload: msg},
+		func(ctx context.Context, memberID string) {
 			var callID string
 			if msg.Call != nil {
 				callID = msg.Call.ID
 			}
-			s.pushCallWake(r.Context(), memberID, push.CallWakePayload{
+			s.pushCallWake(ctx, memberID, push.CallWakePayload{
 				RoomID:     roomID,
 				MessageID:  msg.ID,
 				CallID:     callID,
 				CallerID:   caller.ID,
 				CallerName: caller.DisplayName,
 			})
-		}
-	}
+		})
 	writeJSON(w, http.StatusCreated, msg)
 }
 
+// deliverToRoom sends ev to every member of roomID except excludeUserID
+// (the sender/caller) over the WebSocket, calling onOffline for anyone not
+// currently reachable that way — the shared "WS, else push fallback"
+// pattern behind both FR5.1 (handleStartCall) and FR5.2
+// (deliverMessageEvent). A failure to list members is logged and otherwise
+// swallowed — delivery is always best-effort, never something that fails
+// the API response that created the message/call in the first place.
+func (s *Server) deliverToRoom(
+	ctx context.Context, roomID, excludeUserID string, ev ws.Event, onOffline func(ctx context.Context, memberID string),
+) {
+	memberIDs, err := s.Store.ListRoomMemberIDs(ctx, roomID)
+	if err != nil {
+		slog.Error("deliver: list room members failed", "room", roomID, "error", err)
+		return
+	}
+	for _, memberID := range memberIDs {
+		if memberID == excludeUserID {
+			continue
+		}
+		if s.Hub.SendToUser(memberID, ev) {
+			continue
+		}
+		onOffline(ctx, memberID)
+	}
+}
+
+// deliverMessageEvent is deliverToRoom specialized for FR5.2: a
+// message.created event for a genuinely new message (text, media, location,
+// or forward — not reactions/edits/receipts, which aren't "new messages").
+// senderName is display-only, for the notification's title — see
+// push.MessagePayload's own doc comment on why the body never carries the
+// actual message content.
+func (s *Server) deliverMessageEvent(ctx context.Context, roomID, senderID, senderName string, msg models.Message) {
+	s.deliverToRoom(ctx, roomID, senderID, ws.Event{Type: "message.created", Payload: msg},
+		func(ctx context.Context, memberID string) {
+			s.pushMessageNotification(ctx, memberID, push.MessagePayload{
+				RoomID:     roomID,
+				MessageID:  msg.ID,
+				SenderName: senderName,
+			})
+		})
+}
+
 // pushCallWake sends the FR5.1 call-wake push to every device memberID has
-// registered. Delivery failures are logged and otherwise ignored — see
-// handleStartCall's own doc comment for why.
+// registered — only ever the VoIP-token row on iOS (a device's "fcm" row is
+// for message notifications only, and can't receive VoIP-type pushes at
+// all; Android's single row is always usable, since its one FCM token
+// covers both purposes). Delivery failures are logged and otherwise
+// ignored — see handleStartCall's own doc comment for why.
 func (s *Server) pushCallWake(ctx context.Context, userID string, payload push.CallWakePayload) {
 	devices, err := s.Store.ListDevicesForUser(ctx, userID)
 	if err != nil {
@@ -1264,8 +1313,32 @@ func (s *Server) pushCallWake(ctx context.Context, userID string, payload push.C
 		return
 	}
 	for _, d := range devices {
+		if d.Platform == "ios" && d.TokenType != "voip" {
+			continue
+		}
 		if err := s.Push.SendCallWake(ctx, d.PushToken, d.Platform, payload); err != nil {
 			slog.Error("push: call wake failed", "user", userID, "device", d.ID, "platform", d.Platform, "error", err)
+		}
+	}
+}
+
+// pushMessageNotification sends the FR5.2 message-notification push to
+// every "fcm" device memberID has registered (both platforms — see
+// models.Device) — skips a device's "voip" row, which can't receive a
+// plain alert-type push. Delivery failures are logged and otherwise
+// ignored, same as pushCallWake.
+func (s *Server) pushMessageNotification(ctx context.Context, userID string, payload push.MessagePayload) {
+	devices, err := s.Store.ListDevicesForUser(ctx, userID)
+	if err != nil {
+		slog.Error("push: list devices failed", "user", userID, "error", err)
+		return
+	}
+	for _, d := range devices {
+		if d.TokenType != "fcm" {
+			continue
+		}
+		if err := s.Push.SendMessageNotification(ctx, d.PushToken, d.Platform, payload); err != nil {
+			slog.Error("push: message notification failed", "user", userID, "device", d.ID, "platform", d.Platform, "error", err)
 		}
 	}
 }

@@ -88,19 +88,21 @@ func scanUser(row pgx.Row) (models.User, error) {
 	return u, nil
 }
 
-// UpsertDevice registers or refreshes a push-capable device (FR5.1) — a
-// client re-registers on every app start, so the same (user, token) pair
+// UpsertDevice registers or refreshes a push-capable device (FR5.1/FR5.2) —
+// a client re-registers on every app start, so the same (user, token) pair
 // just bumps last_seen_at rather than erroring, matching the migration's
-// UNIQUE(user_id, push_token) constraint.
-func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken string) (models.Device, error) {
+// UNIQUE(user_id, push_token) constraint. tokenType is "fcm" or "voip" —
+// see models.Device's doc comment for why a single iOS device can have one
+// row of each.
+func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken, tokenType string) (models.Device, error) {
 	const q = `
-		INSERT INTO devices (user_id, platform, push_token)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id, push_token) DO UPDATE SET last_seen_at = now()
-		RETURNING id, user_id, platform, push_token, last_seen_at`
+		INSERT INTO devices (user_id, platform, push_token, token_type)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, push_token) DO UPDATE SET last_seen_at = now(), token_type = EXCLUDED.token_type
+		RETURNING id, user_id, platform, push_token, token_type, last_seen_at`
 	var d models.Device
-	err := s.pool.QueryRow(ctx, q, userID, platform, pushToken).
-		Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.LastSeenAt)
+	err := s.pool.QueryRow(ctx, q, userID, platform, pushToken, tokenType).
+		Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.TokenType, &d.LastSeenAt)
 	if err != nil {
 		return models.Device{}, fmt.Errorf("store: upsert device: %w", err)
 	}
@@ -108,10 +110,12 @@ func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken st
 }
 
 // ListDevicesForUser returns every push-capable device registered for
-// userID — the push-fallback path (handleStartCall) sends to all of them,
-// since a user may have both a phone and a tablet registered.
+// userID — the push-fallback paths (handleStartCall, deliverMessageEvent)
+// filter by TokenType for their own purpose (a user may have both a phone
+// and a tablet registered, and on iOS, two rows for the same physical
+// device — see models.Device).
 func (s *Store) ListDevicesForUser(ctx context.Context, userID string) ([]models.Device, error) {
-	const q = `SELECT id, user_id, platform, push_token, last_seen_at FROM devices WHERE user_id = $1`
+	const q = `SELECT id, user_id, platform, push_token, token_type, last_seen_at FROM devices WHERE user_id = $1`
 	rows, err := s.pool.Query(ctx, q, userID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list devices: %w", err)
@@ -121,7 +125,7 @@ func (s *Store) ListDevicesForUser(ctx context.Context, userID string) ([]models
 	var devices []models.Device
 	for rows.Next() {
 		var d models.Device
-		if err := rows.Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.LastSeenAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.TokenType, &d.LastSeenAt); err != nil {
 			return nil, fmt.Errorf("store: scan device: %w", err)
 		}
 		devices = append(devices, d)

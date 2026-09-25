@@ -1056,15 +1056,16 @@ func TestStore_UpsertDevice_RegistersAndRefreshes(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	first, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc")
+	first, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc", "voip")
 	if err != nil {
 		t.Fatalf("upsert device: %v", err)
 	}
-	if first.UserID != user.ID || first.Platform != "ios" || first.PushToken != "voip-token-abc" {
+	if first.UserID != user.ID || first.Platform != "ios" || first.PushToken != "voip-token-abc" ||
+		first.TokenType != "voip" {
 		t.Fatalf("unexpected device: %+v", first)
 	}
 
-	again, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc")
+	again, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc", "voip")
 	if err != nil {
 		t.Fatalf("re-upsert device: %v", err)
 	}
@@ -1093,10 +1094,10 @@ func TestStore_ListDevicesForUser_ReturnsEveryRegisteredDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "phone-token"); err != nil {
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "phone-token", "fcm"); err != nil {
 		t.Fatalf("upsert phone device: %v", err)
 	}
-	if _, err := s.UpsertDevice(ctx, user.ID, "android", "tablet-token"); err != nil {
+	if _, err := s.UpsertDevice(ctx, user.ID, "android", "tablet-token", "fcm"); err != nil {
 		t.Fatalf("upsert tablet device: %v", err)
 	}
 
@@ -1128,5 +1129,49 @@ func TestStore_ListDevicesForUser_EmptyForAUserWithNoDevices(t *testing.T) {
 	}
 	if len(devices) != 0 {
 		t.Fatalf("expected no devices, got %d", len(devices))
+	}
+}
+
+// TestStore_UpsertDevice_OneIOSDeviceCanHaveBothTokenTypes covers FR5.2's
+// reason for the token_type column: a single physical iPhone registers a
+// "voip" token (FR5.1 call wake, via PushKit) and a separate "fcm" token
+// (FR5.2 message notifications, via firebase_messaging) — these are two
+// distinct tokens from two distinct OS registration mechanisms, so both
+// rows need to coexist rather than one overwriting the other.
+func TestStore_UpsertDevice_OneIOSDeviceCanHaveBothTokenTypes(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("dual-token-%d@github", run), "Dual Token")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token", "voip"); err != nil {
+		t.Fatalf("upsert voip token: %v", err)
+	}
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "fcm-token", "fcm"); err != nil {
+		t.Fatalf("upsert fcm token: %v", err)
+	}
+
+	devices, err := s.ListDevicesForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected both the voip and fcm rows to coexist, got %d: %+v", len(devices), devices)
+	}
+	var sawVoip, sawFCM bool
+	for _, d := range devices {
+		if d.TokenType == "voip" && d.PushToken == "voip-token" {
+			sawVoip = true
+		}
+		if d.TokenType == "fcm" && d.PushToken == "fcm-token" {
+			sawFCM = true
+		}
+	}
+	if !sawVoip || !sawFCM {
+		t.Fatalf("expected one voip row and one fcm row, got %+v", devices)
 	}
 }

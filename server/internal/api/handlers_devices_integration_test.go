@@ -28,18 +28,26 @@ type fakeWSConn struct{}
 
 func (fakeWSConn) Send(ws.Event) error { return nil }
 
-// fakePushSender records every SendCallWake call so a test can assert
-// exactly who got pushed to (and who didn't) — this project's established
-// fakes-over-mocks convention (see app/test/fakes.dart's FakeApiClient).
+// fakePushSender records every SendCallWake/SendMessageNotification call so
+// a test can assert exactly who got pushed to (and who didn't) — this
+// project's established fakes-over-mocks convention (see
+// app/test/fakes.dart's FakeApiClient).
 type fakePushSender struct {
-	mu    sync.Mutex
-	calls []fakePushCall
+	mu           sync.Mutex
+	calls        []fakePushCall
+	messageCalls []fakeMessagePushCall
 }
 
 type fakePushCall struct {
 	deviceToken string
 	platform    string
 	payload     push.CallWakePayload
+}
+
+type fakeMessagePushCall struct {
+	deviceToken string
+	platform    string
+	payload     push.MessagePayload
 }
 
 func (f *fakePushSender) SendCallWake(_ context.Context, deviceToken, platform string, payload push.CallWakePayload) error {
@@ -49,7 +57,10 @@ func (f *fakePushSender) SendCallWake(_ context.Context, deviceToken, platform s
 	return nil
 }
 
-func (f *fakePushSender) SendMessageNotification(context.Context, string, string, push.MessagePayload) error {
+func (f *fakePushSender) SendMessageNotification(_ context.Context, deviceToken, platform string, payload push.MessagePayload) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.messageCalls = append(f.messageCalls, fakeMessagePushCall{deviceToken, platform, payload})
 	return nil
 }
 
@@ -57,6 +68,12 @@ func (f *fakePushSender) callsSnapshot() []fakePushCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]fakePushCall(nil), f.calls...)
+}
+
+func (f *fakePushSender) messageCallsSnapshot() []fakeMessagePushCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]fakeMessagePushCall(nil), f.messageCalls...)
 }
 
 // TestHandleRegisterDevice_UpsertsAndReturnsTheDevice covers the client
@@ -72,7 +89,7 @@ func TestHandleRegisterDevice_UpsertsAndReturnsTheDevice(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	body := strings.NewReader(`{"platform":"ios","pushToken":"voip-abc123"}`)
+	body := strings.NewReader(`{"platform":"ios","pushToken":"voip-abc123","tokenType":"voip"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/devices", body)
 	req = req.WithContext(session.WithUser(req.Context(), user))
 	rec := httptest.NewRecorder()
@@ -83,14 +100,15 @@ func TestHandleRegisterDevice_UpsertsAndReturnsTheDevice(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		ID       string `json:"id"`
-		UserID   string `json:"userId"`
-		Platform string `json:"platform"`
+		ID        string `json:"id"`
+		UserID    string `json:"userId"`
+		Platform  string `json:"platform"`
+		TokenType string `json:"tokenType"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got.UserID != user.ID || got.Platform != "ios" {
+	if got.UserID != user.ID || got.Platform != "ios" || got.TokenType != "voip" {
 		t.Fatalf("unexpected device in response: %+v", got)
 	}
 
@@ -98,8 +116,64 @@ func TestHandleRegisterDevice_UpsertsAndReturnsTheDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list devices: %v", err)
 	}
-	if len(devices) != 1 || devices[0].PushToken != "voip-abc123" {
+	if len(devices) != 1 || devices[0].PushToken != "voip-abc123" || devices[0].TokenType != "voip" {
 		t.Fatalf("expected the registered device to be stored, got %+v", devices)
+	}
+}
+
+// TestHandleRegisterDevice_DefaultsTokenTypeToFCM covers a client that
+// doesn't send tokenType at all — the common case, since only the VoIP
+// registration path (FR5.1) ever sets it explicitly.
+func TestHandleRegisterDevice_DefaultsTokenTypeToFCM(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("default-token-type-%d@github", run), "Default")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	body := strings.NewReader(`{"platform":"android","pushToken":"fcm-abc123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/devices", body)
+	req = req.WithContext(session.WithUser(req.Context(), user))
+	rec := httptest.NewRecorder()
+
+	s.handleRegisterDevice(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	devices, err := s.Store.ListDevicesForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 1 || devices[0].TokenType != "fcm" {
+		t.Fatalf("expected tokenType to default to fcm, got %+v", devices)
+	}
+}
+
+// TestHandleRegisterDevice_RejectsUnknownTokenType mirrors the platform
+// check — a clean 400 rather than a raw DB constraint-violation error.
+func TestHandleRegisterDevice_RejectsUnknownTokenType(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bad-token-type-%d@github", run), "Bad Token Type")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	body := strings.NewReader(`{"platform":"ios","pushToken":"abc","tokenType":"carrier-pigeon"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/devices", body)
+	req = req.WithContext(session.WithUser(req.Context(), user))
+	rec := httptest.NewRecorder()
+
+	s.handleRegisterDevice(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -152,10 +226,10 @@ func TestHandleStartCall_PushesTheOfflineCalleeButNotAnOnlineOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create online callee: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, offlineCallee.ID, "ios", "voip-offline-callee"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, offlineCallee.ID, "ios", "voip-offline-callee", "voip"); err != nil {
 		t.Fatalf("register offline callee's device: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, onlineCallee.ID, "android", "fcm-online-callee"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, onlineCallee.ID, "android", "fcm-online-callee", "fcm"); err != nil {
 		t.Fatalf("register online callee's device: %v", err)
 	}
 	// Only onlineCallee has a live WS connection — offlineCallee has none,
@@ -228,7 +302,7 @@ func TestHandleStartCall_NoPushWhenEveryoneIsOnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create callee: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-should-not-be-used"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-should-not-be-used", "voip"); err != nil {
 		t.Fatalf("register callee's device: %v", err)
 	}
 	s.Hub.Register(callee.ID, fakeWSConn{})
@@ -250,5 +324,120 @@ func TestHandleStartCall_NoPushWhenEveryoneIsOnline(t *testing.T) {
 	}
 	if calls := pushSender.callsSnapshot(); len(calls) != 0 {
 		t.Fatalf("expected no push calls when the callee is online, got %+v", calls)
+	}
+}
+
+// TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly
+// is FR5.2's core behavior — the same "WS, else push" pattern as FR5.1's
+// call wake, now generalized (deliverMessageEvent) to every message-
+// creating handler.
+func TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	sender, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("msg-sender-%d@github", run), "Sender")
+	if err != nil {
+		t.Fatalf("create sender: %v", err)
+	}
+	offline, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("msg-offline-%d@github", run), "Offline")
+	if err != nil {
+		t.Fatalf("create offline recipient: %v", err)
+	}
+	online, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("msg-online-%d@github", run), "Online")
+	if err != nil {
+		t.Fatalf("create online recipient: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, offline.ID, "android", "fcm-offline-recipient", "fcm"); err != nil {
+		t.Fatalf("register offline recipient's device: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, online.ID, "android", "fcm-online-recipient", "fcm"); err != nil {
+		t.Fatalf("register online recipient's device: %v", err)
+	}
+	s.Hub.Register(online.ID, fakeWSConn{})
+
+	room, err := s.Store.CreateRoom(ctx, sender.ID, nil, true, []string{sender.ID, offline.ID, online.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	body := strings.NewReader(`{"body":"anyone home?"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/messages", body)
+	req = req.WithContext(session.WithUser(req.Context(), sender))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleCreateMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	calls := pushSender.messageCallsSnapshot()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 message-notification push (to the offline recipient only), got %d: %+v",
+			len(calls), calls)
+	}
+	got := calls[0]
+	if got.deviceToken != "fcm-offline-recipient" {
+		t.Fatalf("push went to the wrong device: %+v", got)
+	}
+	if got.payload.RoomID != room.ID || got.payload.MessageID != created.ID || got.payload.SenderName != sender.DisplayName {
+		t.Fatalf("unexpected push payload: %+v (want room=%s message=%s sender=%s)",
+			got.payload, room.ID, created.ID, sender.DisplayName)
+	}
+}
+
+// TestHandleCreateMessage_SkipsAVoipOnlyDeviceForMessageNotifications
+// guards the token_type filter added in migration 0005 — a device that's
+// only ever registered its PushKit VoIP token (FR5.1) can't receive a
+// plain alert-type push, so it must never be sent a message notification.
+func TestHandleCreateMessage_SkipsAVoipOnlyDeviceForMessageNotifications(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	sender, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("voip-only-sender-%d@github", run), "Sender")
+	if err != nil {
+		t.Fatalf("create sender: %v", err)
+	}
+	offline, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("voip-only-offline-%d@github", run), "Offline")
+	if err != nil {
+		t.Fatalf("create offline recipient: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, offline.ID, "ios", "voip-only-token", "voip"); err != nil {
+		t.Fatalf("register offline recipient's voip-only device: %v", err)
+	}
+
+	room, err := s.Store.CreateRoom(ctx, sender.ID, nil, false, []string{sender.ID, offline.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	body := strings.NewReader(`{"body":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/messages", body)
+	req = req.WithContext(session.WithUser(req.Context(), sender))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleCreateMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if calls := pushSender.messageCallsSnapshot(); len(calls) != 0 {
+		t.Fatalf("expected no message-notification push to a voip-only device, got %+v", calls)
 	}
 }

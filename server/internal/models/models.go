@@ -188,10 +188,15 @@ func ValidCoordinate(lat, lng float64) bool {
 }
 
 type Device struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"userId"`
-	Platform   string    `json:"platform"` // "ios" | "android"
-	PushToken  string    `json:"-"`
+	ID        string `json:"id"`
+	UserID    string `json:"userId"`
+	Platform  string `json:"platform"` // "ios" | "android"
+	PushToken string `json:"-"`
+	// TokenType distinguishes which push transport PushToken is for —
+	// "fcm" (message notifications, FR5.2 — both platforms) or "voip"
+	// (call wake, FR5.1 — iOS's separate PushKit token only; Android's
+	// single FCM token already covers both, so it's always "fcm" there).
+	TokenType  string    `json:"tokenType"`
 	LastSeenAt time.Time `json:"lastSeenAt"`
 }
 

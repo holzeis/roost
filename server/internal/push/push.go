@@ -34,9 +34,14 @@ type CallWakePayload struct {
 	CallerName string
 }
 
+// MessagePayload backs FR5.2 — a generic "new message" notification.
+// Deliberately carries no message body/preview (see this package's own doc
+// comment on why); SenderName is the one bit of context shown, the same
+// way CallWakePayload.CallerName is display-only for the call-wake case.
 type MessagePayload struct {
-	RoomID    string
-	MessageID string
+	RoomID     string
+	MessageID  string
+	SenderName string
 }
 
 // Sender delivers a wake-up push to a single device. Implementations should
@@ -85,10 +90,18 @@ func (m MultiSender) SendCallWake(ctx context.Context, deviceToken, platform str
 	}
 }
 
-// SendMessageNotification is a no-op on both senders for now — FR5.2
-// (message notifications) is out of scope for this pass.
+// SendMessageNotification always routes through FCM regardless of
+// platform — unlike call-wake, iOS's message-notification token is itself
+// an FCM token (obtained via firebase_messaging, not PushKit; see
+// lib/services/push_service.dart), since a plain alert notification
+// doesn't need PushKit/CallKit's special wake guarantees the way a call
+// does. platform is accepted for interface-symmetry with SendCallWake but
+// unused here.
 func (m MultiSender) SendMessageNotification(ctx context.Context, deviceToken, platform string, payload MessagePayload) error {
-	return nil
+	if m.FCM == nil {
+		return nil
+	}
+	return m.FCM.SendMessageNotification(ctx, deviceToken, payload)
 }
 
 // APNsSender wakes iOS for CallKit via a PushKit VoIP-type push (Apple's
@@ -192,6 +205,33 @@ func (f *FCMSender) SendCallWake(ctx context.Context, deviceToken string, payloa
 	})
 	if err != nil {
 		return fmt.Errorf("push: send fcm call wake: %w", err)
+	}
+	return nil
+}
+
+// SendMessageNotification (FR5.2) sends a real "notification" message
+// (title/body), not a data-only one — unlike call wake, there's no custom
+// UI to build ourselves here; the OS shows it natively even while the app
+// is backgrounded or fully closed. Body is deliberately generic (see this
+// package's own doc comment) — never the actual message text.
+func (f *FCMSender) SendMessageNotification(ctx context.Context, deviceToken string, payload MessagePayload) error {
+	title := payload.SenderName
+	if title == "" {
+		title = "New message"
+	}
+	_, err := f.client.Send(ctx, &messaging.Message{
+		Token: deviceToken,
+		Notification: &messaging.Notification{
+			Title: title,
+			Body:  "Sent a message in Roost",
+		},
+		Data: map[string]string{
+			"roomId":    payload.RoomID,
+			"messageId": payload.MessageID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("push: send fcm message notification: %w", err)
 	}
 	return nil
 }
