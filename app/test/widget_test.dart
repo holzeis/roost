@@ -1028,6 +1028,63 @@ void main() {
     expect(avatars.where((a) => a.size == 30), isEmpty);
   });
 
+  testWidgets('Tapping a group chat title opens its member list (FR1.4)', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // The chat title itself, not the room-list entry — the room list is
+    // gone now that the chat screen is open, so this is unambiguous.
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group info'), findsOneWidget);
+    expect(find.text('3 members'), findsOneWidget);
+    expect(find.text('You'), findsOneWidget);
+    expect(find.text('Mom'), findsOneWidget);
+    expect(find.text('Dad'), findsOneWidget);
+  });
+
+  testWidgets('Tapping a 1:1 chat title does not open a member list', (tester) async {
+    final api = _seededApiClient();
+    api.rooms = [
+      ...api.rooms,
+      ApiRoom(
+        id: 'room-dm',
+        isGroup: false,
+        createdBy: 'me',
+        createdAt: DateTime.now(),
+        members: const ['me', 'user-mom'],
+        lastMessageBody: 'See you soon',
+        lastMessageKind: 'text',
+        lastMessageAt: DateTime.now(),
+      ),
+    ];
+    api.messagesByRoom['room-dm'] = [
+      ApiMessage(
+        id: 'dm1',
+        roomId: 'room-dm',
+        senderId: 'user-mom',
+        kind: 'text',
+        body: 'See you soon',
+        createdAt: DateTime.now(),
+      ),
+    ];
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Mom'));
+    await tester.pumpAndSettle();
+
+    // A 1:1 chat never shows a sender-name label above a message (only
+    // group chats do), so this is the chat title itself, unambiguously.
+    await tester.tap(find.text('Mom'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group info'), findsNothing);
+  });
+
   testWidgets('Tapping an image opens the full-screen viewer, where react and reply both work',
       (tester) async {
     final api = _seededApiClient();

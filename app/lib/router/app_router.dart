@@ -4,6 +4,7 @@ import '../data/api_models.dart';
 import '../features/call/call_screen.dart';
 import '../features/call/incoming_call_screen.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/chat/group_info_screen.dart';
 import '../features/chat/media_viewer_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/home/home_screen.dart';
@@ -25,6 +26,10 @@ final appRouter = GoRouter(
         roomId: state.pathParameters['roomId']!,
         room: state.extra as ApiRoom?,
       ),
+    ),
+    GoRoute(
+      path: '/chat/:roomId/info',
+      builder: (context, state) => GroupInfoScreen(roomId: state.pathParameters['roomId']!),
     ),
     GoRoute(
       path: '/chat/:roomId/search',

@@ -167,7 +167,7 @@ class _ChatTitle extends StatelessWidget {
     }
     final typingLabel = _typingLabel(me.valueOrNull?.id);
 
-    return Row(
+    final content = Row(
       children: [
         InitialAvatar(
             initial: title.isNotEmpty ? title[0].toUpperCase() : '?',
@@ -208,6 +208,15 @@ class _ChatTitle extends StatelessWidget {
           ),
         ),
       ],
+    );
+
+    // FR1.4: a group's member roster is a tap away (see
+    // group_info_screen.dart) — a 1:1 room has nothing this would add,
+    // since its one other member is already named right here.
+    if (!room.isGroup) return content;
+    return InkWell(
+      onTap: () => context.push('/chat/${room.id}/info'),
+      child: content,
     );
   }
 }
