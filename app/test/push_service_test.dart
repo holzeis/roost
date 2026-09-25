@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:roost/services/push_service.dart';
@@ -65,6 +66,44 @@ void main() {
     test('falls back to a generic caller name when none is given', () {
       final params = callKitParamsFromPushData({'roomId': 'room-1', 'messageId': 'msg-1'});
       expect(params.nameCaller, 'Incoming call');
+    });
+  });
+
+  group('routeForMessageNotification', () {
+    test('builds the chat route from roomId', () {
+      expect(routeForMessageNotification({'roomId': 'room-1'}), '/chat/room-1');
+    });
+
+    test('returns null when data is null', () {
+      expect(routeForMessageNotification(null), isNull);
+    });
+
+    test('returns null when roomId is missing or empty', () {
+      expect(routeForMessageNotification({}), isNull);
+      expect(routeForMessageNotification({'roomId': ''}), isNull);
+    });
+  });
+
+  group('isCallWakeMessage', () {
+    test('a data-only message with roomId is a call wake', () {
+      const message = RemoteMessage(data: {'roomId': 'room-1', 'messageId': 'msg-1'});
+      expect(isCallWakeMessage(message), isTrue);
+    });
+
+    test('a message carrying a notification block is not a call wake', () {
+      // FR5.2's message notifications always have one — the OS displays
+      // them natively, so this app's code must never treat them as a
+      // call-wake data message.
+      const message = RemoteMessage(
+        data: {'roomId': 'room-1', 'messageId': 'msg-1'},
+        notification: RemoteNotification(title: 'Mom', body: 'Sent a message in Roost'),
+      );
+      expect(isCallWakeMessage(message), isFalse);
+    });
+
+    test('a data-only message with no roomId is not a call wake', () {
+      const message = RemoteMessage(data: {'somethingElse': 'value'});
+      expect(isCallWakeMessage(message), isFalse);
     });
   });
 }

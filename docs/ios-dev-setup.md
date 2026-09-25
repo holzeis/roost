@@ -133,12 +133,20 @@ the Simulator. Once enrolled, at <https://developer.apple.com/account/resources>
 5. **Build and install** a release build per the section above, on the
    physical device you registered — `flutter run --release -d <device-id>`.
 
-Android's half of FR5.1 uses Firebase Cloud Messaging instead — create a
-free project at <https://console.firebase.google.com>, then either run
+FR5.2 (message notifications) and FR5.1's Android half both use Firebase
+Cloud Messaging instead of APNs directly — create a free project at
+<https://console.firebase.google.com>, add both an Android and an iOS app
+to it (bundle ID `me.holzeis.roost.roost`), then either run
 `flutterfire configure` from `app/` (regenerates
-`app/lib/firebase_options.dart` with real values) or download the project's
-service-account JSON (Project Settings → Service Accounts) and set it as
-`FCM_SERVICE_ACCOUNT_JSON` server-side, same as the APNs values above.
+`app/lib/firebase_options.dart` with real values for *both* platforms — see
+its own doc comment) or manually copy the `android`/`ios` config values from
+the Firebase console into that file yourself. Also download the project's
+service-account JSON (Project Settings → Service Accounts → Generate new
+private key) and set it as `FCM_SERVICE_ACCOUNT_JSON` server-side, same as
+the APNs values above. Unlike FR5.1's call wake, FR5.2 needs no separate
+Apple Developer Program entitlement on iOS — a plain FCM/APNs alert
+notification doesn't need PushKit's special capability, only the regular
+Push Notifications one already enabled in step 1 above.
 
 ## Talking to a local chat server
 

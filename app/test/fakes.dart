@@ -92,13 +92,18 @@ class FakeApiClient extends ApiClient {
     return me;
   }
 
-  /// Every {platform, pushToken} registerDevice was called with, in order —
-  /// lets a test assert the push service actually registered (or didn't).
-  final List<({String platform, String pushToken})> registeredDevices = [];
+  /// Every {platform, pushToken, tokenType} registerDevice was called with,
+  /// in order — lets a test assert the push service actually registered
+  /// (or didn't).
+  final List<({String platform, String pushToken, String tokenType})> registeredDevices = [];
 
   @override
-  Future<void> registerDevice({required String platform, required String pushToken}) async {
-    registeredDevices.add((platform: platform, pushToken: pushToken));
+  Future<void> registerDevice({
+    required String platform,
+    required String pushToken,
+    String tokenType = 'fcm',
+  }) async {
+    registeredDevices.add((platform: platform, pushToken: pushToken, tokenType: tokenType));
   }
 
   @override

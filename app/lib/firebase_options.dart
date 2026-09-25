@@ -1,12 +1,13 @@
 // PLACEHOLDER — regenerate this file once a real Firebase project exists.
 //
-// FR5.1 (push-woken incoming calls) uses Firebase Cloud Messaging on
-// Android only (iOS's call-wake path goes through flutter_callkit_incoming's
-// own PushKit registration — no Firebase involved there at all; see
-// lib/services/push_service.dart). These values are placeholders so the app
-// keeps compiling and analyzing before a real Firebase project exists —
-// FirebaseMessaging.instance.getToken() will simply fail at runtime with
-// this configuration, which is expected until it's replaced.
+// Firebase Cloud Messaging backs FR5.2 (message notifications) on both
+// platforms, and FR5.1 (call wake) on Android only — iOS's call-wake path
+// goes through flutter_callkit_incoming's own PushKit registration instead,
+// no Firebase involved there (see lib/services/push_service.dart). These
+// values are placeholders so the app keeps compiling and analyzing before a
+// real Firebase project exists — FirebaseMessaging.instance.getToken() will
+// simply fail at runtime with this configuration, which is expected until
+// it's replaced.
 //
 // To replace it for real:
 //   1. Create a free Firebase project at https://console.firebase.google.com
@@ -26,11 +27,11 @@ class DefaultFirebaseOptions {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
+      case TargetPlatform.iOS:
+        return ios;
       default:
-        // FR5.1's iOS path never calls Firebase.initializeApp() at all —
-        // see push_service.dart's PushService._initIOS.
         throw UnsupportedError(
-          'DefaultFirebaseOptions.currentPlatform is only used on Android in this app.',
+          'DefaultFirebaseOptions.currentPlatform is only used on Android and iOS in this app.',
         );
     }
   }
@@ -41,5 +42,14 @@ class DefaultFirebaseOptions {
     messagingSenderId: 'REPLACE_ME',
     projectId: 'REPLACE_ME',
     storageBucket: 'REPLACE_ME',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'REPLACE_ME',
+    appId: 'REPLACE_ME',
+    messagingSenderId: 'REPLACE_ME',
+    projectId: 'REPLACE_ME',
+    storageBucket: 'REPLACE_ME',
+    iosBundleId: 'me.holzeis.roost.roost',
   );
 }

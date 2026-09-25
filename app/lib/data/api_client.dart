@@ -54,15 +54,21 @@ class ApiClient {
     return ApiUser.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
-  /// Registers this device's push token for FR5.1's call-wake fallback —
-  /// see server/internal/api's handleRegisterDevice. Safe to call on every
-  /// app start: the server treats re-registering the same token as a
+  /// Registers this device's push token for FR5.1's call-wake fallback or
+  /// FR5.2's message-notification fallback — see server/internal/api's
+  /// handleRegisterDevice. tokenType is "voip" (FR5.1, iOS's PushKit token
+  /// only) or "fcm" (FR5.2, both platforms — the default). Safe to call on
+  /// every app start: the server treats re-registering the same token as a
   /// refresh, not an error.
-  Future<void> registerDevice({required String platform, required String pushToken}) async {
+  Future<void> registerDevice({
+    required String platform,
+    required String pushToken,
+    String tokenType = 'fcm',
+  }) async {
     final res = await _http.post(
       _uri('/api/devices'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'platform': platform, 'pushToken': pushToken}),
+      body: jsonEncode({'platform': platform, 'pushToken': pushToken, 'tokenType': tokenType}),
     );
     _checkOk(res);
   }

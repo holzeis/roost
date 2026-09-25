@@ -60,22 +60,45 @@ CallKitParams callKitParamsFromPushData(Map<String, dynamic> data) {
   );
 }
 
+/// Given the data on a tapped FR5.2 message notification, the chat to open
+/// — null when incomplete. Pulled out for the same testability reason as
+/// [routeForAcceptedCall].
+String? routeForMessageNotification(Map<String, dynamic>? data) {
+  final roomId = data?['roomId'] as String?;
+  if (roomId == null || roomId.isEmpty) return null;
+  return '/chat/$roomId';
+}
+
+/// Whether an FCM message is FR5.1's call-wake (Android only — iOS's call
+/// wake never goes through FCM, only PushKit) rather than an FR5.2 message
+/// notification: call wake arrives data-only, with no `notification` block
+/// — a message notification always has one, and the OS displays it
+/// natively without any of this app's code needing to run at all.
+bool isCallWakeMessage(RemoteMessage message) =>
+    message.notification == null && message.data['roomId'] != null;
+
 /// FCM background messages must be handled by a top-level/static function
 /// (firebase_messaging's own requirement — it runs in a separate isolate
 /// with no access to PushService's own state) — Android's half of FR5.1's
 /// call-wake path when the app is backgrounded or fully closed.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  if (message.data['roomId'] == null) return;
+  if (!isCallWakeMessage(message)) return;
   await FlutterCallkitIncoming.showCallkitIncoming(callKitParamsFromPushData(message.data));
 }
 
-/// Wires up FR5.1 (push-woken incoming calls): registers this device's push
-/// token with the server (server/internal/api's handleRegisterDevice), and
-/// routes CallKit accept/decline events into the app. iOS's call-wake path
-/// goes entirely through flutter_callkit_incoming's own PushKit
-/// registration (see ios/Runner/AppDelegate.swift) — no Firebase on that
-/// platform at all; only Android needs FCM.
+/// Wires up FR5.1 (push-woken incoming calls) and FR5.2 (message
+/// notifications): registers this device's push token(s) with the server
+/// (server/internal/api's handleRegisterDevice) and routes both
+/// flutter_callkit_incoming's accept/decline events and tapped message
+/// notifications into the app.
+///
+/// Firebase Cloud Messaging runs on both platforms now (FR5.2 needs it on
+/// iOS too, unlike FR5.1's call-wake path, which stays iOS-PushKit-only —
+/// see [isCallWakeMessage]/AppDelegate.swift). A single physical iOS
+/// device ends up with two registered tokens: one "voip" (PushKit, call
+/// wake) and one "fcm" (Firebase, message notifications) — see
+/// models.Device server-side.
 class PushService {
   PushService(this._ref);
 
@@ -85,45 +108,56 @@ class PushService {
   Future<void> init() async {
     _callKitSub = FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent);
 
-    if (Platform.isAndroid) {
-      await _initAndroid();
-    } else if (Platform.isIOS) {
-      await _initIOS();
+    // Best-effort: Firebase may not be configured yet (a placeholder
+    // firebase_options.dart before a real project exists) or this may not
+    // be a supported platform at all (e.g. running under `flutter test`)
+    // — push is a fallback path, never something the rest of the app
+    // depends on succeeding.
+    try {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onMessage.listen((message) {
+        if (!isCallWakeMessage(message)) return;
+        unawaited(FlutterCallkitIncoming.showCallkitIncoming(callKitParamsFromPushData(message.data)));
+      });
+      FirebaseMessaging.onMessageOpenedApp.listen((message) => _openMessageNotification(message.data));
+      final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+      if (initialMessage != null) _openMessageNotification(initialMessage.data);
+
+      await FlutterCallkitIncoming.requestNotificationPermission({
+        'title': 'Notification permission',
+        'rationaleMessagePermission':
+            'Notification permission is required to show incoming calls and new messages.',
+        'postNotificationMessageRequired':
+            'Notification permission is required — please allow it from settings.',
+      });
+      await FirebaseMessaging.instance.requestPermission();
+
+      final platform = Platform.isIOS ? 'ios' : 'android';
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) unawaited(_registerDevice(platform, fcmToken, 'fcm'));
+      FirebaseMessaging.instance.onTokenRefresh.listen((token) => _registerDevice(platform, token, 'fcm'));
+
+      if (Platform.isIOS) {
+        final existingVoip = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+        if (existingVoip != null && existingVoip.isNotEmpty) {
+          unawaited(_registerDevice('ios', existingVoip, 'voip'));
+        }
+      }
+    } catch (_) {
+      // Ignored — see doc comment above.
     }
   }
 
-  Future<void> _initAndroid() async {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    FirebaseMessaging.onMessage.listen((message) async {
-      if (message.data['roomId'] == null) return;
-      await FlutterCallkitIncoming.showCallkitIncoming(callKitParamsFromPushData(message.data));
-    });
-
-    await FlutterCallkitIncoming.requestNotificationPermission({
-      'title': 'Notification permission',
-      'rationaleMessagePermission': 'Notification permission is required to show incoming calls.',
-      'postNotificationMessageRequired':
-          'Notification permission is required — please allow it from settings.',
-    });
-    await FirebaseMessaging.instance.requestPermission();
-
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null) unawaited(_registerDevice('android', token));
-    FirebaseMessaging.instance.onTokenRefresh.listen((token) => _registerDevice('android', token));
-  }
-
-  Future<void> _initIOS() async {
-    final existing = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
-    if (existing != null && existing.isNotEmpty) {
-      unawaited(_registerDevice('ios', existing));
-    }
+  void _openMessageNotification(Map<String, dynamic> data) {
+    final route = routeForMessageNotification(data);
+    if (route != null) appRouter.push(route);
   }
 
   void _onCallKitEvent(CallEvent? event) {
     switch (event) {
       case CallEventActionDidUpdateDevicePushTokenVoip():
-        unawaited(_refreshIOSToken());
+        unawaited(_refreshIOSVoipToken());
       case CallEventActionCallAccept(:final callKitParams):
         final route = routeForAcceptedCall(callKitParams.extra);
         if (route != null) appRouter.push(route);
@@ -137,19 +171,22 @@ class PushService {
     }
   }
 
-  Future<void> _refreshIOSToken() async {
+  Future<void> _refreshIOSVoipToken() async {
     final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
-    if (token != null && token.isNotEmpty) await _registerDevice('ios', token);
+    if (token != null && token.isNotEmpty) await _registerDevice('ios', token, 'voip');
   }
 
   /// Best-effort: a failed registration just means this device won't get
-  /// call-wake push until the next retry (next app start, or the next
-  /// onTokenRefresh/DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP event) — push is a
-  /// fallback path, not something the rest of the app depends on working.
-  Future<void> _registerDevice(String platform, String pushToken) async {
+  /// call-wake/message-notification push until the next retry (next app
+  /// start, or the next onTokenRefresh/DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP
+  /// event) — push is a fallback path, not something the rest of the app
+  /// depends on working.
+  Future<void> _registerDevice(String platform, String pushToken, String tokenType) async {
     try {
       await _ref.read(meProvider.future);
-      await _ref.read(apiClientProvider).registerDevice(platform: platform, pushToken: pushToken);
+      await _ref
+          .read(apiClientProvider)
+          .registerDevice(platform: platform, pushToken: pushToken, tokenType: tokenType);
     } catch (_) {
       // Ignored — see doc comment above.
     }
