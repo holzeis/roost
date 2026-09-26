@@ -112,7 +112,7 @@ Future<void> _startCall(
   try {
     final message = await ref.read(apiClientProvider).startCall(roomId);
     if (context.mounted) {
-      context.push('/call/$roomId?messageId=${message.id}&group=$isGroup');
+      context.push('/call/$roomId?messageId=${message.id}&group=$isGroup', extra: message);
     }
   } catch (error) {
     if (context.mounted) {

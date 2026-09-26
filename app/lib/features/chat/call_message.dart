@@ -70,12 +70,12 @@ class CallBubbleContent extends ConsumerWidget {
         await ref.read(apiClientProvider).acceptCall(call.id);
         ref.read(incomingCallProvider.notifier).dismiss();
         if (context.mounted) {
-          context.push('/call/$roomId?messageId=${message.id}&group=$isGroup');
+          context.push('/call/$roomId?messageId=${message.id}&group=$isGroup', extra: message);
         }
       } else {
         final started = await ref.read(apiClientProvider).startCall(roomId);
         if (context.mounted) {
-          context.push('/call/$roomId?messageId=${started.id}&group=$isGroup');
+          context.push('/call/$roomId?messageId=${started.id}&group=$isGroup', extra: started);
         }
       }
     } catch (error) {

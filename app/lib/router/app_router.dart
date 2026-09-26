@@ -53,6 +53,7 @@ final appRouter = GoRouter(
         messageId: state.uri.queryParameters['messageId']!,
         isGroup: state.uri.queryParameters['group'] == 'true',
         audioOnly: state.uri.queryParameters['audioOnly'] == 'true',
+        initialMessage: state.extra as ApiMessage?,
       ),
     ),
     GoRoute(

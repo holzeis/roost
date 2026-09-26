@@ -6,6 +6,7 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_config.dart';
+import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import 'call_controls.dart';
 
@@ -34,6 +35,7 @@ class CallScreen extends ConsumerStatefulWidget {
     required this.messageId,
     this.isGroup = false,
     this.audioOnly = false,
+    this.initialMessage,
   });
 
   final String roomId;
@@ -41,8 +43,30 @@ class CallScreen extends ConsumerStatefulWidget {
   final bool isGroup;
   final bool audioOnly;
 
+  /// The call's own message, when the caller (or navigator) already has it
+  /// in hand — the caller specifically has no other way to get it: they're
+  /// deliberately excluded from the message.created WebSocket broadcast for
+  /// their own call (see server/internal/api's handleStartCall/
+  /// deliverToRoom), so messagesProvider's cache never contains it for them
+  /// at all, unlike every other room member. Falls back to searching that
+  /// cache when absent (e.g. a route pushed without this, or a future
+  /// caller of this screen that doesn't have it handy).
+  final ApiMessage? initialMessage;
+
   @override
   ConsumerState<CallScreen> createState() => _CallScreenState();
+}
+
+/// Resolves the [ApiCall] a CallScreen instance should join: prefers
+/// [initialMessage] (the caller's *only* source — see CallScreen's own doc
+/// comment on why messagesProvider's cache never has it for them) and falls
+/// back to finding [messageId] in [messages] otherwise. Pulled out as a
+/// plain function so this lookup is unit-testable without a real LiveKit
+/// connection.
+ApiCall? resolveCallToJoin(String messageId, ApiMessage? initialMessage, List<ApiMessage> messages) {
+  if (initialMessage?.call != null) return initialMessage!.call;
+  final match = messages.where((m) => m.id == messageId);
+  return match.isEmpty ? null : match.first.call;
 }
 
 class _CallScreenState extends ConsumerState<CallScreen> {
@@ -67,9 +91,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   Future<void> _connect() async {
     try {
-      final messages = await ref.read(messagesProvider(widget.roomId).future);
-      final message = messages.where((m) => m.id == widget.messageId);
-      final call = message.isEmpty ? null : message.first.call;
+      final messages = widget.initialMessage?.call != null
+          ? const <ApiMessage>[]
+          : await ref.read(messagesProvider(widget.roomId).future);
+      final call = resolveCallToJoin(widget.messageId, widget.initialMessage, messages);
       if (call == null) throw StateError('call not found in room history');
       _callId = call.id;
 

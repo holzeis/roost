@@ -46,6 +46,7 @@ class _IncomingCallScreenState extends ConsumerState<IncomingCallScreen> {
       _popped = true; // this screen is being replaced, not popped
       context.pushReplacement(
         '/call/${widget.roomId}?messageId=${widget.messageId}&group=$isGroup&audioOnly=${!_cameraOn}',
+        extra: message,
       );
     } catch (error) {
       if (mounted) {

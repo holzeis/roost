@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
+import 'package:roost/features/call/call_screen.dart';
 import 'package:roost/providers/chat_providers.dart';
 
 import 'fakes.dart';
@@ -38,6 +39,37 @@ void main() {
       });
       expect(call.endedAt, isNull);
       expect(call.duration, isNull);
+    });
+  });
+
+  group('resolveCallToJoin', () {
+    final ringingCall = ApiCall.fromJson(
+      {'id': 'call-1', 'status': 'ringing', 'startedAt': DateTime.now().toIso8601String()},
+    );
+    final callMessage = ApiMessage(
+      id: 'msg-1',
+      roomId: 'room-1',
+      senderId: 'me',
+      kind: 'call',
+      call: ringingCall,
+      createdAt: DateTime.now(),
+    );
+
+    test('prefers initialMessage when it carries a call', () {
+      // The caller's only source — see CallScreen's own doc comment on why
+      // messagesProvider's cache never has this message for them at all.
+      final resolved = resolveCallToJoin('msg-1', callMessage, const []);
+      expect(resolved, ringingCall);
+    });
+
+    test('falls back to finding messageId in messages when initialMessage is absent', () {
+      final resolved = resolveCallToJoin('msg-1', null, [callMessage]);
+      expect(resolved, ringingCall);
+    });
+
+    test('returns null when neither source has the message', () {
+      final resolved = resolveCallToJoin('msg-missing', null, [callMessage]);
+      expect(resolved, isNull);
     });
   });
 
