@@ -146,6 +146,8 @@ jobs:
           context: server
           load: true
           tags: roost-chat-server:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: roost-chat-server:scan
@@ -173,6 +175,11 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}-chat-server:${{ github.sha }}
             ghcr.io/${{ github.repository }}-chat-server:latest
+          # Same cache scope as the scan build above, so its amd64 layers
+          # (module download, and any unchanged compiled output) are
+          # already warm here rather than rebuilt a second time.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   app-test:
     name: app / analyze + test
