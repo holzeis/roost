@@ -45,10 +45,17 @@ jobs:
       # TSNET_HOSTNAME/TS_HOSTNAME). Both listen unencrypted (plain
       # http/ws) since the tailnet's own WireGuard layer already encrypts
       # this traffic.
+      # --build-number overrides pubspec.yaml's static "+1" — App Store
+      # Connect/Play Console both reject a re-upload whose build number
+      # isn't strictly higher than one they've already seen, so pubspec's
+      # own value would only ever work for a single release. github.run_number
+      # increments on every workflow run, so each dispatch gets a fresh one
+      # for free.
       - name: Build release app bundle
         working-directory: app
         run: |
           flutter build appbundle --release \
+            --build-number=${{ github.run_number }} \
             --dart-define=API_BASE_URL=http://roost-chat \
             --dart-define=LIVEKIT_URL=ws://roost-livekit:7880
 
@@ -88,12 +95,16 @@ jobs:
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/roost.mobileprovision
 
-      # See the android job's identical comment above — same defines needed
-      # here so the app reaches the real deployed server, not localhost.
+      # See the android job's identical comments above — same reasoning for
+      # both --build-number (App Store Connect rejects a re-upload whose
+      # CFBundleVersion isn't strictly higher than one it's already seen)
+      # and the API_BASE_URL/LIVEKIT_URL defines (reach the real deployed
+      # server, not localhost).
       - name: Build release IPA
         working-directory: app
         run: |
           flutter build ipa --release --export-options-plist=ios/ExportOptions.plist \
+            --build-number=${{ github.run_number }} \
             --dart-define=API_BASE_URL=http://roost-chat \
             --dart-define=LIVEKIT_URL=ws://roost-livekit:7880
 
