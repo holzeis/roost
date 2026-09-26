@@ -6,9 +6,11 @@ name: Release
 # just without re-running unrelated CI jobs (server tests, multi-arch server
 # image, etc).
 #
-# Requires repo secrets that don't exist yet (see each job) — this workflow
-# is scaffolding until real signing credentials are configured; the trigger
-# below is manual-only until then so it can't fire and fail unexpectedly.
+# iOS/TestFlight is wired up — see docs/release-setup.md for the one-time
+# Apple/App Store Connect setup and the repo secrets it needs. Android still
+# needs its own signing secrets (see that job's TODOs) before it can run.
+# The trigger stays manual-only until both sides are confirmed working end
+# to end, so it can't fire and fail unexpectedly on a push.
 on:
   workflow_dispatch:
   # push:
@@ -55,15 +57,35 @@ jobs:
       - working-directory: app
         run: flutter pub get
 
-      # TODO: install the distribution certificate + provisioning profile
-      # from secrets (IOS_DIST_CERTIFICATE_BASE64, IOS_DIST_CERTIFICATE_PASSWORD,
-      # IOS_PROVISIONING_PROFILE_BASE64) before this step — see
-      # https://docs.flutter.dev/deployment/ios
+      # Imports the Apple Distribution certificate into a throwaway keychain
+      # scoped to this job — see docs/release-setup.md for how to export the
+      # .p12 and base64-encode it into IOS_DIST_CERTIFICATE_BASE64.
+      - name: Import distribution certificate
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+
+      # xcodebuild finds provisioning profiles here by convention — this
+      # just decodes the secret into place, no action needed. The profile's
+      # own Name must match ios/ExportOptions.plist's provisioningProfiles
+      # entry ("Roost App Store"), not this filename.
+      - name: Install provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/roost.mobileprovision
+
       - name: Build release IPA
         working-directory: app
         run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
 
-      # TODO: upload app/build/ios/ipa/*.ipa to TestFlight, e.g. via
-      # apple-actions/upload-testflight-build with App Store Connect API key
-      # secrets (APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID,
-      # APP_STORE_CONNECT_KEY).
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@1fc69ca369a60b813eaaa2d936eda22794b52e17 # v5.4.0
+        with:
+          app-path: app/build/ios/ipa/*.ipa
+          issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_KEY }}

@@ -39,7 +39,9 @@ flutter run
 ```
 
 See [`docs/ios-dev-setup.md`](docs/ios-dev-setup.md) for iOS Simulator setup
-specifics.
+specifics, and [`docs/release-setup.md`](docs/release-setup.md) for shipping
+a build to TestFlight/Play Store via the `.github/workflows/release.yml`
+pipeline.
 
 ### Android build setup
 
