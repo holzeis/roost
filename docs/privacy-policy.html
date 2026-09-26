@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roost — Privacy Policy</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf8;
+    --fg: #26241f;
+    --muted: #6b6558;
+    --accent: #5b6b8c;
+    --rule: #e4e0d8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18;
+      --fg: #eae7df;
+      --muted: #a39d8e;
+      --accent: #8fa3c9;
+      --rule: #35332c;
+    }
+  }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 40rem;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 1.7rem;
+    margin-bottom: 0.25rem;
+  }
+  .meta {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+  }
+  h2 {
+    font-size: 1.15rem;
+    margin-top: 2.25rem;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0.35rem;
+  }
+  p, li {
+    font-size: 0.98rem;
+  }
+  ul {
+    padding-left: 1.25rem;
+  }
+  a {
+    color: var(--accent);
+  }
+  code {
+    background: var(--rule);
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.25rem;
+    font-size: 0.9em;
+  }
+  .callout {
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1rem;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-radius: 0 0.35rem 0.35rem 0;
+    margin: 1.25rem 0;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Roost — Privacy Policy</h1>
+  <p class="meta">Effective 26 September 2026</p>
+
+  <p>
+    Roost is a private, self-hosted chat, media-sharing, and video-calling
+    app. It is not a commercial product or service: it is run by one person
+    or family, for the exclusive use of the people they've personally
+    invited, on infrastructure that person or family owns and controls.
+    There is no company behind Roost collecting, processing, or profiting
+    from your data.
+  </p>
+
+  <div class="callout">
+    This policy describes how the specific Roost instance you're using
+    handles information. If someone other than the person listed at the
+    bottom of this page invited you to use Roost, ask them directly how
+    their instance is run — this document only speaks for this one.
+  </div>
+
+  <h2>Who can use this app</h2>
+  <p>
+    There is no public sign-up. The only way to use Roost is to already be
+    a member of its operator's private
+    <a href="https://tailscale.com/">Tailscale</a> network. Your identity
+    within the app is your Tailscale identity — there is no separate
+    username, password, or account-creation flow, and no data is collected
+    from anyone who hasn't been personally invited onto that network.
+  </p>
+
+  <h2>What information is collected</h2>
+  <ul>
+    <li><strong>Identity</strong> — your Tailscale login name, plus a display name and profile photo you can set and change yourself.</li>
+    <li><strong>Messages and media</strong> — text messages, photos, and videos you send, stored so they remain visible in your chat history.</li>
+    <li><strong>Location shares</strong> — if you choose to share your live location in a chat, your coordinates are visible to the other people in that conversation until the share expires or you end it early.</li>
+    <li><strong>Call metadata</strong> — who started a call, who was invited, and when it happened, so it can appear in chat history. Call audio/video itself is relayed live between participants and is not recorded or stored.</li>
+    <li><strong>Delivery status</strong> — timestamps showing whether a message has been delivered to or seen by other participants.</li>
+    <li><strong>Push notification tokens</strong> — if you enable notifications, a token identifying your device is stored so the server can wake the app for an incoming call or new message.</li>
+  </ul>
+  <p>
+    None of this is used for advertising, analytics, or profiling, and it is
+    never sold or shared with any third party for marketing purposes.
+  </p>
+
+  <h2>Where information is stored</h2>
+  <p>
+    Everything above is stored on infrastructure the operator personally
+    owns and controls — there is no third-party cloud database or
+    analytics platform involved. The server is only reachable over the
+    operator's private Tailscale network, never the public internet.
+  </p>
+
+  <h2>Third parties involved in delivering notifications</h2>
+  <p>
+    To wake the app for an incoming call or new message when it isn't
+    actively running, Roost sends a push notification through
+    <strong>Apple's Push Notification service</strong> (iOS) and
+    <strong>Google's Firebase Cloud Messaging</strong> (iOS and Android).
+    These are the only third parties involved anywhere in this app, and the
+    notifications they carry contain no message content, location data, or
+    media — only enough information to identify which chat to check, so the
+    app can fetch the real content directly from the operator's own server.
+  </p>
+
+  <h2>How long information is kept</h2>
+  <p>
+    Messages and media are kept until you or another participant deletes
+    them; there is no automatic expiry. Live location shares expire
+    automatically at the time you set when sharing, or sooner if you end
+    the share yourself. If you're removed from the operator's Tailscale
+    network, you can no longer access the app, but message history you were
+    part of remains visible to the other participants, the same as it would
+    if you deleted the app yourself.
+  </p>
+
+  <h2>Children's privacy</h2>
+  <p>
+    Roost has no public sign-up and does not knowingly collect information
+    from anyone outside the operator's personally-invited network, which
+    may include their own family members of any age. It is not directed at
+    children generally, and no data is ever collected from anyone the
+    operator has not personally invited.
+  </p>
+
+  <h2>Security</h2>
+  <p>
+    All traffic to and from the server travels exclusively over Tailscale's
+    encrypted (WireGuard) private network — the server has no listener on
+    the public internet at all.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    If how this instance handles information changes, this page will be
+    updated and the date at the top revised accordingly.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this specific Roost instance can be sent to
+    <a href="mailto:richard@holzeis.me">richard@holzeis.me</a>.
+  </p>
+</main>
+</body>
+</html>
