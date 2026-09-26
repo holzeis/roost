@@ -34,6 +34,16 @@ jobs:
       - working-directory: app
         run: flutter pub get
 
+      # build.gradle reads MAPS_API_KEY from local.properties (gitignored,
+      # per-developer locally — see README's "Google Maps API keys"), which
+      # doesn't exist on this runner at all. Without it, google_maps_flutter
+      # silently gets an empty key and crashes natively the first time a
+      # location-share message renders a map (see the ios job's matching
+      # Config.xcconfig step below).
+      - name: Configure Google Maps API key
+        working-directory: app/android
+        run: echo "MAPS_API_KEY=${{ secrets.ANDROID_GOOGLE_MAPS_API_KEY }}" >> local.properties
+
       # TODO: decode signing key + key.properties from secrets before this
       # step (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
       # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) once release signing is set
@@ -94,6 +104,18 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/roost.mobileprovision
+
+      # AppDelegate.swift reads GMSApiKey from Info.plist, substituted at
+      # build time from Config.xcconfig (gitignored, per-developer — see
+      # README's "Google Maps API keys"), which doesn't exist on this
+      # runner. Without it the key ends up empty, AppDelegate's own
+      # empty-check skips calling GMSServices.provideAPIKey, and Maps SDK
+      # then crashes natively (an uncaught NSException, not something Dart
+      # try/catch can reach) the first time a location-share message tries
+      # to render a map.
+      - name: Configure Google Maps API key
+        working-directory: app/ios/Runner
+        run: echo "GOOGLE_MAPS_API_KEY = ${{ secrets.IOS_GOOGLE_MAPS_API_KEY }}" > Config.xcconfig
 
       # See the android job's identical comments above — same reasoning for
       # both --build-number (App Store Connect rejects a re-upload whose

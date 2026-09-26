@@ -24,6 +24,25 @@ already flags that production really wants a settings/onboarding screen
 letting the app point at any server at runtime, not one hostname baked in
 at build time. Worth building once this is a hassle rather than a one-off.
 
+## Google Maps API keys
+
+Both platforms need their own Maps SDK key at build time (see README's
+"Google Maps API keys"), normally supplied via a gitignored, per-developer
+file (`app/android/local.properties`'s `MAPS_API_KEY`,
+`app/ios/Runner/Config.xcconfig`'s `GOOGLE_MAPS_API_KEY`) that doesn't exist
+on a CI runner. Without one, the app doesn't fail to build — it builds fine
+and then crashes natively, with no catchable Dart exception, the moment any
+screen tries to render a `GoogleMap` widget (e.g. opening a chat with a
+location-share message). Two more repo secrets cover this:
+
+| Secret name | Value |
+|---|---|
+| `ANDROID_GOOGLE_MAPS_API_KEY` | Your Android Maps SDK key |
+| `IOS_GOOGLE_MAPS_API_KEY` | Your iOS Maps SDK key |
+
+`release.yml` writes each into the same gitignored file a local dev would
+normally create by hand, right before the build step that needs it.
+
 ## iOS — TestFlight
 
 The workflow needs six repo secrets (Settings → Secrets and variables →
