@@ -5,6 +5,25 @@ the app via GitHub Actions instead of a local Xcode/Android Studio export.
 Kept separate from `docs/ios-dev-setup.md`, which is about running the app
 on your own machine/simulator, not shipping it.
 
+## Pointing the release build at the real server
+
+`app/lib/data/api_config.dart`'s `API_BASE_URL`/`LIVEKIT_URL` default to
+`localhost`, which only makes sense for a local simulator/emulator sharing
+the dev machine's network — a release build installed on a real device
+needs the actual deployed tailnet hostnames instead. `release.yml`'s build
+steps pass these explicitly:
+`--dart-define=API_BASE_URL=http://roost-chat --dart-define=LIVEKIT_URL=ws://roost-livekit:7880`
+(matching `TSNET_HOSTNAME`/`TS_HOSTNAME` in `k8s/chat-server` and
+`k8s/livekit` — both plain http/ws, since the tailnet's own WireGuard layer
+already encrypts this traffic). **Your phone needs Tailscale installed and
+connected to the same tailnet** for MagicDNS to resolve those hostnames at
+all — this is unrelated to TestFlight and won't happen automatically.
+
+This is a stopgap, not the real fix — `api_config.dart`'s own doc comment
+already flags that production really wants a settings/onboarding screen
+letting the app point at any server at runtime, not one hostname baked in
+at build time. Worth building once this is a hassle rather than a one-off.
+
 ## iOS — TestFlight
 
 The workflow needs six repo secrets (Settings → Secrets and variables →

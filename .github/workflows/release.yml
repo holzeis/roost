@@ -38,9 +38,19 @@ jobs:
       # step (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
       # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) once release signing is set
       # up — see https://docs.flutter.dev/deployment/android#signing-the-app
+      # API_BASE_URL/LIVEKIT_URL default to localhost (see api_config.dart),
+      # which is only right for a local simulator/emulator sharing the dev
+      # machine's network — a real device needs the deployed tailnet
+      # hostnames instead (see k8s/chat-server and k8s/livekit's
+      # TSNET_HOSTNAME/TS_HOSTNAME). Both listen unencrypted (plain
+      # http/ws) since the tailnet's own WireGuard layer already encrypts
+      # this traffic.
       - name: Build release app bundle
         working-directory: app
-        run: flutter build appbundle --release
+        run: |
+          flutter build appbundle --release \
+            --dart-define=API_BASE_URL=http://roost-chat \
+            --dart-define=LIVEKIT_URL=ws://roost-livekit:7880
 
       # TODO: upload app/build/app/outputs/bundle/release/app-release.aab to
       # the Play Console internal testing track, e.g. via
@@ -78,9 +88,14 @@ jobs:
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/roost.mobileprovision
 
+      # See the android job's identical comment above — same defines needed
+      # here so the app reaches the real deployed server, not localhost.
       - name: Build release IPA
         working-directory: app
-        run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+        run: |
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist \
+            --dart-define=API_BASE_URL=http://roost-chat \
+            --dart-define=LIVEKIT_URL=ws://roost-livekit:7880
 
       # upload-testflight-build's appstore-api backend takes app-path as a
       # literal resolved file path, not a glob — handing it the "*.ipa"
