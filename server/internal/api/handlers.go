@@ -1,10 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -112,7 +117,9 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mediaObj, err := s.Store.CreateMediaObject(r.Context(), s.Media.Bucket(), objectKey, contentType, header.Size, u.ID)
+	// No preview/dimensions for an avatar — it's not rendered through the
+	// same chat-bubble path this optimizes, and is already small.
+	mediaObj, err := s.Store.CreateMediaObject(r.Context(), s.Media.Bucket(), objectKey, contentType, header.Size, u.ID, nil, nil, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not record uploaded file")
 		return
@@ -336,6 +343,10 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not load calls")
 		return
 	}
+	if err := s.Store.AttachMedia(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load media dimensions")
+		return
+	}
 	writeJSON(w, http.StatusOK, messages)
 }
 
@@ -405,6 +416,34 @@ func (s *Server) validReplyTarget(w http.ResponseWriter, r *http.Request, roomID
 // photos/video clips on a home network, not a hard product requirement.
 const maxMediaUploadBytes = 200 << 20 // 200 MiB
 
+// previewJPEGQuality is deliberately aggressive: this is only ever the
+// inline chat-bubble preview, displayed small, with the untouched original
+// a tap away in the full-screen viewer — so a noticeably smaller/faster
+// download matters far more here than looking pixel-perfect at bubble size.
+// Same pixel dimensions as the original either way; only the compression
+// changes.
+const previewJPEGQuality = 55
+
+// generateImagePreview decodes an uploaded image and re-encodes it as a
+// smaller, lower-quality JPEG at the same dimensions (FR2.*) — for the
+// original's pixel size, not a resize. Returns ok=false for anything it
+// can't decode: an unsupported format (WebP, HEIC/HEIF — Go's standard
+// library only reads JPEG/PNG/GIF), or a corrupt upload. The caller treats
+// that as "no preview" and falls back to serving the original for both
+// purposes — this never fails the upload itself.
+func generateImagePreview(data []byte) (preview []byte, width, height int, ok bool) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, 0, false
+	}
+	bounds := img.Bounds()
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: previewJPEGQuality}); err != nil {
+		return nil, 0, 0, false
+	}
+	return buf.Bytes(), bounds.Dx(), bounds.Dy(), true
+}
+
 // handleUploadMedia implements FR2.1/2.2: the client posts the file plus a
 // "kind" field (image|video) as multipart form data, and gets back the chat
 // message that was created for it — one request creates both the MinIO
@@ -454,18 +493,44 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Buffered fully in memory rather than streamed straight to MinIO:
+	// generating the preview below needs the whole thing to decode anyway,
+	// and maxMediaUploadBytes already caps this at 200MiB.
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "could not read upload")
+		return
+	}
+
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	objectKey := fmt.Sprintf("%s/%s%s", roomID, uuid.NewString(), filepath.Ext(header.Filename))
 
-	if err := s.Media.Put(r.Context(), objectKey, file, header.Size, contentType); err != nil {
+	if err := s.Media.Put(r.Context(), objectKey, bytes.NewReader(data), int64(len(data)), contentType); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not store file")
 		return
 	}
 
-	mediaObj, err := s.Store.CreateMediaObject(r.Context(), s.Media.Bucket(), objectKey, contentType, header.Size, userID)
+	// Best-effort — see generateImagePreview's own doc comment for exactly
+	// which formats/failures this silently skips rather than fails on.
+	var width, height *int
+	var previewObjectKey *string
+	if kind == string(models.MessageKindImage) {
+		if preview, w2, h2, ok := generateImagePreview(data); ok {
+			previewKey := objectKey + ".preview.jpg"
+			if err := s.Media.Put(r.Context(), previewKey, bytes.NewReader(preview), int64(len(preview)), "image/jpeg"); err == nil {
+				previewObjectKey = &previewKey
+				width, height = &w2, &h2
+			} else {
+				slog.Warn("upload media: could not store preview, falling back to original", "error", err)
+			}
+		}
+	}
+
+	mediaObj, err := s.Store.CreateMediaObject(
+		r.Context(), s.Media.Bucket(), objectKey, contentType, int64(len(data)), userID, width, height, previewObjectKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not record uploaded file")
 		return
@@ -475,6 +540,9 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create message")
 		return
+	}
+	if width != nil && height != nil {
+		msg.Media = &models.MediaInfo{Width: *width, Height: *height}
 	}
 	if replyToMessageID != nil {
 		messages := []models.Message{msg}
@@ -544,6 +612,26 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil && !s.requireMembership(w, r, userID, message.RoomID) {
+		return
+	}
+
+	// FR2.*: the inline chat-bubble preview asks for ?variant=preview to
+	// get the smaller, lower-quality re-encode instead of the full-quality
+	// original — falls through to serving the original when there isn't
+	// one (video, an undecodable image format, or a message uploaded
+	// before this existed). No Range/seek support needed here: it's always
+	// small enough to fetch in one shot, unlike video.
+	if r.URL.Query().Get("variant") == "preview" && obj.PreviewObjectKey != nil {
+		reader, err := s.Media.Get(r.Context(), *obj.PreviewObjectKey)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "media not found")
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		_, _ = io.Copy(w, reader)
 		return
 	}
 
@@ -671,6 +759,15 @@ func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not delete file")
 		return
 	}
+	if obj.PreviewObjectKey != nil {
+		// Best-effort: an orphaned preview object left behind in MinIO costs
+		// storage, not correctness (nothing else can ever reference it once
+		// the media_objects row below is gone) — not worth failing the
+		// whole delete over.
+		if err := s.Media.Delete(r.Context(), *obj.PreviewObjectKey); err != nil {
+			slog.Warn("delete media: could not delete preview object", "error", err)
+		}
+	}
 	if err := s.Store.DeleteMediaObject(r.Context(), mediaID); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not delete media record")
 		return
@@ -765,6 +862,10 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.AttachCalls(r.Context(), messages); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load calls")
+		return
+	}
+	if err := s.Store.AttachMedia(r.Context(), messages); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load media dimensions")
 		return
 	}
 	writeJSON(w, http.StatusOK, messages)
@@ -1032,6 +1133,12 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		forwarded, err = s.Store.CreateMediaMessage(r.Context(), body.RoomID, userID, string(original.Kind), mediaID, original.Body, nil, true)
+		if err == nil {
+			messages := []models.Message{forwarded}
+			if attachErr := s.Store.AttachMedia(r.Context(), messages); attachErr == nil {
+				forwarded = messages[0]
+			}
+		}
 	default:
 		writeError(w, http.StatusBadRequest, "this message type can't be forwarded")
 		return
@@ -1045,9 +1152,12 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, forwarded)
 }
 
-// duplicateMedia copies an existing media object's bytes to a new key in
-// MinIO and records a new, independent media_objects row for it, returning
-// the new object's ID.
+// duplicateMedia copies an existing media object's bytes — and its preview,
+// if it has one — to new keys in MinIO, and records a new, independent
+// media_objects row for it, returning the new object's ID. A failed preview
+// copy is best-effort: the forwarded copy just falls back to serving its
+// own original for the inline preview too, same as any message whose
+// preview was never generated in the first place.
 func (s *Server) duplicateMedia(ctx context.Context, sourceMediaID, dstRoomID, uploadedBy string) (string, error) {
 	src, err := s.Store.GetMediaObject(ctx, sourceMediaID)
 	if err != nil {
@@ -1057,7 +1167,19 @@ func (s *Server) duplicateMedia(ctx context.Context, sourceMediaID, dstRoomID, u
 	if err := s.Media.Copy(ctx, src.ObjectKey, dstKey); err != nil {
 		return "", fmt.Errorf("copy object: %w", err)
 	}
-	dst, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), dstKey, src.ContentType, src.SizeBytes, uploadedBy)
+
+	var previewKey *string
+	if src.PreviewObjectKey != nil {
+		dstPreviewKey := dstKey + ".preview.jpg"
+		if err := s.Media.Copy(ctx, *src.PreviewObjectKey, dstPreviewKey); err == nil {
+			previewKey = &dstPreviewKey
+		} else {
+			slog.Warn("duplicate media: could not copy preview, forwarded copy will fall back to original", "error", err)
+		}
+	}
+
+	dst, err := s.Store.CreateMediaObject(
+		ctx, s.Media.Bucket(), dstKey, src.ContentType, src.SizeBytes, uploadedBy, src.Width, src.Height, previewKey)
 	if err != nil {
 		return "", fmt.Errorf("record duplicated media: %w", err)
 	}

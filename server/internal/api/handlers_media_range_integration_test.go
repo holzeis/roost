@@ -39,7 +39,7 @@ func TestHandleGetMedia_ServesPartialContentForARangeRequest(t *testing.T) {
 	if err := s.Media.Put(ctx, objectKey, bytes.NewReader(content), int64(len(content)), "video/mp4"); err != nil {
 		t.Fatalf("put object: %v", err)
 	}
-	mediaObj, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), objectKey, "video/mp4", int64(len(content)), user.ID)
+	mediaObj, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), objectKey, "video/mp4", int64(len(content)), user.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestHandleGetMedia_RejectsAnUnsatisfiableRange(t *testing.T) {
 	if err := s.Media.Put(ctx, objectKey, bytes.NewReader(content), int64(len(content)), "video/mp4"); err != nil {
 		t.Fatalf("put object: %v", err)
 	}
-	mediaObj, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), objectKey, "video/mp4", int64(len(content)), user.ID)
+	mediaObj, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), objectKey, "video/mp4", int64(len(content)), user.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}

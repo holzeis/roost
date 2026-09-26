@@ -308,6 +308,9 @@ class FakeApiClient extends ApiClient {
   @override
   String mediaUrl(String mediaId) => 'fake://media/$mediaId';
 
+  @override
+  String mediaPreviewUrl(String mediaId) => 'fake://media/$mediaId?variant=preview';
+
   int _nextLocationMessageId = 1;
 
   @override

@@ -72,6 +72,12 @@ type Message struct {
 	// Call is the FR4.* subtype row for a Kind == MessageKindCall message,
 	// attached at read time like Location — see AttachCalls.
 	Call *Call `json:"call,omitempty"`
+
+	// Media carries an image/video message's known pixel dimensions,
+	// attached at read time like Location/Call — see AttachMedia. Absent
+	// when the server never captured them (a video, or an image format it
+	// can't decode) — clients fall back to a fixed placeholder size then.
+	Media *MediaInfo `json:"media,omitempty"`
 }
 
 // MessageStatus is the sender-facing delivery/seen status of a message
@@ -146,6 +152,27 @@ type MediaObject struct {
 	SizeBytes   int64     `json:"sizeBytes"`
 	UploadedBy  string    `json:"uploadedBy"`
 	CreatedAt   time.Time `json:"createdAt"`
+
+	// Width/Height are the decoded image's pixel dimensions, captured once
+	// at upload time — nil for video, or for an image format Go's standard
+	// library can't decode (WebP, HEIC/HEIF). PreviewObjectKey points at a
+	// second, lower-quality re-encode of the same image at those same
+	// dimensions, stored alongside the original; also nil whenever
+	// Width/Height are, since both are produced by the same decode. See
+	// handleGetMedia's ?variant=preview and migration 0006.
+	Width            *int    `json:"-"`
+	Height           *int    `json:"-"`
+	PreviewObjectKey *string `json:"-"`
+}
+
+// MediaInfo is the trimmed subset of MediaObject a Message actually needs
+// to expose to clients — just enough to reserve the right aspect ratio
+// before the image itself has downloaded (see MediaObject's own doc
+// comment). Attached at read time like Location/Call — see
+// Store.AttachMedia.
+type MediaInfo struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 // LocationShare is the FR3.* subtype attached to a Kind == MessageKindLocation message.

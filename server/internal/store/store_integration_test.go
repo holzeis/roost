@@ -443,7 +443,7 @@ func TestStore_MediaMessages(t *testing.T) {
 	}
 
 	objectKey := fmt.Sprintf("room/photo-%d.jpg", run)
-	media, err := s.CreateMediaObject(ctx, "roost-media", objectKey, "image/jpeg", 12345, alice.ID)
+	media, err := s.CreateMediaObject(ctx, "roost-media", objectKey, "image/jpeg", 12345, alice.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
@@ -571,7 +571,7 @@ func TestStore_ReplyPreview(t *testing.T) {
 
 	// A reply to a photo/video needs the original's mediaId in its preview
 	// too, so the client can render a thumbnail instead of just a label.
-	mediaObj, err := s.CreateMediaObject(ctx, "test-bucket", fmt.Sprintf("test/%d.jpg", run), "image/jpeg", 123, alice.ID)
+	mediaObj, err := s.CreateMediaObject(ctx, "test-bucket", fmt.Sprintf("test/%d.jpg", run), "image/jpeg", 123, alice.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}
@@ -640,11 +640,11 @@ func TestStore_ForwardDuplicatesMedia(t *testing.T) {
 		t.Fatalf("create room: %v", err)
 	}
 
-	src, err := s.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("room/orig-%d.jpg", run), "image/jpeg", 42, alice.ID)
+	src, err := s.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("room/orig-%d.jpg", run), "image/jpeg", 42, alice.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create source media: %v", err)
 	}
-	dup, err := s.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("room/dup-%d.jpg", run), "image/jpeg", 42, alice.ID)
+	dup, err := s.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("room/dup-%d.jpg", run), "image/jpeg", 42, alice.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create duplicated media: %v", err)
 	}

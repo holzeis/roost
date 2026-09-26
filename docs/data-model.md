@@ -56,6 +56,8 @@ the message *was* the shared photo/video, so deleting one deletes the other.
 | `size_bytes` | bigint | |
 | `uploaded_by` | uuid, FK → `users` | |
 | `created_at` | timestamptz | |
+| `width`, `height` | int, nullable | The decoded image's pixel dimensions, captured once at upload — lets clients reserve the right aspect ratio before the image has downloaded. Null for video, or an image format Go's standard library can't decode (WebP, HEIC/HEIF) — migration 0006 |
+| `preview_object_key` | text, nullable | A second, lower-quality JPEG re-encode of the same image at those same dimensions (never resized, just more compressed), stored alongside the original — the chat bubble fetches this; the full-screen viewer fetches the original. Null whenever `width`/`height` are, since both come from the same decode — migration 0006 |
 
 ### rooms / room_members
 

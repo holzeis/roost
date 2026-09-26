@@ -204,9 +204,19 @@ class ApiClient {
     _checkOk(res);
   }
 
-  /// The URL a widget can load a media object's bytes from directly (e.g.
-  /// Image.network) — same endpoint as downloadMedia, just not fetched here.
+  /// The URL a widget can load a media object's full-quality bytes from
+  /// directly (e.g. Image.network) — same endpoint as downloadMedia, just
+  /// not fetched here. Used by the full-screen viewer; the inline chat
+  /// bubble uses [mediaPreviewUrl] instead.
   String mediaUrl(String mediaId) => '$_baseUrl/api/media/$mediaId';
+
+  /// The smaller, lower-quality re-encode of the same image, at the same
+  /// pixel dimensions (FR2.*) — faster to load for the inline chat bubble
+  /// than [mediaUrl]'s full-quality original. Falls back to serving the
+  /// original server-side when there's no preview (video, an undecodable
+  /// image format, or a message uploaded before this existed), so this is
+  /// always safe to use for any image message.
+  String mediaPreviewUrl(String mediaId) => '$_baseUrl/api/media/$mediaId?variant=preview';
 
   Future<void> addReaction(String messageId, String emoji) async {
     final res = await _http.put(_uri('/api/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}'));

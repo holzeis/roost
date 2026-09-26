@@ -540,14 +540,21 @@ func (s *Store) DeclineCall(ctx context.Context, callID string) (models.Message,
 // bytes themselves are already in MinIO by the time this is called — see
 // the upload handler in internal/api, which uploads first so a DB failure
 // never leaves a message referencing bytes that don't exist.
-func (s *Store) CreateMediaObject(ctx context.Context, bucket, objectKey, contentType string, sizeBytes int64, uploadedBy string) (models.MediaObject, error) {
+// width/height/previewObjectKey are nil whenever the server couldn't decode
+// the upload as an image (video, or a format Go's standard library doesn't
+// support) — see MediaObject's own doc comment.
+func (s *Store) CreateMediaObject(
+	ctx context.Context, bucket, objectKey, contentType string, sizeBytes int64, uploadedBy string,
+	width, height *int, previewObjectKey *string,
+) (models.MediaObject, error) {
 	const q = `
-		INSERT INTO media_objects (bucket, object_key, content_type, size_bytes, uploaded_by)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at`
+		INSERT INTO media_objects (bucket, object_key, content_type, size_bytes, uploaded_by, width, height, preview_object_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at, width, height, preview_object_key`
 	var m models.MediaObject
-	err := s.pool.QueryRow(ctx, q, bucket, objectKey, contentType, sizeBytes, uploadedBy).
-		Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt)
+	err := s.pool.QueryRow(ctx, q, bucket, objectKey, contentType, sizeBytes, uploadedBy, width, height, previewObjectKey).
+		Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt,
+			&m.Width, &m.Height, &m.PreviewObjectKey)
 	if err != nil {
 		return models.MediaObject{}, fmt.Errorf("store: create media object: %w", err)
 	}
@@ -555,9 +562,11 @@ func (s *Store) CreateMediaObject(ctx context.Context, bucket, objectKey, conten
 }
 
 func (s *Store) GetMediaObject(ctx context.Context, id string) (models.MediaObject, error) {
-	const q = `SELECT id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at FROM media_objects WHERE id = $1`
+	const q = `SELECT id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at, width, height, preview_object_key
+		FROM media_objects WHERE id = $1`
 	var m models.MediaObject
-	err := s.pool.QueryRow(ctx, q, id).Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt)
+	err := s.pool.QueryRow(ctx, q, id).Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt,
+		&m.Width, &m.Height, &m.PreviewObjectKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.MediaObject{}, ErrNotFound
 	}
@@ -565,6 +574,48 @@ func (s *Store) GetMediaObject(ctx context.Context, id string) (models.MediaObje
 		return models.MediaObject{}, fmt.Errorf("store: get media object: %w", err)
 	}
 	return m, nil
+}
+
+// AttachMedia populates each image/video message's Media field in place
+// (FR2.*) with its known pixel dimensions, one batched query regardless of
+// how many messages — same pattern as AttachLocations/AttachCalls. Leaves
+// Media nil for a message whose media_objects row has no width/height
+// (video, or an undecodable image format).
+func (s *Store) AttachMedia(ctx context.Context, messages []models.Message) error {
+	ids := make([]string, 0, len(messages))
+	byID := make(map[string]*models.Message, len(messages))
+	for i := range messages {
+		if messages[i].MediaID == nil {
+			continue
+		}
+		ids = append(ids, *messages[i].MediaID)
+		byID[*messages[i].MediaID] = &messages[i]
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const q = `SELECT id, width, height FROM media_objects WHERE id = ANY($1)`
+	rows, err := s.pool.Query(ctx, q, ids)
+	if err != nil {
+		return fmt.Errorf("store: attach media: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		var width, height *int
+		if err := rows.Scan(&id, &width, &height); err != nil {
+			return fmt.Errorf("store: scan media dimensions: %w", err)
+		}
+		if width == nil || height == nil {
+			continue
+		}
+		if m, ok := byID[id]; ok {
+			m.Media = &models.MediaInfo{Width: *width, Height: *height}
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Store) DeleteMediaObject(ctx context.Context, id string) error {

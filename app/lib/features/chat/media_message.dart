@@ -32,7 +32,7 @@ class MediaBubbleContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final url = ref.watch(apiClientProvider).mediaUrl(message.mediaId!);
+    final api = ref.watch(apiClientProvider);
     // Media gets its own (wider) cap than a text bubble — see
     // ChatBubbleStyle.mediaMaxWidth — so photos/videos fill more of the row
     // instead of looking cramped next to a long message.
@@ -50,34 +50,46 @@ class MediaBubbleContent extends ConsumerWidget {
             aspectRatio: 1,
             child: ClipRRect(
               borderRadius: borderRadius,
-              child: _VideoThumbnail(url: url),
+              child: _VideoThumbnail(url: api.mediaUrl(message.mediaId!)),
             ),
           ),
         ),
       );
     }
 
+    // FR2.*: the server captures a photo's real pixel dimensions at upload
+    // (message.media) — reserving the exact aspect ratio the image will
+    // render at *before* it has even started downloading is what actually
+    // fixes the bubble resizing/jumping once it loads, not just a loading
+    // spinner. Falls back to square for a message uploaded before this
+    // existed, or an image format the server couldn't decode (WebP/HEIC).
+    final media = message.media;
+    final aspectRatio = media != null ? media.width / media.height : 1.0;
+
     return GestureDetector(
       onTap: openViewer,
       child: ConstrainedBox(
         constraints: box,
-        child: ClipRRect(
-          borderRadius: borderRadius,
-          child: Image.network(
-            url,
-            fit: BoxFit.cover,
-            loadingBuilder: (context, child, progress) {
-              if (progress == null) return child;
-              return const SizedBox(
-                width: 120,
-                height: 120,
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-              );
-            },
-            errorBuilder: (context, error, stack) => const SizedBox(
-              width: 120,
-              height: 120,
-              child: Center(child: Icon(TablerIcons.photoOff)),
+        child: AspectRatio(
+          aspectRatio: aspectRatio,
+          child: ClipRRect(
+            borderRadius: borderRadius,
+            // The smaller, lower-quality preview — same dimensions, far
+            // less data to fetch — since this is only ever a thumbnail-size
+            // rendering; the full-screen viewer (media_viewer_screen.dart)
+            // fetches the real, untouched original via mediaUrl instead.
+            child: Image.network(
+              api.mediaPreviewUrl(message.mediaId!),
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                // No fixed size here — it already fills whatever box the
+                // AspectRatio above reserved, so there's nothing left to
+                // jump between "loading" and "loaded".
+                return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+              },
+              errorBuilder: (context, error, stack) =>
+                  const Center(child: Icon(TablerIcons.photoOff)),
             ),
           ),
         ),

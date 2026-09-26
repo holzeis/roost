@@ -33,7 +33,7 @@ func TestHandleListUsers_IncludesAvatarMediaID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	mediaObj, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), fmt.Sprintf("avatars/%d.jpg", run), "image/jpeg", 3, withAvatar.ID)
+	mediaObj, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), fmt.Sprintf("avatars/%d.jpg", run), "image/jpeg", 3, withAvatar.ID, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("create media object: %v", err)
 	}

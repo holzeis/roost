@@ -983,6 +983,66 @@ void main() {
     expect(constrainedBox.constraints.maxWidth, expectedMaxWidth);
   });
 
+  testWidgets('A photo with known dimensions reserves its real aspect ratio before it loads (FR2.*)',
+      (tester) async {
+    final api = _seededApiClient();
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'm-portrait',
+        roomId: 'room-family',
+        senderId: 'me',
+        kind: 'image',
+        mediaId: 'media-portrait',
+        media: const ApiMediaInfo(width: 800, height: 1600), // a 1:2 portrait
+        createdAt: DateTime.now(),
+      ),
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // The point of this: the bubble already knows its final shape from the
+    // message's own data, before Image.network has resolved anything at
+    // all — nothing to jump/resize once it does.
+    final aspectRatios = tester
+        .widgetList<AspectRatio>(
+            find.descendant(of: find.byType(MediaBubbleContent), matching: find.byType(AspectRatio)))
+        .toList();
+    expect(aspectRatios.any((a) => a.aspectRatio == 800 / 1600), isTrue);
+  });
+
+  testWidgets('A photo with unknown dimensions falls back to a square aspect ratio', (tester) async {
+    // The seeded "m3" image message (see _seededApiClient) has no `media`
+    // — matching a message uploaded before FR2.* existed, or an
+    // undecodable format (WebP/HEIC).
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final aspectRatio = tester
+        .widget<AspectRatio>(
+            find.descendant(of: find.byType(MediaBubbleContent), matching: find.byType(AspectRatio)).first)
+        .aspectRatio;
+    expect(aspectRatio, 1.0);
+  });
+
+  testWidgets('An inline photo requests the smaller preview, not the full-quality original (FR2.*)',
+      (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final image = tester.widget<Image>(
+      find.descendant(of: find.byType(MediaBubbleContent), matching: find.byType(Image)).first,
+    );
+    final provider = image.image as NetworkImage;
+    expect(provider.url, api.mediaPreviewUrl('media-1'));
+  });
+
   testWidgets('A group chat names who shared a photo, but never for the viewer\'s own', (tester) async {
     final api = _seededApiClient();
     api.messagesByRoom['room-family']!.add(
@@ -1474,6 +1534,15 @@ void main() {
     await tester.tap(find.text('Location'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('15 minutes'));
+    await tester.pumpAndSettle();
+
+    // The room's earlier seeded image message now reserves its real (and
+    // taller) aspect-ratio box rather than a small fixed placeholder
+    // (FR2.*), which the standard 390x844 test viewport doesn't have room
+    // to show alongside both location bubbles at once — taller here so the
+    // lazily-built message list actually renders both rather than dropping
+    // one outside its viewport/cache window.
+    tester.view.physicalSize = const Size(390, 2200);
     await tester.pumpAndSettle();
 
     // Both the viewer's own share and Mom's now show as one aggregated

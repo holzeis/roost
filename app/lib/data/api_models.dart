@@ -88,6 +88,7 @@ class ApiMessage {
     this.status = 'sent',
     this.location,
     this.call,
+    this.media,
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) => ApiMessage(
@@ -115,6 +116,7 @@ class ApiMessage {
             ? ApiLocationShare.fromJson(json['location'] as Map<String, dynamic>)
             : null,
         call: json['call'] != null ? ApiCall.fromJson(json['call'] as Map<String, dynamic>) : null,
+        media: json['media'] != null ? ApiMediaInfo.fromJson(json['media'] as Map<String, dynamic>) : null,
       );
 
   final String id;
@@ -138,6 +140,12 @@ class ApiMessage {
   /// The FR4.* subtype for a `kind == 'call'` message. Null for every other
   /// kind.
   final ApiCall? call;
+  /// The image/video's known pixel dimensions (FR2.*), when the server
+  /// captured them at upload — null for a video, an image format it
+  /// couldn't decode, or a message uploaded before this existed. Lets
+  /// MediaBubbleContent reserve the right aspect ratio before the image
+  /// itself has downloaded, instead of the bubble resizing once it has.
+  final ApiMediaInfo? media;
 
   ApiMessage copyWith({
     List<ApiReaction>? reactions,
@@ -163,7 +171,20 @@ class ApiMessage {
         status: status ?? this.status,
         location: location ?? this.location,
         call: call ?? this.call,
+        media: media,
       );
+}
+
+/// An image/video message's known pixel dimensions, mirroring
+/// server/internal/models.MediaInfo.
+class ApiMediaInfo {
+  const ApiMediaInfo({required this.width, required this.height});
+
+  factory ApiMediaInfo.fromJson(Map<String, dynamic> json) =>
+      ApiMediaInfo(width: json['width'] as int, height: json['height'] as int);
+
+  final int width;
+  final int height;
 }
 
 /// The FR4.* subtype attached to a `kind == 'call'` message, mirroring
