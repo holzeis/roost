@@ -49,10 +49,17 @@ class _LocationBubbleContentState extends ConsumerState<LocationBubbleContent> {
     super.initState();
     // Re-renders the "Xm left" label periodically while active — the
     // position itself updates via the normal message.updated WS flow
-    // (chat_providers.dart), not this timer.
-    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
+    // (chat_providers.dart), not this timer. Skipped entirely once already
+    // expired (and cancels itself the moment it notices expiry) — an ended
+    // share can never become active again, so there's nothing left for a
+    // 30-second tick to ever change.
+    if (widget.message.location?.isActive() ?? false) {
+      _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (!mounted) return;
+        setState(() {});
+        if (!(widget.message.location?.isActive() ?? false)) _ticker?.cancel();
+      });
+    }
   }
 
   @override
@@ -80,23 +87,33 @@ class _LocationBubbleContentState extends ConsumerState<LocationBubbleContent> {
     final share = widget.message.location;
     if (share == null) return const SizedBox.shrink();
 
-    final active = share.isActive();
+    // Media gets its own (wider) cap than a text bubble — see
+    // ChatBubbleStyle.mediaMaxWidth — keeping the map preview's original
+    // width:height ratio (220:160) rather than going square like a photo.
+    final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
+    final box = BoxConstraints(maxWidth: maxWidth, maxHeight: maxWidth * 160 / 220);
 
-    // Every other currently-active share in the room joins this preview
-    // while this one is itself still active — an ended/expired share just
-    // shows its own last-known position, same as before.
-    var sharesToShow = [widget.message];
-    if (active) {
-      final roomShares = ref
-              .watch(messagesProvider(widget.roomId))
-              .valueOrNull
-              ?.where((m) => m.kind == 'location' && (m.location?.isActive() ?? false))
-              .toList() ??
-          const <ApiMessage>[];
-      if (roomShares.any((m) => m.id == widget.message.id)) {
-        sharesToShow = roomShares;
-      }
+    if (!share.isActive()) {
+      // An ended/expired share's position is frozen — a live Maps SDK view
+      // here would just reload the exact same static picture every time
+      // this bubble's widget gets rebuilt (e.g. scrolling back through
+      // history), and each of those reloads is a real, separately billed
+      // Maps Platform "map load". A plain pin conveys the same thing
+      // (there's a location here, tap for the full view) for free.
+      return _ExpiredLocationPreview(roomId: widget.roomId, box: box, borderRadius: widget.borderRadius);
     }
+
+    // Every other currently-active share in the room joins this preview —
+    // matching the full map's own aggregation rather than showing only this
+    // one message's position.
+    final roomShares = ref
+            .watch(messagesProvider(widget.roomId))
+            .valueOrNull
+            ?.where((m) => m.kind == 'location' && (m.location?.isActive() ?? false))
+            .toList() ??
+        const <ApiMessage>[];
+    final sharesToShow =
+        roomShares.any((m) => m.id == widget.message.id) ? roomShares : [widget.message];
 
     final positions = [for (final m in sharesToShow) LatLng(m.location!.lat, m.location!.lng)];
     final centerLat = positions.map((p) => p.latitude).reduce((a, b) => a + b) / positions.length;
@@ -109,17 +126,9 @@ class _LocationBubbleContentState extends ConsumerState<LocationBubbleContent> {
             positions.map((p) => p.longitude).reduce((a, b) => a < b ? a : b);
     final zoom = positions.length > 1 ? _zoomForSpan(latSpan > lngSpan ? latSpan : lngSpan) : 14.0;
 
-    // Media gets its own (wider) cap than a text bubble — see
-    // ChatBubbleStyle.mediaMaxWidth — keeping the map preview's original
-    // width:height ratio (220:160) rather than going square like a photo.
-    final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
-    final box = BoxConstraints(maxWidth: maxWidth, maxHeight: maxWidth * 160 / 220);
-
-    final label = !active
-        ? 'Location shared'
-        : sharesToShow.length > 1
-            ? '${sharesToShow.length} sharing live'
-            : 'Live · ${formatRemaining(share.expiresAt.difference(DateTime.now()))}';
+    final label = sharesToShow.length > 1
+        ? '${sharesToShow.length} sharing live'
+        : 'Live · ${formatRemaining(share.expiresAt.difference(DateTime.now()))}';
 
     return GestureDetector(
       onTap: () => context.push('/chat/${widget.roomId}/location'),
@@ -164,9 +173,63 @@ class _LocationBubbleContentState extends ConsumerState<LocationBubbleContent> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(active ? TablerIcons.point : TablerIcons.mapPin, color: Colors.white, size: 12),
+                      const Icon(TablerIcons.point, color: Colors.white, size: 12),
                       const SizedBox(width: 3),
                       Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Static stand-in for [LocationBubbleContent] once a share has ended or
+/// expired — see the doc comment where this is returned for why this avoids
+/// a real Maps SDK view entirely rather than just showing the same map
+/// without the "Live" chip.
+class _ExpiredLocationPreview extends StatelessWidget {
+  const _ExpiredLocationPreview({required this.roomId, required this.box, required this.borderRadius});
+
+  final String roomId;
+  final BoxConstraints box;
+  final BorderRadius borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => context.push('/chat/$roomId/location'),
+      child: ConstrainedBox(
+        constraints: box,
+        child: ClipRRect(
+          borderRadius: borderRadius,
+          child: Stack(
+            children: [
+              Container(
+                color: scheme.primary.withValues(alpha: 0.12),
+                alignment: Alignment.center,
+                child: Icon(TablerIcons.mapPin, size: 36, color: scheme.primary),
+              ),
+              Positioned(
+                left: 6,
+                bottom: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(TablerIcons.mapPin, color: Colors.white, size: 12),
+                      SizedBox(width: 3),
+                      Text('Location shared', style: TextStyle(color: Colors.white, fontSize: 10.5)),
                     ],
                   ),
                 ),

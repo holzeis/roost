@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1444,6 +1445,31 @@ void main() {
     // as if the other share didn't exist.
     expect(find.textContaining('sharing live'), findsNWidgets(2));
     expect(find.textContaining('Live ·'), findsNothing);
+  });
+
+  testWidgets('An expired location share shows a static pin, not a live map', (tester) async {
+    final api = _seededApiClient();
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'expired-share',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'location',
+        location: ApiLocationShare(
+            lat: 52.51, lng: 13.41, expiresAt: DateTime.now().subtract(const Duration(minutes: 5))),
+        createdAt: DateTime.now().subtract(const Duration(hours: 1)),
+      ),
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Location shared'), findsOneWidget);
+    expect(find.textContaining('Live ·'), findsNothing);
+    // The real point of this test: no live Maps SDK view for an expired
+    // share — see location_message.dart's _ExpiredLocationPreview.
+    expect(find.byType(GoogleMap), findsNothing);
   });
 
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {
