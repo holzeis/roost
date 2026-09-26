@@ -69,5 +69,16 @@
 	</array>
 	<key>GMSApiKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>
+	<!-- Declares export-compliance status once, up front, instead of
+	     answering Apple's encryption questionnaire on every single
+	     TestFlight build. Roost only uses standard, exempt encryption —
+	     TLS/HTTPS via iOS's own system libraries (APNs, FCM, link
+	     previews) and Tailscale's WireGuard, both publicly available,
+	     standard algorithms — never a custom/proprietary cipher. That
+	     also means the France-specific cryptography declaration Apple
+	     sometimes asks about doesn't apply here: it's only triggered by
+	     non-exempt encryption, which this isn't. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
