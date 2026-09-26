@@ -44,17 +44,24 @@ kubectl create secret generic roost-secrets -n roost \
   --from-literal=livekit-node-ip=''
 ```
 
-Push (FR5.1) is optional and can be added later, once Apple/Firebase credentials exist:
+Push (FR5.1) is optional and can be added later, once Apple/Firebase credentials exist.
+The `.p8` key's contents span multiple lines, so building the patch JSON with a plain
+heredoc breaks (`invalid character '\n' in string literal`) — use `jq` to escape it
+properly instead:
 
 ```sh
-kubectl patch secret roost-secrets -n roost --type=merge -p="$(cat <<EOF
-{"stringData": {
-  "apns-key-id": "<key id>",
-  "apns-team-id": "<team id>",
-  "apns-private-key": "$(cat AuthKey_XXXXXXXXXX.p8)",
-  "fcm-service-account-json": "$(cat service-account.json)"
-}}
-EOF
+kubectl patch secret roost-secrets -n roost --type=merge -p "$(
+  jq -n \
+    --arg keyId '<key id>' \
+    --arg teamId '<team id>' \
+    --arg privKey "$(cat AuthKey_XXXXXXXXXX.p8)" \
+    --arg fcmJson "$(cat service-account.json)" \
+    '{stringData: {
+      "apns-key-id": $keyId,
+      "apns-team-id": $teamId,
+      "apns-private-key": $privKey,
+      "fcm-service-account-json": $fcmJson
+    }}'
 )"
 ```
 
