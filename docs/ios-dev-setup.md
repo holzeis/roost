@@ -140,7 +140,21 @@ to it (bundle ID `me.holzeis.roost.roost`), then either run
 `flutterfire configure` from `app/` (regenerates
 `app/lib/firebase_options.dart` with real values for *both* platforms — see
 its own doc comment) or manually copy the `android`/`ios` config values from
-the Firebase console into that file yourself. Also download the project's
+the Firebase console into that file yourself.
+
+**`flutterfire configure` also generates `android/app/google-services.json`,
+`ios/Runner/GoogleService-Info.plist`, `firebase.json`, and applies the
+Google Services Gradle plugin (`android/app/build.gradle` and
+`android/settings.gradle`) — undo all of that after running it.** This app
+initializes Firebase entirely from Dart via `firebase_options.dart`; those
+native config files and the Gradle plugin aren't needed for that, and on
+Android the plugin is actively harmful — it makes `FirebaseInitProvider`
+auto-initialize a `"[DEFAULT]"` FirebaseApp at process start, and the
+explicit `Firebase.initializeApp()` call in `push_service.dart` then throws
+`IllegalStateException: FirebaseApp name [DEFAULT] already exists!` on top
+of it. Revert `build.gradle`/`settings.gradle`/`project.pbxproj` (`git
+checkout --`) and leave the three generated files where they land —
+`.gitignore` already excludes them. Also download the project's
 service-account JSON (Project Settings → Service Accounts → Generate new
 private key) and set it as `FCM_SERVICE_ACCOUNT_JSON` server-side, same as
 the APNs values above. Unlike FR5.1's call wake, FR5.2 needs no separate

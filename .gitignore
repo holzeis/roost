@@ -43,6 +43,18 @@ logs/
 **/android/key.properties
 *.iml
 
+# Firebase — this app initializes Firebase entirely from Dart
+# (lib/firebase_options.dart, committed with real values), never from these
+# native config files. `flutterfire configure` generates them by default
+# alongside the Google Services Gradle plugin; on Android, applying that
+# plugin makes Firebase auto-initialize a "[DEFAULT]" app via
+# FirebaseInitProvider before our own Firebase.initializeApp() call runs,
+# which then throws "FirebaseApp name [DEFAULT] already exists!" — so the
+# plugin/these files are deliberately left out. See docs/ios-dev-setup.md.
+**/android/app/google-services.json
+**/ios/Runner/GoogleService-Info.plist
+**/firebase.json
+
 # Go (chat server)
 /server/roost-server
 vendor/
