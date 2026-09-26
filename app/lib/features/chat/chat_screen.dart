@@ -55,7 +55,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final typingUsers = ref.watch(typingUsersProvider(roomId));
 
     return Scaffold(
-      backgroundColor: chatWallpaperColor(context),
+      // Deliberately NOT chatWallpaperColor: that's only the message list's
+      // own decoration (below), painted by the Container around it. The
+      // Scaffold's own base fill is what shows through at the iOS
+      // keyboard's rounded predictive-text-bar corners (resizeToAvoidBottomInset
+      // doesn't quite cover them), and that needs to match the composer's
+      // own scaffoldBackgroundColor sitting right above it — otherwise that
+      // sliver reads as a jarring, wallpaper-colored notch beside the
+      // keyboard instead of a seamless continuation of the composer.
       appBar: AppBar(
         titleSpacing: 4,
         leading: const TablerBackButton(),
@@ -86,15 +93,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Column(
           children: [
             Expanded(
-              child: me.hasValue
-                  ? _MessageList(
-                      roomId: roomId,
-                      meId: me.value!.id,
-                      usersById: usersById.valueOrNull ?? const {},
-                      isGroup: isGroup,
-                      composerKey: _composerKey,
-                    )
-                  : const Center(child: CircularProgressIndicator()),
+              // Tapping the conversation itself (not a message bubble, not
+              // the composer) dismisses the keyboard, matching iMessage/
+              // WhatsApp — opaque so a tap on empty space between/below
+              // bubbles is caught too, not just on the message list's own
+              // scrollable content.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => FocusScope.of(context).unfocus(),
+                child: me.hasValue
+                    ? _MessageList(
+                        roomId: roomId,
+                        meId: me.value!.id,
+                        usersById: usersById.valueOrNull ?? const {},
+                        isGroup: isGroup,
+                        composerKey: _composerKey,
+                      )
+                    : const Center(child: CircularProgressIndicator()),
+              ),
             ),
             _MessageComposer(key: _composerKey, roomId: roomId),
           ],
@@ -801,6 +817,16 @@ class _MessageRow extends ConsumerWidget {
             bottomRight: borderRadius.bottomRight)
         : borderRadius;
 
+    // FR2.6: a caption sits in the frame below the photo/video, not
+    // overlaid on it and not floating outside the bubble — so the image's
+    // own bottom corners go square (the caption strip below it now owns
+    // whichever of the bubble's bottom corners it's adjacent to) regardless
+    // of what framelessRadius would otherwise give it.
+    final hasCaption = isMedia && (message.body?.trim().isNotEmpty ?? false);
+    final mediaRadius = hasCaption
+        ? BorderRadius.only(topLeft: framelessRadius.topLeft, topRight: framelessRadius.topRight)
+        : framelessRadius;
+
     final bubbleContent = Container(
       constraints: BoxConstraints(
           maxWidth: isFrameless
@@ -868,9 +894,21 @@ class _MessageRow extends ConsumerWidget {
                 ),
               ),
             ),
-          if (isMedia)
-            MediaBubbleContent(message: message, borderRadius: framelessRadius)
-          else if (isLocation)
+          if (isMedia) ...[
+            MediaBubbleContent(message: message, borderRadius: mediaRadius),
+            if (hasCaption)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+                child: Text(
+                  message.body!,
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.3,
+                    color: fromMe ? scheme.onPrimary : scheme.onSurface,
+                  ),
+                ),
+              ),
+          ] else if (isLocation)
             LocationBubbleContent(
                 message: message, roomId: roomId, borderRadius: framelessRadius)
           else if (isCall)
@@ -1734,23 +1772,34 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                       ),
                     ),
                   ),
-                  // Always visible now, on the trailing side — kept even
-                  // while composing text, rather than hidden the moment
-                  // there's something typed. Jumps straight into the native
-                  // camera for a photo — image_picker's camera source is
-                  // always locked to one fixed media type per call (no way
-                  // to ask for a combined photo/video capture session the
-                  // way Apple's own Camera app offers, even though the
+                  // Camera when the field is empty — jumps straight into the
+                  // native camera for a photo (image_picker's camera source
+                  // is always locked to one fixed media type per call, no
+                  // way to ask for a combined photo/video capture session
+                  // the way Apple's own Camera app offers, even though the
                   // underlying UIImagePickerController supports it — the
                   // plugin just never exposes that combination through its
-                  // public API), so video and gallery live in the "+"
-                  // attach tray instead rather than pretending this one tap
-                  // can reach all three.
-                  IconButton(
-                    icon: Icon(TablerIcons.camera,
-                        color: scheme.onSurface.withValues(alpha: 0.6)),
-                    onPressed: () =>
-                        _pickAndSendMedia(video: false, source: ImageSource.camera),
+                  // public API — so video and gallery live in the "+"
+                  // attach tray instead). Swaps to a send button the moment
+                  // there's text, rather than keeping the camera up and
+                  // making send only reachable via the keyboard's own
+                  // action key.
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _controller,
+                    builder: (context, value, _) {
+                      if (value.text.trim().isEmpty) {
+                        return IconButton(
+                          icon: Icon(TablerIcons.camera,
+                              color: scheme.onSurface.withValues(alpha: 0.6)),
+                          onPressed: () =>
+                              _pickAndSendMedia(video: false, source: ImageSource.camera),
+                        );
+                      }
+                      return IconButton(
+                        icon: Icon(TablerIcons.send, color: scheme.primary),
+                        onPressed: _sending ? null : _send,
+                      );
+                    },
                   ),
                   if (_sending)
                     const Padding(

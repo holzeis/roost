@@ -311,7 +311,8 @@ void main() {
     expect(title.style?.fontFamily, equals(bodyFamily));
   });
 
-  testWidgets('Camera shortcut stays visible while typing and jumps straight to the camera on tap', (tester) async {
+  testWidgets('Camera jumps straight to the camera when empty, and swaps to a send button while typing',
+      (tester) async {
     final originalPlatform = ImagePickerPlatform.instance;
     ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
     addTearDown(() => ImagePickerPlatform.instance = originalPlatform);
@@ -323,6 +324,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
+    expect(find.byIcon(TablerIcons.send), findsNothing);
 
     // A plain tap goes straight to the camera — no chooser in between —
     // then the caption review screen (FR2.6), and sends whatever comes
@@ -337,11 +339,23 @@ void main() {
       isTrue,
     );
 
-    // Stays visible while composing text, rather than hiding once there's
-    // something typed.
+    // Swaps to a send button once there's text — no longer keeping the
+    // camera up and making send only reachable via the keyboard's own
+    // action key.
     await tester.enterText(find.byType(TextField).last, 'hi');
     await tester.pump();
 
+    expect(find.byIcon(TablerIcons.camera), findsNothing);
+    expect(find.byIcon(TablerIcons.send), findsOneWidget);
+
+    await tester.tap(find.byIcon(TablerIcons.send));
+    await tester.pumpAndSettle();
+
+    expect(
+      api.messagesByRoom['room-family']!.any((m) => m.kind == 'text' && m.body == 'hi'),
+      isTrue,
+    );
+    // Swaps back once the field empties out after sending.
     expect(find.byIcon(TablerIcons.camera), findsOneWidget);
   });
 
@@ -469,6 +483,11 @@ void main() {
         .where((m) => m.kind == 'image' && m.senderId == 'me')
         .last;
     expect(sent.body, 'Weekend trip!');
+
+    // The caption itself must actually be visible in the chat, in the
+    // bubble frame below the photo — not just silently attached to the
+    // message's body with nowhere in the UI that ever renders it.
+    expect(find.text('Weekend trip!'), findsOneWidget);
   });
 
   testWidgets('Backing out of the caption review screen sends nothing (FR2.6)', (tester) async {
@@ -510,14 +529,31 @@ void main() {
     expect(find.byIcon(TablerIcons.plus), findsOneWidget);
   });
 
-  testWidgets('There is no send button; hitting the keyboard\'s send action sends the message', (tester) async {
+  testWidgets('Tapping the conversation area dismisses the keyboard', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(TextField).last);
+    await tester.pumpAndSettle();
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    // Empty space in the message list, not a bubble or the composer itself.
+    await tester.tapAt(const Offset(200, 100));
+    await tester.pumpAndSettle();
+
+    expect(tester.testTextInput.isVisible, isFalse);
+  });
+
+  testWidgets("Hitting the keyboard's send action sends the message, same as the send button", (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(TablerIcons.send), findsNothing);
+    expect(find.byIcon(TablerIcons.send), findsNothing); // empty field: still the camera
 
     await tester.enterText(find.byType(TextField).last, 'hello from a test');
     await tester.testTextInput.receiveAction(TextInputAction.send);
