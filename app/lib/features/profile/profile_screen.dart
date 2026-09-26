@@ -159,9 +159,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : avatarMediaId != null
                             ? Image.network(
+                                // See widgets/avatar.dart's identical
+                                // comment — always shown small, so the
+                                // faster preview beats the full original.
                                 ref
                                     .read(apiClientProvider)
-                                    .mediaUrl(avatarMediaId),
+                                    .mediaPreviewUrl(avatarMediaId),
                                 width: 64,
                                 height: 64,
                                 fit: BoxFit.cover,

@@ -150,3 +150,51 @@ func TestHandleUploadAvatar_SetsAvatarWithoutCreatingAMessageOrTouchingDisplayNa
 		t.Fatalf("expected 200 fetching the avatar, got %d: %s", getRec.Code, getRec.Body.String())
 	}
 }
+
+// TestHandleUploadAvatar_GeneratesAPreview: an avatar is shown small
+// everywhere it appears (InitialAvatar/profile_screen.dart), so it gets the
+// same faster-loading preview as a chat photo — see storeMediaWithPreview.
+func TestHandleUploadAvatar_GeneratesAPreview(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	user, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("avatar-preview-test-%d@github", run), "Photogenic")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	original := testJPEG(t, 200, 200)
+	body, contentType := multipartAvatarBody(t, "avatar.jpg", original)
+	req := httptest.NewRequest(http.MethodPost, "/api/me/avatar", body)
+	req.Header.Set("Content-Type", contentType)
+	req = req.WithContext(session.WithUser(req.Context(), user))
+	rec := httptest.NewRecorder()
+
+	s.handleUploadAvatar(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var updated models.User
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	getPreview := httptest.NewRequest(http.MethodGet, "/api/media/"+*updated.AvatarMediaID+"?variant=preview", nil)
+	getPreview = getPreview.WithContext(session.WithUser(getPreview.Context(), user))
+	getPreview = withURLParam(getPreview, "mediaID", *updated.AvatarMediaID)
+	recPreview := httptest.NewRecorder()
+	s.handleGetMedia(recPreview, getPreview)
+
+	if recPreview.Code != http.StatusOK {
+		t.Fatalf("expected 200 for the preview, got %d", recPreview.Code)
+	}
+	if got := recPreview.Header().Get("Content-Type"); got != "image/jpeg" {
+		t.Fatalf("expected preview Content-Type image/jpeg, got %q", got)
+	}
+	if recPreview.Body.Len() >= len(original) {
+		t.Fatalf("expected the preview to be smaller than the original (%d bytes), got %d",
+			len(original), recPreview.Body.Len())
+	}
+}

@@ -82,7 +82,12 @@ class InitialAvatar extends ConsumerWidget {
       ),
       child: mediaId != null
           ? Image.network(
-              ref.watch(apiClientProvider).mediaUrl(mediaId),
+              // The smaller/faster preview — always shown small here
+              // regardless of the source photo's real dimensions, so the
+              // full-quality original (mediaUrl) would just be wasted
+              // bandwidth. Falls back to the original server-side if this
+              // avatar has no preview (see mediaPreviewUrl's own comment).
+              ref.watch(apiClientProvider).mediaPreviewUrl(mediaId),
               width: size,
               height: size,
               fit: BoxFit.cover,

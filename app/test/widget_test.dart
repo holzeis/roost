@@ -1087,6 +1087,24 @@ void main() {
     expect(avatars.any((a) => a.avatarMediaId == 'avatar-mom'), isTrue);
   });
 
+  testWidgets('An avatar requests the smaller preview, not the full-quality original', (tester) async {
+    final api = _seededApiClient();
+    api.contacts = const [
+      ApiContact(id: 'user-mom', displayName: 'Mom', online: true, avatarMediaId: 'avatar-mom'),
+      ApiContact(id: 'user-dad', displayName: 'Dad', online: false),
+    ];
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final image = tester.widget<Image>(
+      find.descendant(of: find.byType(InitialAvatar), matching: find.byType(Image)).first,
+    );
+    final provider = image.image as NetworkImage;
+    expect(provider.url, api.mediaPreviewUrl('avatar-mom'));
+  });
+
   testWidgets('A 1:1 chat does not repeat the other person\'s avatar on every message', (tester) async {
     final api = _seededApiClient();
     api.rooms = [

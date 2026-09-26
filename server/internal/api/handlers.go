@@ -106,20 +106,33 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Buffered fully in memory rather than streamed straight to MinIO —
+	// generating the preview below needs the whole thing to decode anyway.
+	// See handleUploadMedia's identical comment.
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "could not read upload")
+		return
+	}
+
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	objectKey := fmt.Sprintf("avatars/%s%s", uuid.NewString(), filepath.Ext(header.Filename))
 
-	if err := s.Media.Put(r.Context(), objectKey, file, header.Size, contentType); err != nil {
+	// An avatar is shown small everywhere (InitialAvatar/profile_screen.dart
+	// both render it into a fixed-size circle via BoxFit.cover, never at its
+	// real dimensions), so the same faster-loading preview handleUploadMedia
+	// generates for chat photos applies just as well here.
+	width, height, previewObjectKey, err := s.storeMediaWithPreview(r.Context(), objectKey, contentType, data)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not store file")
 		return
 	}
 
-	// No preview/dimensions for an avatar — it's not rendered through the
-	// same chat-bubble path this optimizes, and is already small.
-	mediaObj, err := s.Store.CreateMediaObject(r.Context(), s.Media.Bucket(), objectKey, contentType, header.Size, u.ID, nil, nil, nil)
+	mediaObj, err := s.Store.CreateMediaObject(
+		r.Context(), s.Media.Bucket(), objectKey, contentType, int64(len(data)), u.ID, width, height, previewObjectKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not record uploaded file")
 		return
@@ -444,6 +457,31 @@ func generateImagePreview(data []byte) (preview []byte, width, height int, ok bo
 	return buf.Bytes(), bounds.Dx(), bounds.Dy(), true
 }
 
+// storeMediaWithPreview stores data (the exact bytes uploaded) at objectKey,
+// and, if it decodes as an image, also stores a smaller/lower-quality
+// preview alongside it — shared by handleUploadMedia and handleUploadAvatar,
+// which otherwise duplicate this exact sequence. Only a failure to store the
+// original is fatal; a preview that can't be generated or stored is
+// silently skipped (see generateImagePreview's own doc comment) rather than
+// failing the whole upload over what's just a nice-to-have.
+func (s *Server) storeMediaWithPreview(ctx context.Context, objectKey, contentType string, data []byte) (
+	width, height *int, previewObjectKey *string, err error,
+) {
+	if err := s.Media.Put(ctx, objectKey, bytes.NewReader(data), int64(len(data)), contentType); err != nil {
+		return nil, nil, nil, fmt.Errorf("store original: %w", err)
+	}
+	if preview, w, h, ok := generateImagePreview(data); ok {
+		previewKey := objectKey + ".preview.jpg"
+		if putErr := s.Media.Put(ctx, previewKey, bytes.NewReader(preview), int64(len(preview)), "image/jpeg"); putErr == nil {
+			previewObjectKey = &previewKey
+			width, height = &w, &h
+		} else {
+			slog.Warn("store media: could not store preview, falling back to original", "error", putErr)
+		}
+	}
+	return width, height, previewObjectKey, nil
+}
+
 // handleUploadMedia implements FR2.1/2.2: the client posts the file plus a
 // "kind" field (image|video) as multipart form data, and gets back the chat
 // message that was created for it — one request creates both the MinIO
@@ -508,25 +546,13 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	objectKey := fmt.Sprintf("%s/%s%s", roomID, uuid.NewString(), filepath.Ext(header.Filename))
 
-	if err := s.Media.Put(r.Context(), objectKey, bytes.NewReader(data), int64(len(data)), contentType); err != nil {
+	// generateImagePreview (inside storeMediaWithPreview) simply can't
+	// decode video bytes as an image, so this naturally no-ops for a video
+	// upload without needing to special-case kind here.
+	width, height, previewObjectKey, err := s.storeMediaWithPreview(r.Context(), objectKey, contentType, data)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not store file")
 		return
-	}
-
-	// Best-effort — see generateImagePreview's own doc comment for exactly
-	// which formats/failures this silently skips rather than fails on.
-	var width, height *int
-	var previewObjectKey *string
-	if kind == string(models.MessageKindImage) {
-		if preview, w2, h2, ok := generateImagePreview(data); ok {
-			previewKey := objectKey + ".preview.jpg"
-			if err := s.Media.Put(r.Context(), previewKey, bytes.NewReader(preview), int64(len(preview)), "image/jpeg"); err == nil {
-				previewObjectKey = &previewKey
-				width, height = &w2, &h2
-			} else {
-				slog.Warn("upload media: could not store preview, falling back to original", "error", err)
-			}
-		}
 	}
 
 	mediaObj, err := s.Store.CreateMediaObject(
