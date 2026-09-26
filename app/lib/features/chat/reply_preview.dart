@@ -45,8 +45,10 @@ class _QuoteThumbnail extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
+      // The faster preview, same as the bubble it's quoting — shown small
+      // here regardless, so there's no reason to fetch the full original.
       child: Image.network(
-        ref.watch(apiClientProvider).mediaUrl(mediaId),
+        ref.watch(apiClientProvider).mediaPreviewUrl(mediaId),
         width: 40,
         height: 40,
         fit: BoxFit.cover,

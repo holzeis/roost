@@ -33,6 +33,7 @@ class MediaBubbleContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final api = ref.watch(apiClientProvider);
+    final scheme = Theme.of(context).colorScheme;
     // Media gets its own (wider) cap than a text bubble — see
     // ChatBubbleStyle.mediaMaxWidth — so photos/videos fill more of the row
     // instead of looking cramped next to a long message.
@@ -81,15 +82,28 @@ class MediaBubbleContent extends ConsumerWidget {
             child: Image.network(
               api.mediaPreviewUrl(message.mediaId!),
               fit: BoxFit.cover,
+              // No fixed size here — it already fills whatever box the
+              // AspectRatio above reserved, so there's nothing left to jump
+              // between "loading" and "loaded". A solid tinted background
+              // (matching _ExpiredLocationPreview's own) instead of a bare
+              // spinner over the wallpaper — a large reserved box (a tall
+              // portrait photo can reserve real height) otherwise reads as
+              // a jarring, half-transparent hole for the moment it takes
+              // this to load, right where the newest message lands next to
+              // the composer.
               loadingBuilder: (context, child, progress) {
                 if (progress == null) return child;
-                // No fixed size here — it already fills whatever box the
-                // AspectRatio above reserved, so there's nothing left to
-                // jump between "loading" and "loaded".
-                return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                return Container(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  alignment: Alignment.center,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                );
               },
-              errorBuilder: (context, error, stack) =>
-                  const Center(child: Icon(TablerIcons.photoOff)),
+              errorBuilder: (context, error, stack) => Container(
+                color: scheme.primary.withValues(alpha: 0.12),
+                alignment: Alignment.center,
+                child: Icon(TablerIcons.photoOff, color: scheme.primary),
+              ),
             ),
           ),
         ),
