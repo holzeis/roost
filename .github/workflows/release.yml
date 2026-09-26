@@ -82,10 +82,19 @@ jobs:
         working-directory: app
         run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
 
+      # upload-testflight-build's appstore-api backend takes app-path as a
+      # literal resolved file path, not a glob — handing it the "*.ipa"
+      # pattern directly fails with "ADM-ZIP: Invalid filename" trying to
+      # read a file literally named that. Resolve it to the one real file
+      # first (flutter build ipa always produces exactly one).
+      - name: Locate built IPA
+        id: ipa
+        run: echo "path=$(ls app/build/ios/ipa/*.ipa)" >> "$GITHUB_OUTPUT"
+
       - name: Upload to TestFlight
         uses: apple-actions/upload-testflight-build@1fc69ca369a60b813eaaa2d936eda22794b52e17 # v5.4.0
         with:
-          app-path: app/build/ios/ipa/*.ipa
+          app-path: ${{ steps.ipa.outputs.path }}
           issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           api-private-key: ${{ secrets.APP_STORE_CONNECT_KEY }}
