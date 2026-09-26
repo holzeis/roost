@@ -28,6 +28,27 @@ type fakeWSConn struct{}
 
 func (fakeWSConn) Send(ws.Event) error { return nil }
 
+// recordingWSConn is fakeWSConn plus a record of every event actually sent
+// to it — for asserting who did (or didn't) receive something over the
+// socket, not just who got pushed to.
+type recordingWSConn struct {
+	mu     sync.Mutex
+	events []ws.Event
+}
+
+func (c *recordingWSConn) Send(ev ws.Event) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, ev)
+	return nil
+}
+
+func (c *recordingWSConn) eventsSnapshot() []ws.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]ws.Event(nil), c.events...)
+}
+
 // fakePushSender records every SendCallWake/SendMessageNotification call so
 // a test can assert exactly who got pushed to (and who didn't) — this
 // project's established fakes-over-mocks convention (see
@@ -394,6 +415,63 @@ func TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly(t 
 	if got.payload.RoomID != room.ID || got.payload.MessageID != created.ID || got.payload.SenderName != sender.DisplayName {
 		t.Fatalf("unexpected push payload: %+v (want room=%s message=%s sender=%s)",
 			got.payload, room.ID, created.ID, sender.DisplayName)
+	}
+}
+
+// TestHandleCreateMessage_BroadcastsToSenderOverWebSocket guards a real
+// regression: deliverMessageEvent originally reused deliverToRoom's
+// "exclude the sender" behavior, copied from handleStartCall's caller (who
+// genuinely doesn't need it). But the app has no local optimistic append —
+// see chat_providers.dart's send() — so excluding the sender from the
+// message.created broadcast meant a sent message never appeared in the
+// sender's own chat at all. The sender must still never be pushed about
+// their own message, though.
+func TestHandleCreateMessage_BroadcastsToSenderOverWebSocket(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	sender, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("msg-sender-ws-%d@github", run), "Sender")
+	if err != nil {
+		t.Fatalf("create sender: %v", err)
+	}
+	other, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("msg-other-ws-%d@github", run), "Other")
+	if err != nil {
+		t.Fatalf("create other member: %v", err)
+	}
+
+	senderConn := &recordingWSConn{}
+	s.Hub.Register(sender.ID, senderConn)
+
+	room, err := s.Store.CreateRoom(ctx, sender.ID, nil, true, []string{sender.ID, other.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	body := strings.NewReader(`{"body":"can you see this?"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/messages", body)
+	req = req.WithContext(session.WithUser(req.Context(), sender))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleCreateMessage(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	events := senderConn.eventsSnapshot()
+	if len(events) != 1 || events[0].Type != "message.created" {
+		t.Fatalf("expected exactly one message.created event sent to the sender's own socket, got %+v", events)
+	}
+
+	// other has no registered device, so this only proves the sender
+	// specifically was excluded, not just that no push happened at all.
+	if calls := pushSender.messageCallsSnapshot(); len(calls) != 0 {
+		t.Fatalf("sender should never get a push notification about their own message, got %+v", calls)
 	}
 }
 

@@ -1257,13 +1257,15 @@ func (s *Server) handleStartCall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
-// deliverToRoom sends ev to every member of roomID except excludeUserID
-// (the sender/caller) over the WebSocket, calling onOffline for anyone not
-// currently reachable that way — the shared "WS, else push fallback"
-// pattern behind both FR5.1 (handleStartCall) and FR5.2
-// (deliverMessageEvent). A failure to list members is logged and otherwise
-// swallowed — delivery is always best-effort, never something that fails
-// the API response that created the message/call in the first place.
+// deliverToRoom sends ev to every member of roomID except excludeUserID (the
+// caller) over the WebSocket, calling onOffline for anyone not currently
+// reachable that way — FR5.1's "WS, else push fallback" pattern for
+// handleStartCall specifically, whose caller needs neither the WS echo nor
+// a push about the call it just started (see deliverMessageEvent's doc
+// comment for why FR5.2 doesn't reuse this as-is). A failure to list
+// members is logged and otherwise swallowed — delivery is always
+// best-effort, never something that fails the API response that created
+// the message/call in the first place.
 func (s *Server) deliverToRoom(
 	ctx context.Context, roomID, excludeUserID string, ev ws.Event, onOffline func(ctx context.Context, memberID string),
 ) {
@@ -1283,21 +1285,40 @@ func (s *Server) deliverToRoom(
 	}
 }
 
-// deliverMessageEvent is deliverToRoom specialized for FR5.2: a
-// message.created event for a genuinely new message (text, media, location,
-// or forward — not reactions/edits/receipts, which aren't "new messages").
-// senderName is display-only, for the notification's title — see
-// push.MessagePayload's own doc comment on why the body never carries the
-// actual message content.
+// deliverMessageEvent implements FR5.2's WS-first, push-fallback delivery
+// for a genuinely new message (text, media, location, or forward — not
+// reactions/edits/receipts, which aren't "new messages"). Deliberately does
+// NOT reuse deliverToRoom, despite the similar shape: handleStartCall's
+// caller doesn't need its own message.created event echoed back (its client
+// already transitions to the call screen from the HTTP response), but a
+// message's sender does — the client has no local optimistic append of its
+// own, so the WS broadcast back to the sender's own socket is the only way
+// it ever renders the message it just sent (see chat_providers.dart's
+// send()). The sender is still never sent a *push* about their own message,
+// though — there's no reason to notify someone about something they did
+// themselves. senderName is display-only, for the notification's title —
+// see push.MessagePayload's own doc comment on why the body never carries
+// the actual message content.
 func (s *Server) deliverMessageEvent(ctx context.Context, roomID, senderID, senderName string, msg models.Message) {
-	s.deliverToRoom(ctx, roomID, senderID, ws.Event{Type: "message.created", Payload: msg},
-		func(ctx context.Context, memberID string) {
-			s.pushMessageNotification(ctx, memberID, push.MessagePayload{
-				RoomID:     roomID,
-				MessageID:  msg.ID,
-				SenderName: senderName,
-			})
+	memberIDs, err := s.Store.ListRoomMemberIDs(ctx, roomID)
+	if err != nil {
+		slog.Error("deliver: list room members failed", "room", roomID, "error", err)
+		return
+	}
+	ev := ws.Event{Type: "message.created", Payload: msg}
+	for _, memberID := range memberIDs {
+		if s.Hub.SendToUser(memberID, ev) {
+			continue
+		}
+		if memberID == senderID {
+			continue
+		}
+		s.pushMessageNotification(ctx, memberID, push.MessagePayload{
+			RoomID:     roomID,
+			MessageID:  msg.ID,
+			SenderName: senderName,
 		})
+	}
 }
 
 // pushCallWake sends the FR5.1 call-wake push to every device memberID has
