@@ -16,7 +16,12 @@ into GitHub's secret form.
    [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → My Apps
    → **+** → New App, bundle ID `me.holzeis.roost.roost` (must already exist
    as an Identifier under Certificates, Identifiers & Profiles — see
-   `docs/ios-dev-setup.md`'s push notifications section for that).
+   `docs/ios-dev-setup.md`'s push notifications section for that). Name:
+   **Roost Family Chat** — plain "Roost" is already taken on the App Store
+   (names must be globally unique across every developer's account). This
+   is only the App Store Connect/TestFlight listing name; it's unrelated to
+   `CFBundleDisplayName` in `Info.plist` (still plain "Roost"), which is
+   what actually shows under the icon on a device's home screen.
 
 2. **Distribution certificate** (`IOS_DIST_CERTIFICATE_BASE64`,
    `IOS_DIST_CERTIFICATE_PASSWORD`). In Xcode: Settings → Accounts → your
