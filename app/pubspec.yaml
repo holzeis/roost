@@ -60,6 +60,11 @@ dependencies:
   flutter_callkit_incoming: ^3.1.6
   cached_network_image: ^4.0.2
   flutter_cache_manager: ^3.4.5
+  # Already pulled in transitively by livekit_client (pinned here to the same
+  # version) — promoted to a direct dependency because call_screen.dart now
+  # calls Helper.setSpeakerphoneOn directly for the in-call speaker toggle,
+  # which livekit_client itself doesn't expose a wrapper for.
+  flutter_webrtc: 1.6.2+hotfix.3
 
 dev_dependencies:
   flutter_test:

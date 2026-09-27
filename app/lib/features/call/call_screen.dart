@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_config.dart';
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../widgets/avatar.dart';
 import 'call_controls.dart';
 
 /// In-call screen for both 1:1 and group calls (FR4.1, FR4.2), connected to
@@ -77,6 +79,12 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   lk.CameraPosition _cameraPosition = lk.CameraPosition.front;
   bool _micOn = true;
   late bool _cameraOn = !widget.audioOnly;
+  // Video calls default to the loudspeaker (hands-free, matching FaceTime/
+  // WhatsApp video convention) rather than the earpiece a plain voice call
+  // would use — set explicitly below rather than trusting whatever the OS
+  // itself defaults to, since that's what actually makes the toggle button
+  // start in a state that matches what the user is already hearing.
+  late bool _speakerOn = !widget.audioOnly;
   bool _connecting = true;
   String? _error;
   String? _mediaWarning;
@@ -150,6 +158,12 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       if (unavailable.isNotEmpty) {
         _mediaWarning = '${unavailable.join(' and ')} unavailable';
       }
+      // Best-effort: audio still works either way (WebRTC picks some
+      // route), this only controls which one — not worth failing the call
+      // over.
+      try {
+        await rtc.Helper.setSpeakerphoneOn(_speakerOn);
+      } catch (_) {}
       _stopwatch.start();
 
       if (mounted) setState(() => _connecting = false);
@@ -206,6 +220,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     if (mounted) setState(() => _cameraOn = next);
   }
 
+  Future<void> _toggleSpeaker() async {
+    final next = !_speakerOn;
+    try {
+      await rtc.Helper.setSpeakerphoneOn(next);
+    } catch (_) {
+      return;
+    }
+    if (mounted) setState(() => _speakerOn = next);
+  }
+
   Future<void> _switchCamera() async {
     final pubs = _room.localParticipant?.videoTrackPublications ?? const [];
     final track = pubs.isEmpty ? null : pubs.first.track;
@@ -254,7 +278,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
     final remote = _room.remoteParticipants.values.toList();
     final usersById = ref.watch(usersByIdProvider).valueOrNull ?? const {};
+    final me = ref.watch(meProvider).valueOrNull;
     String nameFor(String identity) => usersById[identity]?.displayName ?? '?';
+    String? avatarMediaIdFor(String identity) => usersById[identity]?.avatarMediaId;
+    // Only meaningful before anyone else has joined a 1:1 call — once
+    // there's a real remote participant, their own identity (from LiveKit)
+    // is used directly instead. See _soleOtherIdentity's own doc comment
+    // for why it watches rather than reads roomProvider.
+    final soleOtherId = widget.isGroup ? null : _soleOtherIdentity();
 
     return Scaffold(
       backgroundColor: CallColors.background,
@@ -265,7 +296,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
               padding: const EdgeInsets.only(top: 12),
               child: remote.isEmpty
                   ? Text(
-                      widget.isGroup ? 'Calling…' : 'Calling ${nameFor(_soleOtherIdentity() ?? '')}…',
+                      widget.isGroup ? 'Calling…' : 'Calling ${nameFor(soleOtherId ?? '')}…',
                       style: const TextStyle(color: CallColors.textPrimary, fontSize: 12, fontWeight: FontWeight.w500),
                     )
                   : _CallDuration(stopwatch: _stopwatch),
@@ -285,8 +316,18 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                       remote: remote.isEmpty ? null : remote.first,
                       cameraOn: _cameraOn,
                       nameFor: nameFor,
+                      avatarMediaIdFor: avatarMediaIdFor,
+                      localAvatarMediaId: me?.avatarMediaId,
+                      waitingName: nameFor(soleOtherId ?? ''),
+                      waitingAvatarMediaId: avatarMediaIdFor(soleOtherId ?? ''),
                     )
-                  : _GridLayout(room: _room, remote: remote, nameFor: nameFor),
+                  : _GridLayout(
+                      room: _room,
+                      remote: remote,
+                      nameFor: nameFor,
+                      avatarMediaIdFor: avatarMediaIdFor,
+                      localAvatarMediaId: me?.avatarMediaId,
+                    ),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -304,6 +345,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                   ),
                   const SizedBox(width: 10),
                   CallControlButton(icon: TablerIcons.cameraRotate, onPressed: _switchCamera),
+                  const SizedBox(width: 10),
+                  CallControlButton(
+                    icon: _speakerOn ? TablerIcons.speakerphone : TablerIcons.deviceMobile,
+                    onPressed: _toggleSpeaker,
+                  ),
                   const SizedBox(width: 10),
                   CallControlButton(
                     icon: TablerIcons.phoneX,
@@ -324,12 +370,24 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   /// resolved from the room's members rather than LiveKit (nobody else has
   /// joined yet, so LiveKit has no remote participant to name).
   String? _soleOtherIdentity() {
-    final meId = ref.read(meProvider).valueOrNull?.id;
-    final room = ref.read(roomProvider(widget.roomId)).valueOrNull;
+    final meId = ref.watch(meProvider).valueOrNull?.id;
+    // Watched, not read: a caller often reaches this screen before this
+    // room has ever been fetched via this provider, and a one-shot read
+    // would leave the title showing "Calling ?" forever once the fetch
+    // actually completed a moment later, since nothing would trigger a
+    // rebuild to pick it up.
+    final room = ref.watch(roomProvider(widget.roomId)).valueOrNull;
     if (room == null || meId == null) return null;
-    final matches = room.members.where((id) => id != meId);
-    return matches.isEmpty ? null : matches.first;
+    return soleOtherRoomMember(room.members, meId);
   }
+}
+
+/// The other member of a 1:1 room — pulled out as a plain function, like
+/// [resolveCallToJoin] above, so it's unit-testable without a real
+/// room/LiveKit connection.
+String? soleOtherRoomMember(List<String> members, String meId) {
+  final others = members.where((id) => id != meId);
+  return others.isEmpty ? null : others.first;
 }
 
 /// Self-ticking MM:SS label — isolated here so only this small widget
@@ -369,12 +427,28 @@ class _CallDurationState extends State<_CallDuration> {
 }
 
 class _SoloLayout extends StatelessWidget {
-  const _SoloLayout({required this.room, required this.remote, required this.cameraOn, required this.nameFor});
+  const _SoloLayout({
+    required this.room,
+    required this.remote,
+    required this.cameraOn,
+    required this.nameFor,
+    required this.avatarMediaIdFor,
+    required this.localAvatarMediaId,
+    required this.waitingName,
+    required this.waitingAvatarMediaId,
+  });
 
   final lk.Room room;
   final lk.RemoteParticipant? remote;
   final bool cameraOn;
   final String Function(String) nameFor;
+  final String? Function(String) avatarMediaIdFor;
+  final String? localAvatarMediaId;
+  // The other 1:1 participant's own name/avatar, resolved from the room's
+  // membership rather than LiveKit — used only while ringing out, before
+  // they've actually joined and LiveKit has a real participant to ask.
+  final String waitingName;
+  final String? waitingAvatarMediaId;
 
   @override
   Widget build(BuildContext context) {
@@ -382,8 +456,20 @@ class _SoloLayout extends StatelessWidget {
       children: [
         Positioned.fill(
           child: remote == null
-              ? const Center(child: Icon(TablerIcons.user, color: CallColors.textSecondary, size: 48))
-              : _ParticipantTile(participant: remote!, name: nameFor(remote!.identity), fill: true),
+              ? Center(
+                  child: InitialAvatar(
+                    initial: waitingName.isNotEmpty ? waitingName[0].toUpperCase() : '?',
+                    seed: waitingName,
+                    size: 96,
+                    avatarMediaId: waitingAvatarMediaId,
+                  ),
+                )
+              : _ParticipantTile(
+                  participant: remote!,
+                  name: nameFor(remote!.identity),
+                  avatarMediaId: avatarMediaIdFor(remote!.identity),
+                  fill: true,
+                ),
         ),
         if (cameraOn)
           Positioned(
@@ -393,7 +479,12 @@ class _SoloLayout extends StatelessWidget {
             height: 130,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: _ParticipantTile(participant: room.localParticipant, name: 'You', fill: true),
+              child: _ParticipantTile(
+                participant: room.localParticipant,
+                name: 'You',
+                avatarMediaId: localAvatarMediaId,
+                fill: true,
+              ),
             ),
           ),
       ],
@@ -402,17 +493,26 @@ class _SoloLayout extends StatelessWidget {
 }
 
 class _GridLayout extends StatelessWidget {
-  const _GridLayout({required this.room, required this.remote, required this.nameFor});
+  const _GridLayout({
+    required this.room,
+    required this.remote,
+    required this.nameFor,
+    required this.avatarMediaIdFor,
+    required this.localAvatarMediaId,
+  });
 
   final lk.Room room;
   final List<lk.RemoteParticipant> remote;
   final String Function(String) nameFor;
+  final String? Function(String) avatarMediaIdFor;
+  final String? localAvatarMediaId;
 
   @override
   Widget build(BuildContext context) {
     final tiles = [
-      _ParticipantTile(participant: room.localParticipant, name: 'You'),
-      for (final p in remote) _ParticipantTile(participant: p, name: nameFor(p.identity)),
+      _ParticipantTile(participant: room.localParticipant, name: 'You', avatarMediaId: localAvatarMediaId),
+      for (final p in remote)
+        _ParticipantTile(participant: p, name: nameFor(p.identity), avatarMediaId: avatarMediaIdFor(p.identity)),
     ];
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -428,10 +528,11 @@ class _GridLayout extends StatelessWidget {
 }
 
 class _ParticipantTile extends StatelessWidget {
-  const _ParticipantTile({required this.participant, required this.name, this.fill = false});
+  const _ParticipantTile({required this.participant, required this.name, this.avatarMediaId, this.fill = false});
 
   final lk.Participant? participant;
   final String name;
+  final String? avatarMediaId;
   final bool fill;
 
   @override
@@ -454,16 +555,23 @@ class _ParticipantTile extends StatelessWidget {
       child: Stack(
         children: [
           if (showVideo)
-            Positioned.fill(child: lk.VideoTrackRenderer(videoTrack as lk.VideoTrack))
+            // cover, not the default contain: a tile is meant to be filled
+            // edge-to-edge (this is exactly what "fill" already means for
+            // the solo layout's full-screen tile, and every grid tile fills
+            // its own cell the same way) — contain letterboxes instead
+            // whenever the camera's own aspect ratio doesn't exactly match
+            // the tile's, which is what showed as black bars down the sides
+            // of the local preview.
+            Positioned.fill(
+              child: lk.VideoTrackRenderer(videoTrack as lk.VideoTrack, fit: lk.VideoViewFit.cover),
+            )
           else
             Center(
-              child: Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(color: CallColors.controlButton, shape: BoxShape.circle),
-                child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: const TextStyle(color: CallColors.textSecondary, fontSize: 16)),
+              child: InitialAvatar(
+                initial: name.isNotEmpty ? name[0].toUpperCase() : '?',
+                seed: name,
+                size: fill ? 96 : 40,
+                avatarMediaId: avatarMediaId,
               ),
             ),
           Positioned(

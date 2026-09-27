@@ -73,6 +73,20 @@ void main() {
     });
   });
 
+  group('soleOtherRoomMember', () {
+    test('returns the other member of a 1:1 room', () {
+      expect(soleOtherRoomMember(['me', 'user-mom'], 'me'), 'user-mom');
+    });
+
+    test('returns null when the caller is the only member', () {
+      expect(soleOtherRoomMember(['me'], 'me'), isNull);
+    });
+
+    test('returns null for an empty member list', () {
+      expect(soleOtherRoomMember(const [], 'me'), isNull);
+    });
+  });
+
   group('incoming call detection', () {
     late FakeApiClient api;
     late ProviderContainer container;
