@@ -273,6 +273,17 @@ class ApiClient {
     return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Asks the server to generate (or, after the first call, just return) an
+  /// ended share's static map snapshot (FR3.7) — see
+  /// LocationSnapshotProvider's own doc comment for why the returned
+  /// message is otherwise unused by the caller; the resulting
+  /// message.updated WS broadcast is what actually updates state.
+  Future<ApiMessage> fetchLocationSnapshot(String messageId) async {
+    final res = await _http.post(_uri('/api/messages/$messageId/location/snapshot'));
+    _checkOk(res);
+    return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<String> mintLiveKitToken(String roomId) async {
     final res = await _http.post(
       _uri('/api/livekit/token'),

@@ -633,6 +633,16 @@ func (s *Server) handleGetMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	message, err := s.Store.GetMessageByMediaID(r.Context(), mediaID)
+	if errors.Is(err, store.ErrNotFound) {
+		// Not attached to a message via media_id directly — check whether
+		// it's an ended location share's snapshot instead (attached via
+		// location_shares.snapshot_media_id, a different column) before
+		// falling through to "open to any authenticated user" below, which
+		// is only actually correct for an avatar (no owning message at
+		// all). A location snapshot reveals a real past location and must
+		// stay scoped to the room it was shared in.
+		message, err = s.Store.GetMessageByLocationSnapshotMediaID(r.Context(), mediaID)
+	}
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusInternalServerError, "could not look up the message for this media")
 		return
@@ -1351,6 +1361,83 @@ func (s *Server) handleEndLocationShare(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not end location share")
 		return
+	}
+	message.Location = &share
+
+	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: message})
+	}
+	writeJSON(w, http.StatusOK, message)
+}
+
+// handleLocationSnapshot implements the ended-share preview half of FR3.7:
+// lazily fetches a static map image for messageID's last known position,
+// server-side (internal/staticmap), the first time any client actually asks
+// to view it — never eagerly, since most ended shares are never revisited,
+// and there's no background sweep for TTL expiry to hook into anyway (it's
+// a pure now-vs-expiresAt comparison at read time, see LocationShare.Active).
+// Idempotent: a share that already has a snapshot just returns it
+// unchanged, so a second room member's device (or the same device asking
+// twice) never re-fetches or re-bills. Any room member may call this, not
+// just the sender — everyone in the room needs to view an ended share's
+// preview, unlike handleUpdateLocation/handleEndLocationShare which are
+// sender-only.
+func (s *Server) handleLocationSnapshot(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	messageID := chi.URLParam(r, "messageID")
+	message, err := s.Store.GetMessage(r.Context(), messageID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return
+	}
+	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return
+	}
+	if message.Kind != models.MessageKindLocation {
+		writeError(w, http.StatusBadRequest, "not a location share")
+		return
+	}
+
+	share, err := s.Store.GetLocationShare(r.Context(), messageID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up location share")
+		return
+	}
+	if share.Active(time.Now()) {
+		writeError(w, http.StatusConflict, "share is still active")
+		return
+	}
+
+	if share.SnapshotMediaID == nil {
+		data, contentType, err := s.StaticMap.Fetch(r.Context(), share.Lat, share.Lng)
+		if err != nil {
+			slog.Warn("location snapshot: fetch failed", "message", messageID, "error", err)
+			writeError(w, http.StatusServiceUnavailable, "could not fetch map snapshot")
+			return
+		}
+		objectKey := "location-snapshots/" + messageID
+		if err := s.Media.Put(r.Context(), objectKey, bytes.NewReader(data), int64(len(data)), contentType); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not store map snapshot")
+			return
+		}
+		mediaObj, err := s.Store.CreateMediaObject(
+			r.Context(), s.Media.Bucket(), objectKey, contentType, int64(len(data)), message.SenderID, nil, nil, nil)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not record map snapshot")
+			return
+		}
+		share, err = s.Store.SetLocationSnapshot(r.Context(), messageID, mediaObj.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not save map snapshot")
+			return
+		}
 	}
 	message.Location = &share
 

@@ -43,7 +43,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR3.4 | Once the TTL elapses, the client stops sending updates and the location is no longer shown as live | Must |
 | FR3.5 | The sender can manually end a location share before its TTL elapses | Should |
 | FR3.6 | Recipients can see how much time remains on an active location share | Could |
-| FR3.7 | A shared location is displayed on a map (e.g. Google Maps) rather than as coordinates/text | Must |
+| FR3.7 | A shared location is displayed on a map (e.g. Google Maps) rather than as coordinates/text. The sender's own avatar marks their position in place of a generic pin, on both an active and an ended share; once a share ends, this becomes a single static snapshot of the last known position rather than a live, repeatedly-reloaded map view | Must |
 | FR3.8 | When multiple users share their location in the same chat, all active shares are shown together on a single map | Must |
 
 ## 4. Voice & video calling

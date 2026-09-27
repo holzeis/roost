@@ -12,18 +12,20 @@ import (
 	"roost/server/internal/auth"
 	"roost/server/internal/livekit"
 	"roost/server/internal/push"
+	"roost/server/internal/staticmap"
 	"roost/server/internal/storage"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
 )
 
 type Server struct {
-	Store    *store.Store
-	Hub      *ws.Hub
-	LiveKit  *livekit.Minter
-	Media    *storage.Store
-	Push     push.Sender
-	Resolver auth.Resolver
+	Store     *store.Store
+	Hub       *ws.Hub
+	LiveKit   *livekit.Minter
+	Media     *storage.Store
+	Push      push.Sender
+	StaticMap staticmap.Fetcher
+	Resolver  auth.Resolver
 }
 
 func (s *Server) Router() http.Handler {
@@ -71,6 +73,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/messages/{messageID}/forward", s.handleForwardMessage)
 			r.Patch("/messages/{messageID}/location", s.handleUpdateLocation)
 			r.Post("/messages/{messageID}/location/end", s.handleEndLocationShare)
+			r.Post("/messages/{messageID}/location/snapshot", s.handleLocationSnapshot)
 
 			r.Post("/calls/{callID}/accept", s.handleAcceptCall)
 			r.Post("/calls/{callID}/decline", s.handleDeclineCall)

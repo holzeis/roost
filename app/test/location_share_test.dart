@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:roost/data/api_models.dart';
+import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/location/location_service.dart';
 import 'package:roost/providers/chat_providers.dart';
 
@@ -154,6 +155,35 @@ void main() {
       expect(container.read(locationShareProvider('room-1')), isNull);
       final ended = api.messagesByRoom['room-1']!.single;
       expect(ended.location!.endedAt, isNotNull);
+    });
+  });
+
+  group('locationSnapshotProvider', () {
+    test('fetches a snapshot at most once per message, even read repeatedly', () async {
+      final api = FakeApiClient(FakeWsClient());
+      final message = ApiMessage(
+        id: 'expired-1',
+        roomId: 'room-1',
+        senderId: 'someone',
+        kind: 'location',
+        location: ApiLocationShare(
+            lat: 52.5, lng: 13.4, expiresAt: DateTime.now().subtract(const Duration(minutes: 5))),
+        createdAt: DateTime.now(),
+      );
+      api.messagesByRoom['room-1'] = [message];
+      final container = ProviderContainer(overrides: [apiClientProvider.overrideWithValue(api)]);
+      addTearDown(container.dispose);
+
+      // Riverpod's own FutureProvider.family caching is what's actually
+      // under test here — reading the same argument twice must reuse the
+      // first call's in-flight/completed future rather than triggering the
+      // underlying fetch again. This is the client-side half of the same
+      // "never re-fetch (and re-bill) an existing snapshot" guarantee
+      // handleLocationSnapshot enforces server-side.
+      await container.read(locationSnapshotProvider('expired-1').future);
+      await container.read(locationSnapshotProvider('expired-1').future);
+
+      expect(api.fetchLocationSnapshotCallCount, 1);
     });
   });
 }

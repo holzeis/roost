@@ -22,6 +22,7 @@ import (
 	"roost/server/internal/db"
 	"roost/server/internal/livekit"
 	"roost/server/internal/push"
+	"roost/server/internal/staticmap"
 	"roost/server/internal/storage"
 	"roost/server/internal/store"
 	"roost/server/internal/ws"
@@ -64,13 +65,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if cfg.GoogleMapsStaticAPIKey == "" {
+		slog.Warn("no GOOGLE_MAPS_STATIC_API_KEY configured; ended location shares won't get a map snapshot")
+	}
 
 	srv := &api.Server{
-		Store:   store.New(pool),
-		Hub:     ws.NewHub(),
-		LiveKit: livekit.NewMinter(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret),
-		Media:   media,
-		Push:    pushSender,
+		Store:     store.New(pool),
+		Hub:       ws.NewHub(),
+		LiveKit:   livekit.NewMinter(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret),
+		Media:     media,
+		Push:      pushSender,
+		StaticMap: staticmap.NewGoogleFetcher(cfg.GoogleMapsStaticAPIKey),
 	}
 
 	listener, cleanup, err := newListener(ctx, cfg.ListenAddr, &srv.Resolver)

@@ -211,19 +211,26 @@ class ApiCall {
 /// The FR3.* live-location subtype attached to a `kind == 'location'`
 /// message, mirroring server/internal/models.LocationShare.
 class ApiLocationShare {
-  const ApiLocationShare({required this.lat, required this.lng, required this.expiresAt, this.endedAt});
+  const ApiLocationShare(
+      {required this.lat, required this.lng, required this.expiresAt, this.endedAt, this.snapshotMediaId});
 
   factory ApiLocationShare.fromJson(Map<String, dynamic> json) => ApiLocationShare(
         lat: (json['lat'] as num).toDouble(),
         lng: (json['lng'] as num).toDouble(),
         expiresAt: DateTime.parse(json['expiresAt'] as String),
         endedAt: json['endedAt'] != null ? DateTime.parse(json['endedAt'] as String) : null,
+        snapshotMediaId: json['snapshotMediaId'] as String?,
       );
 
   final double lat;
   final double lng;
   final DateTime expiresAt;
   final DateTime? endedAt;
+  /// A static map image of the last known position, once the server has
+  /// generated one (FR3.7) — see LocationSnapshotProvider. Always null
+  /// while the share is still active, and null after that too until first
+  /// viewed by any client.
+  final String? snapshotMediaId;
 
   /// Mirrors the server's LocationShare.Active(now) — used only to decide
   /// what the client renders; the server is authoritative for whether it

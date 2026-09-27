@@ -1590,11 +1590,42 @@ void main() {
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Location shared'), findsOneWidget);
+    expect(find.text('Live location ended'), findsOneWidget);
     expect(find.textContaining('Live ·'), findsNothing);
     // The real point of this test: no live Maps SDK view for an expired
     // share — see location_message.dart's _ExpiredLocationPreview.
     expect(find.byType(GoogleMap), findsNothing);
+  });
+
+  testWidgets(
+      "An expired location share fetches a static map snapshot once and shows the sender's avatar on it",
+      (tester) async {
+    final api = _seededApiClient();
+    api.messagesByRoom['room-family']!.add(
+      ApiMessage(
+        id: 'expired-share',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'location',
+        location: ApiLocationShare(
+            lat: 52.51, lng: 13.41, expiresAt: DateTime.now().subtract(const Duration(minutes: 5))),
+        createdAt: DateTime.now().subtract(const Duration(hours: 1)),
+      ),
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    // FakeApiClient.fetchLocationSnapshot fabricates a snapshotMediaId on
+    // its first call and broadcasts message.updated, same shape as the
+    // real server's handleLocationSnapshot — pumpAndSettle carries that
+    // whole async round-trip through.
+    expect(find.byKey(const ValueKey('location-snapshot-expired-share')), findsOneWidget);
+    expect(
+      api.messagesByRoom['room-family']!.firstWhere((m) => m.id == 'expired-share').location!.snapshotMediaId,
+      'media-snapshot-expired-share',
+    );
   });
 
   testWidgets('Profile screen exposes a theme picker with all three modes', (tester) async {

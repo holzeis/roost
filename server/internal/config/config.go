@@ -30,6 +30,10 @@ type Config struct {
 	APNSBundleID          string
 	APNSProduction        bool
 	FCMServiceAccountJSON string
+	// GoogleMapsStaticAPIKey configures the FR3.7 ended-share snapshot fetch
+	// (server/internal/staticmap) — left unset in local dev, which leaves
+	// every share without a snapshot (see staticmap.ErrNotConfigured).
+	GoogleMapsStaticAPIKey string
 }
 
 func Load() (Config, error) {
@@ -51,6 +55,8 @@ func Load() (Config, error) {
 		APNSBundleID:          getenv("APNS_BUNDLE_ID", "me.holzeis.roost.roost"),
 		APNSProduction:        os.Getenv("APNS_PRODUCTION") == "true",
 		FCMServiceAccountJSON: os.Getenv("FCM_SERVICE_ACCOUNT_JSON"),
+
+		GoogleMapsStaticAPIKey: os.Getenv("GOOGLE_MAPS_STATIC_API_KEY"),
 	}
 
 	var missing []string

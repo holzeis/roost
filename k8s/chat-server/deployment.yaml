@@ -133,6 +133,14 @@ spec:
                   name: roost-secrets
                   key: fcm-service-account-json
                   optional: true
+            # FR3.7 ended-share map snapshot (see server/internal/staticmap)
+            # — same optional reasoning as the push keys above.
+            - name: GOOGLE_MAPS_STATIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: google-maps-static-api-key
+                  optional: true
           volumeMounts:
             - name: tsnet-state
               mountPath: /var/lib/tsnet

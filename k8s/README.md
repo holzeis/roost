@@ -29,6 +29,7 @@ pre-assembled copy.
 | `livekit-node-ip` | LiveKit's advertised ICE address; not actually secret, but deployment-specific, so it lives with the other per-cluster values you fill in. See the two-phase setup below |
 | `apns-key-id`, `apns-team-id`, `apns-private-key` | chat-server's APNs client (FR5.1 call-wake push to iOS) — see `docs/ios-dev-setup.md` for where these come from. Optional (`optional: true` in the Deployment): omit all three and the server falls back to `push.NoopSender` |
 | `fcm-service-account-json` | chat-server's FCM client (FR5.1 call-wake push to Android) — the service-account JSON downloaded from Firebase Console → Project Settings → Service Accounts. Also optional |
+| `google-maps-static-api-key` | chat-server's ended-location-share snapshot fetch (FR3.7, `internal/staticmap`) — a Google Cloud API key with the Maps Static API enabled, restricted by IP address (this is a server-side call, not the mobile SDK, so the Android/iOS app-restriction types don't apply). Optional: omit it and an ended share just never gets a snapshot |
 
 Create it in one command (never committed — generate the values here):
 
@@ -63,6 +64,13 @@ kubectl patch secret roost-secrets -n roost --type=merge -p "$(
       "fcm-service-account-json": $fcmJson
     }}'
 )"
+```
+
+The map snapshot key (also optional, added the same way once you have one):
+
+```sh
+kubectl patch secret roost-secrets -n roost --type=merge \
+  -p '{"stringData": {"google-maps-static-api-key": "<your key>"}}'
 ```
 
 `livekit-node-ip` starts empty and gets filled in after the first deploy —

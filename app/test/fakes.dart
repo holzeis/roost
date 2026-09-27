@@ -416,6 +416,12 @@ class FakeApiClient extends ApiClient {
 
   int _nextLocationMessageId = 1;
 
+  /// How many times [fetchLocationSnapshot] has actually been called —
+  /// asserted against directly by locationSnapshotProvider's own
+  /// idempotency test (location_share_test.dart), the regression case for
+  /// "never re-fetch a snapshot that already exists".
+  int fetchLocationSnapshotCallCount = 0;
+
   @override
   Future<ApiMessage> shareLocation(String roomId, {required double lat, required double lng, required Duration ttl}) async {
     final message = ApiMessage(
@@ -459,6 +465,36 @@ class FakeApiClient extends ApiClient {
           lng: existing.location!.lng,
           expiresAt: existing.location!.expiresAt,
           endedAt: existing.location!.endedAt ?? DateTime.now(),
+        ),
+      );
+      entry.value[index] = updated;
+      ws.emit(WsEvent('message.updated', jsonDecode(jsonEncode(_messageJson(updated))) as Map<String, dynamic>));
+      return updated;
+    }
+    throw ApiException(404, 'not found');
+  }
+
+  /// Fake mirror of the server's own lazy/idempotent snapshot generation
+  /// (see handleLocationSnapshot): the first call fabricates a
+  /// snapshotMediaId, a repeat call for the same message just returns the
+  /// existing one unchanged — exercised by
+  /// "An expired location share shows a static map with the sender's
+  /// avatar, fetched only once" in widget_test.dart.
+  @override
+  Future<ApiMessage> fetchLocationSnapshot(String messageId) async {
+    fetchLocationSnapshotCallCount++;
+    for (final entry in messagesByRoom.entries) {
+      final index = entry.value.indexWhere((m) => m.id == messageId);
+      if (index == -1) continue;
+      final existing = entry.value[index];
+      if (existing.location!.snapshotMediaId != null) return existing;
+      final updated = existing.copyWith(
+        location: ApiLocationShare(
+          lat: existing.location!.lat,
+          lng: existing.location!.lng,
+          expiresAt: existing.location!.expiresAt,
+          endedAt: existing.location!.endedAt,
+          snapshotMediaId: 'media-snapshot-$messageId',
         ),
       );
       entry.value[index] = updated;
@@ -550,6 +586,7 @@ class FakeApiClient extends ApiClient {
                 'lng': m.location!.lng,
                 'expiresAt': m.location!.expiresAt.toIso8601String(),
                 'endedAt': m.location!.endedAt?.toIso8601String(),
+                'snapshotMediaId': m.location!.snapshotMediaId,
               },
         'call': m.call == null
             ? null

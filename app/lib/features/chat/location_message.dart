@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,8 +10,10 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import '../../data/api_models.dart';
 import '../../features/location/location_markers.dart';
 import '../../providers/chat_providers.dart';
+import '../../providers/image_cache_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../util/time_format.dart';
+import '../../widgets/avatar.dart';
 
 /// The inline content of a location-share message bubble (FR3.7): a small
 /// non-interactive map, with a "Live · Xm left" chip while active (FR3.6) or
@@ -98,9 +101,18 @@ class _LocationBubbleContentState extends ConsumerState<LocationBubbleContent> {
       // here would just reload the exact same static picture every time
       // this bubble's widget gets rebuilt (e.g. scrolling back through
       // history), and each of those reloads is a real, separately billed
-      // Maps Platform "map load". A plain pin conveys the same thing
-      // (there's a location here, tap for the full view) for free.
-      return _ExpiredLocationPreview(roomId: widget.roomId, box: box, borderRadius: widget.borderRadius);
+      // Maps Platform "map load". A static snapshot, fetched once
+      // server-side and cached like any other media (see
+      // handleLocationSnapshot), shows the same picture for free after
+      // that first fetch.
+      return _ExpiredLocationPreview(
+        messageId: widget.message.id,
+        senderId: widget.message.senderId,
+        share: share,
+        roomId: widget.roomId,
+        box: box,
+        borderRadius: widget.borderRadius,
+      );
     }
 
     // Every other currently-active share in the room joins this preview —
@@ -188,20 +200,68 @@ class _LocationBubbleContentState extends ConsumerState<LocationBubbleContent> {
   }
 }
 
+/// Lazily asks the server to generate an ended share's static map snapshot
+/// the first time any client views it (see handleLocationSnapshot) — never
+/// eagerly, and never repeated once one exists. Riverpod caches this per
+/// messageId, so a widget rebuild (e.g. scrolling this bubble in and out of
+/// view) never re-requests it. This provider's own resolved value is
+/// unused by [_ExpiredLocationPreview] — the server's message.updated
+/// broadcast (sent to every room member, including whoever triggered this)
+/// is what actually updates messagesProvider's state with the new
+/// snapshotMediaId; a fetch failure (e.g. no
+/// GOOGLE_MAPS_STATIC_API_KEY configured server-side, see
+/// docs/ios-dev-setup.md) is swallowed here and just leaves the bubble
+/// showing its plain icon fallback.
+final locationSnapshotProvider = FutureProvider.family<void, String>((ref, messageId) async {
+  try {
+    await ref.read(apiClientProvider).fetchLocationSnapshot(messageId);
+  } catch (_) {
+    // Best-effort, see doc comment above.
+  }
+});
+
 /// Static stand-in for [LocationBubbleContent] once a share has ended or
 /// expired — see the doc comment where this is returned for why this avoids
 /// a real Maps SDK view entirely rather than just showing the same map
-/// without the "Live" chip.
-class _ExpiredLocationPreview extends StatelessWidget {
-  const _ExpiredLocationPreview({required this.roomId, required this.box, required this.borderRadius});
+/// without the "Live" chip. Once a snapshot exists, shows a static map
+/// image of the last known position with the sender's own avatar centered
+/// on it in place of a generic pin (matching WhatsApp's "Live location
+/// ended" card) — falls back to a plain icon if no snapshot has been
+/// fetched yet (or ever could be, e.g. local dev with no Maps API key set).
+class _ExpiredLocationPreview extends ConsumerWidget {
+  const _ExpiredLocationPreview({
+    required this.messageId,
+    required this.senderId,
+    required this.share,
+    required this.roomId,
+    required this.box,
+    required this.borderRadius,
+  });
 
+  final String messageId;
+  final String senderId;
+  final ApiLocationShare share;
   final String roomId;
   final BoxConstraints box;
   final BorderRadius borderRadius;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final snapshotMediaId = share.snapshotMediaId;
+    if (snapshotMediaId == null) {
+      // Only watched while there's no snapshot yet — once one exists this
+      // provider's job is done, and watching it forever would just be a
+      // pointless Riverpod subscription for the rest of this bubble's life.
+      ref.watch(locationSnapshotProvider(messageId));
+    }
+
+    Widget fallbackIcon() => Container(
+          color: scheme.primary.withValues(alpha: 0.12),
+          alignment: Alignment.center,
+          child: Icon(TablerIcons.mapPin, size: 36, color: scheme.primary),
+        );
+
     return GestureDetector(
       onTap: () => context.push('/chat/$roomId/location'),
       child: ConstrainedBox(
@@ -209,12 +269,24 @@ class _ExpiredLocationPreview extends StatelessWidget {
         child: ClipRRect(
           borderRadius: borderRadius,
           child: Stack(
+            fit: StackFit.expand,
             children: [
-              Container(
-                color: scheme.primary.withValues(alpha: 0.12),
-                alignment: Alignment.center,
-                child: Icon(TablerIcons.mapPin, size: 36, color: scheme.primary),
-              ),
+              if (snapshotMediaId != null)
+                CachedNetworkImage(
+                  key: ValueKey('location-snapshot-$messageId'),
+                  imageUrl: ref.watch(apiClientProvider).mediaPreviewUrl(snapshotMediaId),
+                  cacheManager: ref.watch(imageCacheManagerProvider),
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => fallbackIcon(),
+                  errorWidget: (context, url, error) => fallbackIcon(),
+                )
+              else
+                fallbackIcon(),
+              // A static map image is always centered exactly on the point
+              // it was requested for, so pinning this dead-center lines it
+              // up with the share's own position with no separate
+              // marker-placement math needed.
+              if (snapshotMediaId != null) Center(child: _MapMarkerAvatar(userId: senderId)),
               Positioned(
                 left: 6,
                 bottom: 6,
@@ -229,7 +301,7 @@ class _ExpiredLocationPreview extends StatelessWidget {
                     children: [
                       Icon(TablerIcons.mapPin, color: Colors.white, size: 12),
                       SizedBox(width: 3),
-                      Text('Location shared', style: TextStyle(color: Colors.white, fontSize: 10.5)),
+                      Text('Live location ended', style: TextStyle(color: Colors.white, fontSize: 10.5)),
                     ],
                   ),
                 ),
@@ -237,6 +309,66 @@ class _ExpiredLocationPreview extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The sender's own avatar (their uploaded photo, or their initial on a
+/// color, framed by a white ring with a soft shadow) shown centered over an
+/// ended share's static map snapshot, in place of a generic pin — the live
+/// (still-active) map above uses [avatarMarkerProvider]'s rasterized
+/// equivalent instead, since that one has to become a native Google Maps
+/// SDK [BitmapDescriptor]; this is a plain Flutter widget, since it's drawn
+/// directly into this bubble's own widget tree.
+class _MapMarkerAvatar extends ConsumerWidget {
+  const _MapMarkerAvatar({required this.userId});
+
+  final String userId;
+  static const double size = 40;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final me = ref.watch(meProvider).valueOrNull;
+    String displayName;
+    String? avatarMediaId;
+    if (me != null && userId == me.id) {
+      displayName = me.displayName;
+      avatarMediaId = me.avatarMediaId;
+    } else {
+      final contact = ref.watch(usersByIdProvider).valueOrNull?[userId];
+      displayName = contact?.displayName ?? '?';
+      avatarMediaId = contact?.avatarMediaId;
+    }
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+    final seedColor = colorForAvatarSeed(displayName);
+
+    Widget glyph() => Container(
+          color: seedColor,
+          alignment: Alignment.center,
+          child: Text(initial,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: size * 0.4)),
+        );
+
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(3),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1))],
+      ),
+      child: ClipOval(
+        child: avatarMediaId != null
+            ? CachedNetworkImage(
+                imageUrl: ref.watch(apiClientProvider).mediaPreviewUrl(avatarMediaId),
+                cacheManager: ref.watch(imageCacheManagerProvider),
+                fit: BoxFit.cover,
+                placeholder: (context, url) => ColoredBox(color: seedColor),
+                errorWidget: (context, url, error) => glyph(),
+              )
+            : glyph(),
       ),
     );
   }

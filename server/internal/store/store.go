@@ -324,14 +324,34 @@ func (s *Store) CreateLocationMessage(ctx context.Context, roomID, senderID stri
 }
 
 func (s *Store) GetLocationShare(ctx context.Context, messageID string) (models.LocationShare, error) {
-	const q = `SELECT message_id, lat, lng, expires_at, ended_at FROM location_shares WHERE message_id = $1`
+	const q = `SELECT message_id, lat, lng, expires_at, ended_at, snapshot_media_id FROM location_shares WHERE message_id = $1`
 	var l models.LocationShare
-	err := s.pool.QueryRow(ctx, q, messageID).Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt)
+	err := s.pool.QueryRow(ctx, q, messageID).
+		Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt, &l.SnapshotMediaID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.LocationShare{}, ErrNotFound
 	}
 	if err != nil {
 		return models.LocationShare{}, fmt.Errorf("store: get location share: %w", err)
+	}
+	return l, nil
+}
+
+// SetLocationSnapshot records the media object handleLocationSnapshot fetched
+// and stored for an ended/expired share — see that handler's own doc comment
+// for why this only ever happens once per share, lazily.
+func (s *Store) SetLocationSnapshot(ctx context.Context, messageID, mediaID string) (models.LocationShare, error) {
+	const q = `
+		UPDATE location_shares SET snapshot_media_id = $1 WHERE message_id = $2
+		RETURNING message_id, lat, lng, expires_at, ended_at, snapshot_media_id`
+	var l models.LocationShare
+	err := s.pool.QueryRow(ctx, q, mediaID, messageID).
+		Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt, &l.SnapshotMediaID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.LocationShare{}, ErrNotFound
+	}
+	if err != nil {
+		return models.LocationShare{}, fmt.Errorf("store: set location snapshot: %w", err)
 	}
 	return l, nil
 }
@@ -666,6 +686,22 @@ func (s *Store) GetMessageByMediaID(ctx context.Context, mediaID string) (models
 	return scanMessage(s.pool.QueryRow(ctx, q, mediaID))
 }
 
+// GetMessageByLocationSnapshotMediaID mirrors GetMessageByMediaID for a
+// media object referenced via location_shares.snapshot_media_id instead of
+// messages.media_id — handleGetMedia falls back to this so an ended share's
+// map snapshot stays scoped to the room it was shared in. Unlike an avatar
+// (which has no owning message and is deliberately open instance-wide,
+// since a display picture is already visible to everyone), this reveals a
+// real past location and must never be open to a user outside that room.
+func (s *Store) GetMessageByLocationSnapshotMediaID(ctx context.Context, mediaID string) (models.Message, error) {
+	const q = `
+		SELECT m.id, m.room_id, m.sender_id, m.kind, m.body, m.media_id, m.created_at, m.edited_at, m.reply_to_message_id, m.forwarded
+		FROM messages m
+		JOIN location_shares ls ON ls.message_id = m.id
+		WHERE ls.snapshot_media_id = $1`
+	return scanMessage(s.pool.QueryRow(ctx, q, mediaID))
+}
+
 // EditMessageBody implements FR1.13. Callers (internal/api's handler) are
 // responsible for checking ownership and the 1-minute edit window before
 // calling this — kept out of the query so the handler can return a specific
@@ -942,7 +978,7 @@ func (s *Store) AttachLocations(ctx context.Context, messages []models.Message) 
 		return nil
 	}
 
-	const q = `SELECT message_id, lat, lng, expires_at, ended_at FROM location_shares WHERE message_id = ANY($1)`
+	const q = `SELECT message_id, lat, lng, expires_at, ended_at, snapshot_media_id FROM location_shares WHERE message_id = ANY($1)`
 	rows, err := s.pool.Query(ctx, q, ids)
 	if err != nil {
 		return fmt.Errorf("store: attach locations: %w", err)
@@ -951,7 +987,7 @@ func (s *Store) AttachLocations(ctx context.Context, messages []models.Message) 
 
 	for rows.Next() {
 		var l models.LocationShare
-		if err := rows.Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt); err != nil {
+		if err := rows.Scan(&l.MessageID, &l.Lat, &l.Lng, &l.ExpiresAt, &l.EndedAt, &l.SnapshotMediaID); err != nil {
 			return fmt.Errorf("store: scan location share: %w", err)
 		}
 		if m, ok := byID[l.MessageID]; ok {

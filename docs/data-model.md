@@ -125,6 +125,7 @@ message, since it's small structured data, not accumulating media.
 | `lat`, `lng` | double precision | Latest known position |
 | `expires_at` | timestamptz | Sender-chosen TTL (FR3.2) |
 | `ended_at` | timestamptz, nullable | Set on manual early end (FR3.5) |
+| `snapshot_media_id` | uuid, nullable, FK → `media_objects` | A static map image of the last known position, fetched once (server-side, `internal/staticmap`) the first time any client views this share after it's no longer active, then reused forever — see `handleLocationSnapshot`. Null while active, and null after that too until first viewed. |
 
 ### message_reactions
 

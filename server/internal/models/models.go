@@ -183,6 +183,10 @@ type LocationShare struct {
 	Lng       float64    `json:"lng"`
 	ExpiresAt time.Time  `json:"expiresAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// SnapshotMediaID is set lazily, the first time any client asks to view
+	// this share after it's no longer active — see handleLocationSnapshot.
+	// Always nil while the share is still active.
+	SnapshotMediaID *string `json:"snapshotMediaId,omitempty"`
 }
 
 func (l LocationShare) Active(now time.Time) bool {

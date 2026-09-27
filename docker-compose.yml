@@ -78,6 +78,10 @@ services:
       APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
       APNS_PRIVATE_KEY: "${APNS_PRIVATE_KEY:-}"
       FCM_SERVICE_ACCOUNT_JSON: "${FCM_SERVICE_ACCOUNT_JSON:-}"
+      # FR3.7 ended-share map snapshot (see server/internal/staticmap) —
+      # same no-safe-dev-fallback reasoning as the push vars above; unset
+      # means ended shares just don't get a snapshot.
+      GOOGLE_MAPS_STATIC_API_KEY: "${GOOGLE_MAPS_STATIC_API_KEY:-}"
       # Local dev only: bypasses real Tailscale identity resolution with a
       # fixed fake identity, since there's no tailnet to join from a laptop
       # docker-compose stack. Never set this in production. See
