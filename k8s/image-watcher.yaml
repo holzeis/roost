@@ -1,0 +1,88 @@
+# Watches ghcr.io/holzeis/roost-chat-server:latest and rolls out
+# chat-server's Deployment when the published digest changes — closes the
+# loop after ci.yml's server-image job so a merge to main reaches the
+# cluster without a manual `kubectl rollout restart`. The image itself
+# (image-watcher/) is a tiny curl+jq+kubectl image built by the same
+# workflow, running as its own non-root user — see image-watcher/Dockerfile.
+#
+# Combined with chat-server's own db.Migrate() call at startup (applies any
+# pending schema change before it starts serving, a safe no-op otherwise —
+# see server/cmd/server/main.go), this is the whole deploy procedure end to
+# end: push to main -> image published -> this notices within 5 minutes ->
+# rolled out -> migration (if any) runs -> app starts on the new code. No
+# action needed day to day.
+#
+# RBAC is deliberately narrow: get/patch on exactly the chat-server
+# Deployment by name, and on one ConfigMap that just remembers the last
+# digest seen (created on first run by image-watcher/check.sh itself —
+# nothing to pre-apply here).
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: image-watcher
+  namespace: roost
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: image-watcher
+  namespace: roost
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["chat-server"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["image-watch-state"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"] # the object doesn't exist yet on the very first run, so no resourceName to scope this to
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: image-watcher
+  namespace: roost
+subjects:
+  - kind: ServiceAccount
+    name: image-watcher
+    namespace: roost
+roleRef:
+  kind: Role
+  name: image-watcher
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: image-watcher
+  namespace: roost
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      template:
+        spec:
+          serviceAccountName: image-watcher
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: image-watcher
+              image: ghcr.io/holzeis/roost-image-watcher:latest # set by CI on release; see .github/workflows/ci.yml
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]

@@ -8,7 +8,7 @@ service is a plain Kubernetes manifest — no Helm.
 
 - A k3s cluster. The [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) is **not** required — both services that need tailnet reachability provide it themselves (chat-server embeds `tsnet`; LiveKit runs a Tailscale sidecar), so nothing here depends on the operator's `LoadBalancer` exposure.
 - [Longhorn](https://longhorn.io/) installed, providing a `longhorn` StorageClass. This is a real multi-node cluster (mixed arm64/amd64 hardware), not a single box — k3s's built-in default `local-path` StorageClass ties a volume to whichever node the pod first lands on and doesn't let it follow the pod elsewhere, which breaks on any node failure/drain/reboot. Every PVC below sets `storageClassName: longhorn` for that reason. If your Longhorn install uses a different StorageClass name, update each PVC to match.
-- Every image used here (`postgres:16-alpine`, `chrislusf/seaweedfs`, `livekit/livekit-server`, and the CI-built chat-server image) publishes multi-arch manifests covering both amd64 and arm64, matching `CLAUDE.md`'s requirement and this cluster's mixed Raspberry Pi 4 / ThinkCentre hardware — Kubernetes resolves the right architecture per node automatically, no per-node manifest changes needed.
+- Every image used here (`postgres:16-alpine`, `chrislusf/seaweedfs`, `livekit/livekit-server`, and the CI-built chat-server/image-watcher images) publishes multi-arch manifests covering both amd64 and arm64, matching `CLAUDE.md`'s requirement and this cluster's mixed Raspberry Pi 4 / ThinkCentre hardware — Kubernetes resolves the right architecture per node automatically, no per-node manifest changes needed.
 
 ## Secrets
 
@@ -129,7 +129,36 @@ kubectl apply -f k8s/seaweedfs/
 kubectl apply -f k8s/livekit/
 kubectl apply -f k8s/chat-server/
 kubectl apply -f k8s/network-policies.yaml
+kubectl apply -f k8s/image-watcher.yaml
 ```
+
+## Deploying automatically after a push to main
+
+By default a new `chat-server` image published by CI just sits on GHCR
+until you manually `kubectl rollout restart`. `k8s/image-watcher.yaml`
+closes that loop without needing a self-hosted GitHub Actions runner or
+exposing the cluster's API server to the internet — a `CronJob` running
+inside the cluster itself, polling GHCR every 5 minutes for
+`roost-chat-server`'s current `:latest` digest and rolling out
+`deployment/chat-server` when it changes. Combined with chat-server's own
+`db.Migrate()` call at startup (applies any pending schema change before it
+starts serving, a safe no-op otherwise — see `server/cmd/server/main.go`),
+the two together are the whole deploy procedure end to end: push to main ->
+image published -> noticed within 5 minutes -> rolled out -> migration (if
+any) runs -> app starts on the new code. No action needed day to day.
+
+```sh
+kubectl apply -f k8s/image-watcher.yaml
+```
+
+It runs as its own non-root user (`image-watcher/Dockerfile`, built and
+published by the same CI workflow) with RBAC scoped to exactly two things:
+restarting the `chat-server` Deployment by name, and reading/writing one
+`ConfigMap` (`image-watch-state`) it uses to remember the last digest it
+saw — nothing cluster-wide, no access to Secrets or other namespaces.
+`ghcr.io/holzeis/roost-image-watcher` needs to be made public in its GitHub
+package settings (or given an `imagePullSecret`) the first time it's
+published, same as `roost-chat-server` already needed.
 
 ## LiveKit's two-phase `node_ip` setup
 

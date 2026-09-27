@@ -26,6 +26,7 @@ jobs:
     outputs:
       server: ${{ steps.filter.outputs.server }}
       app: ${{ steps.filter.outputs.app }}
+      image_watcher: ${{ steps.filter.outputs.image_watcher }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -44,6 +45,7 @@ jobs:
             echo "No usable base commit (new branch/history) — running everything."
             echo "server=true" >> "$GITHUB_OUTPUT"
             echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "image_watcher=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -53,14 +55,19 @@ jobs:
 
           server=false
           app=false
+          image_watcher=false
           if echo "$changed" | grep -qE '^(server/|\.github/workflows/ci\.yml)'; then
             server=true
           fi
           if echo "$changed" | grep -qE '^(app/|\.github/workflows/ci\.yml)'; then
             app=true
           fi
+          if echo "$changed" | grep -qE '^(image-watcher/|\.github/workflows/ci\.yml)'; then
+            image_watcher=true
+          fi
           echo "server=$server" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "image_watcher=$image_watcher" >> "$GITHUB_OUTPUT"
 
   server-test:
     name: server / test
@@ -180,6 +187,51 @@ jobs:
           # already warm here rather than rebuilt a second time.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  image-watcher-image:
+    name: image-watcher / container image (amd64+arm64)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.image_watcher == 'true'
+    permissions:
+      contents: read
+      packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # Same scan-before-push shape as server-image's own job — see its
+      # comments for why this is report-only (exit-code: '0') for now and
+      # printed to the job log rather than uploaded as SARIF.
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: image-watcher
+          load: true
+          tags: roost-image-watcher:scan
+          cache-from: type=gha,scope=image-watcher
+          cache-to: type=gha,mode=max,scope=image-watcher
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: roost-image-watcher:scan
+          format: table
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: image-watcher
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository }}-image-watcher:${{ github.sha }}
+            ghcr.io/${{ github.repository }}-image-watcher:latest
+          cache-from: type=gha,scope=image-watcher
+          cache-to: type=gha,mode=max,scope=image-watcher
 
   app-test:
     name: app / analyze + test
