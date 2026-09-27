@@ -60,7 +60,14 @@ func (h *Hub) IsOnline(userID string) bool {
 }
 
 // SendToUser delivers ev to every live connection for userID and reports
-// whether at least one delivery was attempted (i.e. the user was online).
+// whether it actually reached at least one of them — the basis callers use
+// to decide whether a push fallback is needed (see deliverToRoom/
+// deliverMessageEvent in the api package). A registered connection whose
+// write fails (the socket is dead but socket.go's heartbeat hasn't pruned it
+// yet) must count as unreachable here, not "online" — that gap used to skip
+// the push fallback for exactly the case it exists for: an app killed
+// outright, whose connection lingers registered until the next failed
+// write/ping.
 func (h *Hub) SendToUser(userID string, ev Event) bool {
 	h.mu.RLock()
 	conns := make([]Conn, 0, len(h.conns[userID]))
@@ -69,12 +76,15 @@ func (h *Hub) SendToUser(userID string, ev Event) bool {
 	}
 	h.mu.RUnlock()
 
+	delivered := false
 	for _, c := range conns {
 		if err := c.Send(ev); err != nil {
 			slog.Warn("ws: failed to deliver event", "error", err, "type", ev.Type)
+			continue
 		}
+		delivered = true
 	}
-	return len(conns) > 0
+	return delivered
 }
 
 // SendToUsers delivers ev to each of userIDs, e.g. every member of a room.

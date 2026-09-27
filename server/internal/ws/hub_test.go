@@ -1,6 +1,9 @@
 package ws
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 type fakeConn struct {
 	received []Event
@@ -8,6 +11,10 @@ type fakeConn struct {
 }
 
 func (f *fakeConn) Send(ev Event) error {
+	if f.failNext {
+		f.failNext = false
+		return errors.New("write: broken pipe")
+	}
 	f.received = append(f.received, ev)
 	return nil
 }
@@ -33,6 +40,26 @@ func TestHub_SendToUser_OfflineUser(t *testing.T) {
 	delivered := h.SendToUser("bob", Event{Type: "message.created"})
 	if delivered {
 		t.Fatal("expected delivered=false for a user with no live connections")
+	}
+}
+
+// TestHub_SendToUser_DeadConnectionCountsAsUnreachable is the regression
+// case for the real bug this covers: a registered connection whose write
+// fails (a killed app's socket, still sitting registered because nothing's
+// pruned it yet) must not be reported as "delivered" — that used to make
+// the push fallback (call-wake/message-notification) skip entirely for
+// exactly the app-is-closed case it exists to handle.
+func TestHub_SendToUser_DeadConnectionCountsAsUnreachable(t *testing.T) {
+	h := NewHub()
+	c := &fakeConn{failNext: true}
+	h.Register("alice", c)
+
+	delivered := h.SendToUser("alice", Event{Type: "message.created"})
+	if delivered {
+		t.Fatal("expected delivered=false when the only connection's write fails")
+	}
+	if len(c.received) != 0 {
+		t.Fatal("expected no event recorded for a failed write")
 	}
 }
 

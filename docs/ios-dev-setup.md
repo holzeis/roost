@@ -162,6 +162,17 @@ Apple Developer Program entitlement on iOS — a plain FCM/APNs alert
 notification doesn't need PushKit's special capability, only the regular
 Push Notifications one already enabled in step 1 above.
 
+**One more Firebase Console step iOS needs that's easy to miss**: FCM
+delivers to an iOS device by bridging through APNs on Firebase's own
+infrastructure, which needs its own copy of the APNs Auth Key — separate
+from (but the same `.p8` file/Key ID/Team ID as) the one set server-side in
+step 4 above. Upload it at Project Settings → Cloud Messaging → your iOS
+app's "Apple app configuration" → APNs Authentication Key. Skipping this
+makes every `SendMessageNotification` call to an iOS device fail server-side
+with `Invalid APNs credential` (visible in the chat-server logs) — the
+message-notification push silently never arrives, even though the direct
+APNs path FR5.1's call-wake uses is unaffected (it never goes through FCM).
+
 ## Talking to a local chat server
 
 The Simulator runs on your Mac's network namespace, so `docker-compose.yml`'s

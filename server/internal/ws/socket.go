@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -19,6 +20,20 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// Standard gorilla/websocket keepalive shape: the server pings well inside
+// pongWait, and any read (including the pong reply) pushes the read deadline
+// back out. A connection that never answers — most notably an app the OS
+// has killed outright, whose TCP socket otherwise lingers "established"
+// with nothing telling the server it's gone — has its next ReadMessage fail
+// once pongWait elapses, which unregisters it from the Hub. Without this,
+// Hub.SendToUser kept reporting that connection reachable indefinitely,
+// which skipped the FR5.1/FR5.2 push fallback for exactly the case it's for.
+const (
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
+	writeWait  = 10 * time.Second
+)
+
 // socketConn adapts a *websocket.Conn to the Hub's Conn interface, guarding
 // writes with a mutex since gorilla's Conn is not safe for concurrent writers.
 type socketConn struct {
@@ -29,7 +44,14 @@ type socketConn struct {
 func (s *socketConn) Send(ev Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.conn.SetWriteDeadline(time.Now().Add(writeWait))
 	return s.conn.WriteJSON(ev)
+}
+
+func (s *socketConn) ping() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
 }
 
 // MembershipChecker is the minimal store dependency Handler needs to
@@ -66,6 +88,29 @@ func Handler(hub *Hub, membership MembershipChecker) http.HandlerFunc {
 		sc := &socketConn{conn: conn}
 		hub.Register(user.ID, sc)
 		defer hub.Unregister(user.ID, sc)
+
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetPongHandler(func(string) error {
+			conn.SetReadDeadline(time.Now().Add(pongWait))
+			return nil
+		})
+
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			ticker := time.NewTicker(pingPeriod)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if err := sc.ping(); err != nil {
+						return
+					}
+				case <-done:
+					return
+				}
+			}
+		}()
 
 		for {
 			_, raw, err := conn.ReadMessage()

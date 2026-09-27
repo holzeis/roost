@@ -28,6 +28,15 @@ type fakeWSConn struct{}
 
 func (fakeWSConn) Send(ws.Event) error { return nil }
 
+// deadWSConn simulates the real bug this guards against: a connection still
+// sitting in the Hub's registry (an app the OS killed outright, whose
+// socket hasn't been pruned by socket.go's ping/pong heartbeat yet) whose
+// writes actually fail. Hub.SendToUser must treat this the same as no
+// connection at all — i.e. still fall back to push.
+type deadWSConn struct{}
+
+func (deadWSConn) Send(ws.Event) error { return fmt.Errorf("write: broken pipe") }
+
 // recordingWSConn is fakeWSConn plus a record of every event actually sent
 // to it — for asserting who did (or didn't) receive something over the
 // socket, not just who got pushed to.
@@ -301,6 +310,59 @@ func TestHandleStartCall_PushesTheOfflineCalleeButNotAnOnlineOne(t *testing.T) {
 	}
 	if got.payload.CallerName != caller.DisplayName {
 		t.Fatalf("expected caller name %q in payload, got %q", caller.DisplayName, got.payload.CallerName)
+	}
+}
+
+// TestHandleStartCall_PushesEvenWhenRegisteredConnectionIsDead is the
+// regression case for the real bug this covers: the callee has a
+// connection registered in the Hub, but it's actually dead (deadWSConn),
+// same as an app the OS killed outright before socket.go's ping/pong
+// heartbeat has pruned it. Hub.SendToUser must report this as unreachable
+// so the call-wake push fallback still fires — the previous behavior (any
+// registered connection counts as "online", regardless of whether the
+// write succeeds) silently dropped the call for exactly this case.
+func TestHandleStartCall_PushesEvenWhenRegisteredConnectionIsDead(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	caller, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("dead-conn-caller-%d@github", run), "Caller")
+	if err != nil {
+		t.Fatalf("create caller: %v", err)
+	}
+	callee, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("dead-conn-callee-%d@github", run), "Callee")
+	if err != nil {
+		t.Fatalf("create callee: %v", err)
+	}
+	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-dead-conn-callee", "voip"); err != nil {
+		t.Fatalf("register callee's device: %v", err)
+	}
+	s.Hub.Register(callee.ID, deadWSConn{})
+
+	room, err := s.Store.CreateRoom(ctx, caller.ID, nil, false, []string{caller.ID, callee.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/calls", nil)
+	req = req.WithContext(session.WithUser(req.Context(), caller))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleStartCall(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	calls := pushSender.callsSnapshot()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 push call-wake despite the dead registered connection, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].deviceToken != "voip-dead-conn-callee" {
+		t.Fatalf("push went to the wrong device: %+v", calls[0])
 	}
 }
 
