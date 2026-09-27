@@ -231,6 +231,58 @@ void main() {
     expect(find.text('On my way, leaving now'), findsOneWidget);
   });
 
+  testWidgets(
+      'Contacts with no existing direct conversation appear on the Home screen, not just in Contacts',
+      (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    // Mom and Dad only share group rooms in the seeded fixture — neither
+    // has a 1:1 room yet — so both should show up directly on Home under
+    // their own section, without needing a trip to the Contacts screen.
+    expect(find.text('START A CONVERSATION'), findsOneWidget);
+    expect(find.text('Mom'), findsOneWidget);
+    expect(find.text('Dad'), findsOneWidget);
+    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('Offline'), findsOneWidget);
+
+    // Tapping one starts (or would reuse) a direct conversation and opens
+    // it, same as tapping a contact from the Contacts screen already does.
+    await tester.tap(find.text('Mom'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Message'), findsOneWidget); // the composer's hint text
+  });
+
+  testWidgets(
+      "A contact with an existing direct conversation isn't also listed as a fresh contact to start one with",
+      (tester) async {
+    final api = _seededApiClient();
+    api.rooms = [
+      ...api.rooms,
+      ApiRoom(
+        id: 'room-mom-dm',
+        isGroup: false,
+        createdBy: 'me',
+        createdAt: DateTime.now(),
+        members: const ['me', 'user-mom'],
+        lastMessageBody: 'See you soon',
+        lastMessageKind: 'text',
+        lastMessageAt: DateTime.now(),
+      ),
+    ];
+    await _pumpApp(tester, api);
+
+    // Mom now has a real 1:1 room (its own tile, titled with her name since
+    // an unnamed 1:1 room falls back to the other member's display name) —
+    // she must not also appear a second time in the "start a conversation"
+    // section just because she's still only in a group with no 1:1 room.
+    expect(find.text('Mom'), findsOneWidget);
+    expect(find.text('See you soon'), findsOneWidget);
+    // Dad still only shares the group room, so he's still listed there.
+    expect(find.text('Dad'), findsOneWidget);
+  });
+
   testWidgets('Tapping a room opens its chat screen with real history', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 

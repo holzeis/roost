@@ -55,21 +55,139 @@ class HomeScreen extends ConsumerWidget {
     }
 
     final roomList = rooms.value!;
-    if (roomList.isEmpty) return const _EmptyRooms();
+    final meId = me.value!.id;
+
+    // Anyone who's opened the app at least once (usersById's own source,
+    // usersProvider) belongs in this list too, not just the separate
+    // Contacts screen — even before a first message is ever sent. Only
+    // filtered by 1:1 room, not group membership: a shared group doesn't
+    // mean there's already a direct conversation with that person.
+    final contactedIds = {
+      for (final r in roomList)
+        if (!r.isGroup) r.members.firstWhere((id) => id != meId, orElse: () => ''),
+    };
+    final roomlessContacts = (usersById.valueOrNull ?? const {})
+        .values
+        .where((c) => !contactedIds.contains(c.id))
+        .toList();
+
+    if (roomList.isEmpty && roomlessContacts.isEmpty) {
+      return const _EmptyRooms();
+    }
+
+    final divider = Padding(
+      padding: const EdgeInsets.only(left: 84, right: 16),
+      child: Divider(height: 1, thickness: 0.5, color: Theme.of(context).dividerColor),
+    );
+
+    final children = <Widget>[];
+    for (var i = 0; i < roomList.length; i++) {
+      if (i > 0) children.add(divider);
+      children.add(_RoomTile(room: roomList[i], meId: meId, usersById: usersById.valueOrNull ?? const {}));
+    }
+    if (roomlessContacts.isNotEmpty) {
+      if (roomList.isNotEmpty) children.add(divider);
+      children.add(const _SectionHeader('START A CONVERSATION'));
+      for (var i = 0; i < roomlessContacts.length; i++) {
+        if (i > 0) children.add(divider);
+        children.add(_ContactTile(contact: roomlessContacts[i]));
+      }
+    }
 
     return RefreshIndicator(
       onRefresh: () => ref.read(roomsProvider.notifier).refresh(),
-      child: ListView.separated(
-        padding: const EdgeInsets.only(top: 4, bottom: 88),
-        itemCount: roomList.length,
-        separatorBuilder: (_, __) => Padding(
-          padding: const EdgeInsets.only(left: 84, right: 16),
-          child: Divider(height: 1, thickness: 0.5, color: Theme.of(context).dividerColor),
+      child: ListView(padding: const EdgeInsets.only(top: 4, bottom: 88), children: children),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
         ),
-        itemBuilder: (context, index) => _RoomTile(
-          room: roomList[index],
-          meId: me.value!.id,
-          usersById: usersById.valueOrNull ?? const {},
+      ),
+    );
+  }
+}
+
+/// A contact with no existing 1:1 room yet — same row shape as _RoomTile,
+/// so the merged list reads as one continuous thing rather than two
+/// visually distinct list types, but with online/offline in place of a
+/// last-message preview (there isn't one) and no timestamp (nothing's
+/// happened yet). Tapping it does exactly what ContactsScreen's own contact
+/// tile does: the server reuses/creates the 1:1 room (FR1.1), same
+/// idempotent createRoom call, just reached from this list too now.
+class _ContactTile extends ConsumerWidget {
+  const _ContactTile({required this.contact});
+
+  final ApiContact contact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return InkWell(
+      onTap: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        final router = GoRouter.of(context);
+        try {
+          final room = await ref
+              .read(roomsProvider.notifier)
+              .createRoom(isGroup: false, memberIds: [contact.id]);
+          router.push('/chat/${room.id}');
+        } catch (error) {
+          messenger.showSnackBar(SnackBar(content: Text('Could not start chat: $error')));
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            InitialAvatar(
+              initial: contact.displayName.isNotEmpty ? contact.displayName[0].toUpperCase() : '?',
+              seed: contact.displayName,
+              size: 52,
+              presenceOnline: contact.online,
+              avatarMediaId: contact.avatarMediaId,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    contact.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    contact.online ? 'Online' : 'Offline',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: contact.online ? scheme.primary : scheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -85,7 +203,7 @@ class _EmptyRooms extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'No conversations yet. Tap the compose button to message someone on your tailnet.',
+          'Nobody else has opened Roost yet. Once someone else on your tailnet does, they\'ll show up here.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
