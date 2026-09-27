@@ -1,0 +1,154 @@
+# Plain manifest (no Helm) for a single-replica S3-compatible object store —
+# cluster-internal only; media uploads proxy through chat-server rather than
+# exposing it to the tailnet directly (see docs/architecture-overview.md's
+# high-level architecture diagram). chat-server creates the `roost-media`
+# bucket itself on startup if missing (server/internal/storage/storage.go),
+# so no bucket-provisioning step is needed here.
+#
+# SeaweedFS, not MinIO: MinIO's free/self-hosted image distribution was
+# discontinued entirely in 2026 (Docker Hub pulls killed, then the quay.io
+# mirror locked down too, and upstream MinIO itself archived/unmaintained —
+# see architecture-overview.md for the full account). SeaweedFS's S3 gateway
+# is a drop-in replacement: chat-server's storage client (internal/storage)
+# talks to it through the same generic minio-go S3 client, completely
+# unchanged — only this manifest's endpoint/credentials differ from before.
+# "server -s3" runs SeaweedFS's master, volume, filer, and S3 gateway all in
+# one process — the right shape for a single-node deployment here, rather
+# than SeaweedFS's own multi-node topology.
+#
+# Credentials come from the single `roost-secrets` Secret shared by every
+# service here (keys: s3-access-key, s3-secret-key) — the same two values
+# chat-server reads for its own S3 client, stored once. See k8s/README.md
+# for creating it. SeaweedFS's S3 gateway falls back to these as standard
+# AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars for its one admin
+# identity when no -s3.config file is given.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: roost
+  labels:
+    app: seaweedfs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # avoids two pods briefly fighting over the same ReadWriteOnce PVC during a rollout
+  selector:
+    matchLabels:
+      app: seaweedfs
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+    spec:
+      automountServiceAccountToken: false # this pod never talks to the k8s API
+      enableServiceLinks: false # avoid Kubernetes' auto-injected <SVC>_PORT-style env vars; everything here uses explicit DNS names instead
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:3.97
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # -master.volumeSizeLimitMB=100, not SeaweedFS's own default
+          # (1000) — see docker-compose.yml's identical comment: even
+          # trivial usage eagerly pre-allocates well over a dozen volume
+          # files at the configured size regardless of actual data stored,
+          # so the default reserves ~14GB from this PVC before a single
+          # photo is uploaded. 100MB keeps that upfront cost small; more
+          # volumes get created transparently as these fill, so this caps
+          # nothing about total storage.
+          args:
+            [
+              "server",
+              "-dir=/data",
+              "-s3",
+              "-s3.port=8333",
+              "-ip.bind=0.0.0.0",
+              "-master.volumeSizeLimitMB=100",
+            ]
+          ports:
+            - name: s3
+              containerPort: 8333
+            - name: master
+              containerPort: 9333
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: s3-access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: s3-secret-key
+          volumeMounts:
+            - name: seaweedfs-data
+              mountPath: /data
+          # A single-node raft leader election takes ~25-30s before the S3
+          # gateway starts serving — confirmed empirically running this
+          # exact image — hence the generous initialDelaySeconds on both
+          # probes below, longer than MinIO's own equivalent ever needed.
+          # The master's own /cluster/status is checked rather than the S3
+          # port directly: an unauthenticated request to the S3 API
+          # correctly 403s, which a probe would wrongly read as unhealthy.
+          readinessProbe:
+            httpGet:
+              path: /cluster/status
+              port: 9333
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /cluster/status
+              port: 9333
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: seaweedfs-data
+          persistentVolumeClaim:
+            claimName: seaweedfs-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-data
+  namespace: roost
+spec:
+  storageClassName: longhorn # so this volume can follow the pod across the cluster's nodes; see k8s/README.md
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Images/video persist indefinitely (FR2.4); sized for family-scale,
+      # grow as needed.
+      storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: roost
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+    # Only the S3 API port is exposed — chat-server never needs the master
+    # port itself; that's only used by this manifest's own probes, which
+    # reach it via the pod IP, not this Service.
+    - name: s3
+      port: 8333
+      targetPort: 8333

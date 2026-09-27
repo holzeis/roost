@@ -556,8 +556,8 @@ func (s *Store) DeclineCall(ctx context.Context, callID string) (models.Message,
 	return messages[0], nil
 }
 
-// CreateMediaObject records a MinIO upload's pointer row (FR2.1/2.2). The
-// bytes themselves are already in MinIO by the time this is called — see
+// CreateMediaObject records an upload's pointer row (FR2.1/2.2). The
+// bytes themselves are already in the object store by the time this is called — see
 // the upload handler in internal/api, which uploads first so a DB failure
 // never leaves a message referencing bytes that don't exist.
 // width/height/previewObjectKey are nil whenever the server couldn't decode

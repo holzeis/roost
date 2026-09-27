@@ -11,7 +11,7 @@ type Config struct {
 	ListenAddr string
 	// DatabaseURL is a Postgres connection string (postgres://...).
 	DatabaseURL string
-	// S3Endpoint, S3AccessKey, S3SecretKey, S3Bucket configure the MinIO client.
+	// S3Endpoint, S3AccessKey, S3SecretKey, S3Bucket configure the S3 client.
 	S3Endpoint  string
 	S3AccessKey string
 	S3SecretKey string

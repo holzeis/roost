@@ -30,7 +30,7 @@ const maxBodyBytes = 512 << 10
 // fetchClient uses a dialer that refuses to connect to private/loopback/
 // link-local addresses (and re-checks on every redirect hop). Without this,
 // "fetch whatever URL a family member pastes" is a server-side-request-
-// forgery vector into the cluster-internal network (Postgres, MinIO, etc.)
+// forgery vector into the cluster-internal network (Postgres, SeaweedFS, etc.)
 // that never faces the tailnet directly.
 var fetchClient = &http.Client{
 	Timeout: 5 * time.Second,

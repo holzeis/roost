@@ -12,7 +12,7 @@ for scope.
 |---|---|
 | `server/` | The chat server (Go): REST API, WebSocket fan-out, LiveKit token minting, Tailscale identity resolution |
 | `app/` | The Flutter mobile app (iOS + Android) |
-| `docker-compose.yml` | Full local stack: Postgres, MinIO, LiveKit, chat server |
+| `docker-compose.yml` | Full local stack: Postgres, SeaweedFS, LiveKit, chat server |
 | `k8s/` | Deployment manifests/Helm values for the target k3s cluster |
 | `docs/` | Architecture, functional requirements, data model, mockups |
 | `.github/workflows/` | CI (build + test) and the app store release pipeline |
@@ -24,7 +24,7 @@ cp .env.example .env   # fill in local passwords; never commit .env
 docker compose up -d
 ```
 
-This runs the whole backend — chat server, Postgres, MinIO, LiveKit — with
+This runs the whole backend — chat server, Postgres, SeaweedFS, LiveKit — with
 `ENABLE_DEV_AUTH=true`, which bypasses real Tailscale identity resolution
 with a fixed dev identity (there's no tailnet to join from a laptop compose
 stack). Never enable that outside local development; see

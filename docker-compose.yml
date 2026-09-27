@@ -16,22 +16,50 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    # minio/minio on Docker Hub now requires authentication to pull; quay.io
-    # is MinIO's recommended anonymous-pull mirror.
-    image: quay.io/minio/minio:latest
+  # S3-compatible object storage — was MinIO until its free/self-hosted
+  # image distribution was discontinued entirely (Docker Hub pulls killed
+  # 2026-09-11, then the quay.io mirror locked down too on 2026-09-24, and
+  # the only image left, quay.io/minio/aistor/minio, needs a paid Docker ELS
+  # entitlement since upstream MinIO itself is now archived/unmaintained).
+  # SeaweedFS's S3 gateway is the drop-in replacement: internal/storage
+  # talks to it through the same generic minio-go S3 client unchanged (only
+  # the endpoint/credentials differ) — see architecture-overview.md.
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.97
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # "server" runs master+volume+filer+the S3 gateway (-s3) in one
+    # process, the right shape for a single-node homelab deployment rather
+    # than SeaweedFS's own multi-node topology. -s3.port matches the app's
+    # own S3_ENDPOINT default below (SeaweedFS's own default is 8333;
+    # keeping that here rather than picking a different port for no reason).
+    #
+    # -master.volumeSizeLimitMB=100, not SeaweedFS's own default (1000):
+    # confirmed empirically that even trivial usage (a handful of tiny test
+    # objects) eagerly pre-allocates over a dozen volume files at the
+    # configured size regardless of how little data is actually stored —
+    # 14 volumes at the 1000MB default is ~14GB reserved from nothing, which
+    # is what actually exhausted a 58GB dev VM disk during this migration's
+    # own testing. 100MB keeps that upfront cost around 1.4GB; SeaweedFS
+    # transparently allocates more volumes as these fill, so this doesn't
+    # cap total storage, only how much is reserved per volume at a time.
+    command: server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=100
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-roost}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-roost-dev-password}
+      # SeaweedFS's S3 gateway falls back to these standard AWS env vars
+      # for its one admin identity when no -s3.config file is given — the
+      # same S3_ACCESS_KEY/S3_SECRET_KEY chat-server itself uses below, so
+      # there's exactly one credential pair to keep in sync, not two.
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-roost}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-roost-dev-password}
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:8333:8333"
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # The master's own status endpoint, not the S3 port directly — an
+      # unauthenticated request to the S3 API correctly 403s (wget's
+      # --spider treats any non-2xx/3xx as failure), which isn't what
+      # "is this service up" needs here.
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9333/cluster/status"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -54,16 +82,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
       livekit:
         condition: service_started
     environment:
       LISTEN_ADDR: ":8080"
       DATABASE_URL: "postgres://roost:${POSTGRES_PASSWORD:-roost-dev-password}@postgres:5432/roost?sslmode=disable"
-      S3_ENDPOINT: "minio:9000"
-      S3_ACCESS_KEY: "${MINIO_ROOT_USER:-roost}"
-      S3_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-roost-dev-password}"
+      S3_ENDPOINT: "seaweedfs:8333"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY:-roost}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY:-roost-dev-password}"
       S3_BUCKET: "roost-media"
       S3_USE_SSL: "false"
       LIVEKIT_URL: "ws://livekit:7880"
@@ -92,4 +120,4 @@ services:
 
 volumes:
   postgres-data:
-  minio-data:
+  seaweedfs-data:

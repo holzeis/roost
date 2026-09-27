@@ -8,7 +8,7 @@
 # 1. Default-deny all ingress in the namespace.
 # 2. Explicit allows carve back exactly what's needed:
 #    - chat-server -> postgres:5432
-#    - chat-server -> minio:9000
+#    - chat-server -> seaweedfs:8333
 # chat-server itself gets no explicit allow-ingress rule: nothing in normal
 # cluster networking needs to reach it (it has no Service — see
 # k8s/chat-server/deployment.yaml — and is only reachable via its own
@@ -53,12 +53,12 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: minio-allow-chat-server
+  name: seaweedfs-allow-chat-server
   namespace: roost
 spec:
   podSelector:
     matchLabels:
-      app: minio
+      app: seaweedfs
   policyTypes: ["Ingress"]
   ingress:
     - from:
@@ -66,7 +66,7 @@ spec:
             matchLabels:
               app: chat-server
       ports:
-        - port: 9000
+        - port: 8333
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

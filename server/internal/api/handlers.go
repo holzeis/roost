@@ -106,7 +106,7 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Buffered fully in memory rather than streamed straight to MinIO —
+	// Buffered fully in memory rather than streamed straight to the object store —
 	// generating the preview below needs the whole thing to decode anyway.
 	// See handleUploadMedia's identical comment.
 	data, err := io.ReadAll(file)
@@ -484,7 +484,7 @@ func (s *Server) storeMediaWithPreview(ctx context.Context, objectKey, contentTy
 
 // handleUploadMedia implements FR2.1/2.2: the client posts the file plus a
 // "kind" field (image|video) as multipart form data, and gets back the chat
-// message that was created for it — one request creates both the MinIO
+// message that was created for it — one request creates both the object store
 // object and the message referencing it, so there's never a message
 // pointing at bytes that don't exist (upload happens before either DB row).
 func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
@@ -531,7 +531,7 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Buffered fully in memory rather than streamed straight to MinIO:
+	// Buffered fully in memory rather than streamed straight to the object store:
 	// generating the preview below needs the whole thing to decode anyway,
 	// and maxMediaUploadBytes already caps this at 200MiB.
 	data, err := io.ReadAll(file)
@@ -796,7 +796,7 @@ func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if obj.PreviewObjectKey != nil {
-		// Best-effort: an orphaned preview object left behind in MinIO costs
+		// Best-effort: an orphaned preview object left behind in the object store costs
 		// storage, not correctness (nothing else can ever reference it once
 		// the media_objects row below is gone) — not worth failing the
 		// whole delete over.
@@ -1119,7 +1119,7 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleForwardMessage implements FR1.11: re-post a message into another
 // room the caller belongs to. Per the product decision to duplicate rather
-// than share media, a forwarded image/video gets its own MinIO object (a
+// than share media, a forwarded image/video gets its own object-store object (a
 // server-side copy) and its own media_objects row, so deleting either copy
 // never affects the other.
 func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
@@ -1189,7 +1189,7 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 // duplicateMedia copies an existing media object's bytes — and its preview,
-// if it has one — to new keys in MinIO, and records a new, independent
+// if it has one — to new keys in the object store, and records a new, independent
 // media_objects row for it, returning the new object's ID. A failed preview
 // copy is best-effort: the forwarded copy just falls back to serving its
 // own original for the inline preview too, same as any message whose

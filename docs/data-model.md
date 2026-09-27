@@ -6,7 +6,7 @@ new numbered migration in the same commit — see CLAUDE.md.
 
 Postgres is the only structured store (`docs/architecture-overview.md` —
 "Postgres for structured data, not a bespoke store"). Media bytes live in
-MinIO; Postgres only holds a pointer (`media_objects`) to each object.
+SeaweedFS's S3 gateway; Postgres only holds a pointer (`media_objects`) to each object.
 
 ## Entities
 
@@ -42,16 +42,16 @@ already covers both, so it never has more than one row per registration.
 
 ### media_objects
 
-A pointer to one object in MinIO. Rows are never deleted by a background job
+A pointer to one object in SeaweedFS. Rows are never deleted by a background job
 — images/video persist indefinitely by default (FR2.4); manual delete (FR2.5)
-removes the row, the object in MinIO, and (via `messages.media_id`'s
+removes the row, the object in SeaweedFS, and (via `messages.media_id`'s
 `ON DELETE CASCADE`, migration 0002) the chat message it was attached to —
 the message *was* the shared photo/video, so deleting one deletes the other.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid, PK | |
-| `bucket`, `object_key` | text | Where the bytes live in MinIO |
+| `bucket`, `object_key` | text | Where the bytes live in SeaweedFS |
 | `content_type` | text | |
 | `size_bytes` | bigint | |
 | `uploaded_by` | uuid, FK → `users` | |
@@ -106,7 +106,7 @@ scoped to text bodies only.
 
 Forwarding never sets both `reply_to_message_id` and `forwarded` — they're
 separate actions. Forwarding an image/video message doesn't reuse the
-original's `media_id`; the server copies the object to a new key in MinIO
+original's `media_id`; the server copies the object to a new key in SeaweedFS
 and creates an independent `media_objects` row for it (see below), so
 deleting either the original or the forwarded copy never affects the other.
 

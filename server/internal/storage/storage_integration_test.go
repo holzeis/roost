@@ -1,7 +1,7 @@
 //go:build integration
 
-// Run with S3_ENDPOINT etc. set — the docker-compose stack's minio service
-// works: S3_ENDPOINT=localhost:9000 S3_ACCESS_KEY=roost S3_SECRET_KEY=roost-dev-password
+// Run with S3_ENDPOINT etc. set — the docker-compose stack's seaweedfs service
+// works: S3_ENDPOINT=localhost:8333 S3_ACCESS_KEY=roost S3_SECRET_KEY=roost-dev-password
 // go test -tags=integration ./internal/storage/...
 package storage
 
@@ -32,6 +32,13 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
+	// See RemoveBucketRecursively's own doc comment for why this cleanup
+	// matters now in a way it never used to.
+	t.Cleanup(func() {
+		if err := s.RemoveBucketRecursively(context.Background()); err != nil {
+			t.Logf("cleanup: remove test bucket: %v", err)
+		}
+	})
 	return s
 }
 

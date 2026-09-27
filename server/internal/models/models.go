@@ -143,7 +143,7 @@ type LinkPreview struct {
 	SiteName    string `json:"siteName,omitempty"`
 }
 
-// MediaObject is a pointer to one uploaded file's bytes in MinIO (FR2.*).
+// MediaObject is a pointer to one uploaded file's bytes in the object store (FR2.*).
 type MediaObject struct {
 	ID          string    `json:"id"`
 	Bucket      string    `json:"-"`

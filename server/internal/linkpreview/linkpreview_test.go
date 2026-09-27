@@ -77,7 +77,7 @@ func TestFetch_RejectsNonHTTPScheme(t *testing.T) {
 func TestFetch_RejectsLoopbackAndPrivateAddresses(t *testing.T) {
 	// Exercises the real Fetch (not the test-only dialer override), so this
 	// is the actual SSRF guard: a family member pasting a link that points
-	// at the cluster's own Postgres/MinIO (or localhost) must not connect.
+	// at the cluster's own Postgres/SeaweedFS (or localhost) must not connect.
 	for _, target := range []string{
 		"http://127.0.0.1:5432/",
 		"http://localhost/",

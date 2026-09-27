@@ -8,7 +8,7 @@ service is a plain Kubernetes manifest — no Helm.
 
 - A k3s cluster. The [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator) is **not** required — both services that need tailnet reachability provide it themselves (chat-server embeds `tsnet`; LiveKit runs a Tailscale sidecar), so nothing here depends on the operator's `LoadBalancer` exposure.
 - [Longhorn](https://longhorn.io/) installed, providing a `longhorn` StorageClass. This is a real multi-node cluster (mixed arm64/amd64 hardware), not a single box — k3s's built-in default `local-path` StorageClass ties a volume to whichever node the pod first lands on and doesn't let it follow the pod elsewhere, which breaks on any node failure/drain/reboot. Every PVC below sets `storageClassName: longhorn` for that reason. If your Longhorn install uses a different StorageClass name, update each PVC to match.
-- Every image used here (`postgres:16-alpine`, `quay.io/minio/minio`, `livekit/livekit-server`, and the CI-built chat-server image) publishes multi-arch manifests covering both amd64 and arm64, matching `CLAUDE.md`'s requirement and this cluster's mixed Raspberry Pi 4 / ThinkCentre hardware — Kubernetes resolves the right architecture per node automatically, no per-node manifest changes needed.
+- Every image used here (`postgres:16-alpine`, `chrislusf/seaweedfs`, `livekit/livekit-server`, and the CI-built chat-server image) publishes multi-arch manifests covering both amd64 and arm64, matching `CLAUDE.md`'s requirement and this cluster's mixed Raspberry Pi 4 / ThinkCentre hardware — Kubernetes resolves the right architecture per node automatically, no per-node manifest changes needed.
 
 ## Secrets
 
@@ -24,7 +24,7 @@ pre-assembled copy.
 | `chat-server-authkey` | chat-server's `tsnet` node, at first registration only |
 | `livekit-authkey` | LiveKit's Tailscale sidecar, at first registration only |
 | `postgres-password` | the postgres pod, and chat-server (which interpolates it into `DATABASE_URL`) |
-| `minio-access-key`, `minio-secret-key` | the minio pod, and chat-server's S3 client |
+| `s3-access-key`, `s3-secret-key` | the seaweedfs pod (as `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`), and chat-server's S3 client |
 | `livekit-api-key`, `livekit-api-secret` | chat-server (mints JWTs) and LiveKit (validates them) — interpolated into LiveKit's `keys:` config |
 | `livekit-node-ip` | LiveKit's advertised ICE address; not actually secret, but deployment-specific, so it lives with the other per-cluster values you fill in. See the two-phase setup below |
 | `apns-key-id`, `apns-team-id`, `apns-private-key` | chat-server's APNs client (FR5.1 call-wake push to iOS) — see `docs/ios-dev-setup.md` for where these come from. Optional (`optional: true` in the Deployment): omit all three and the server falls back to `push.NoopSender` |
@@ -38,12 +38,36 @@ kubectl create secret generic roost-secrets -n roost \
   --from-literal=chat-server-authkey='<tskey-auth-...>' \
   --from-literal=livekit-authkey='<a different tskey-auth-...>' \
   --from-literal=postgres-password="$(openssl rand -base64 24)" \
-  --from-literal=minio-access-key='roost' \
-  --from-literal=minio-secret-key="$(openssl rand -base64 24)" \
+  --from-literal=s3-access-key='roost' \
+  --from-literal=s3-secret-key="$(openssl rand -base64 24)" \
   --from-literal=livekit-api-key='roost' \
   --from-literal=livekit-api-secret="$(openssl rand -base64 32)" \
   --from-literal=livekit-node-ip=''
 ```
+
+**Migrating an existing deployment from MinIO**: an already-running cluster
+has `minio-access-key`/`minio-secret-key` in its `roost-secrets`, not
+`s3-access-key`/`s3-secret-key`. Add the new keys with the *same values* as
+the old ones before applying `k8s/seaweedfs/` and the updated chat-server
+Deployment — reusing the same credential values means SeaweedFS's fresh
+bucket gets the same access key/secret chat-server already expects, no
+coordinated rotation needed:
+
+```sh
+kubectl get secret roost-secrets -n roost -o jsonpath='{.data.minio-access-key}' | base64 -d
+kubectl get secret roost-secrets -n roost -o jsonpath='{.data.minio-secret-key}' | base64 -d
+# then, with those same two values:
+kubectl patch secret roost-secrets -n roost --type=merge \
+  -p '{"stringData": {"s3-access-key": "<value from above>", "s3-secret-key": "<value from above>"}}'
+```
+
+Note this is a fresh, empty object store, not a migration of existing
+media — MinIO's own on-disk format isn't compatible with SeaweedFS's, and
+MinIO's own `mc` tool (which could otherwise mirror the data across) has
+the same discontinued-distribution problem this whole switch is about. If
+you have existing photos/videos in the old MinIO volume you want to keep,
+copy them out via the S3 API itself (e.g. `rclone` or `aws s3 sync`,
+neither of which depend on MinIO) before decommissioning it.
 
 Push (FR5.1) is optional and can be added later, once Apple/Firebase credentials exist.
 The `.p8` key's contents span multiple lines, so building the patch JSON with a plain
@@ -101,7 +125,7 @@ kubectl apply -f k8s/namespace.yaml
 # create the secrets in the table above, then:
 
 kubectl apply -f k8s/postgres/
-kubectl apply -f k8s/minio/
+kubectl apply -f k8s/seaweedfs/
 kubectl apply -f k8s/livekit/
 kubectl apply -f k8s/chat-server/
 kubectl apply -f k8s/network-policies.yaml
@@ -189,10 +213,10 @@ since none of these pods call the Kubernetes API.
   own baked-in user — `fsGroup: 999` is what makes the PVC-mounted data
   directory writable by it once the container is forced non-root from pod
   start (that skips the image entrypoint's usual root-only setup phase).
-- **minio** runs as an arbitrary uid `1000`; since that has no `/etc/passwd`
-  entry, `$HOME` needs pointing somewhere writable explicitly (an `emptyDir`
-  mounted at `/home/minio-user`) or MinIO fails trying to write its local
-  config there.
+- **seaweedfs** runs as an arbitrary uid `1000` too, but unlike MinIO it
+  never writes anything under `$HOME` — confirmed by running the exact
+  image as uid `1000` with no `$HOME` set at all before writing this — so
+  it needs no `emptyDir`/`$HOME` workaround, just the PVC mount itself.
 - **livekit**'s uid `1000` is a generic non-root choice, not verified
   against that image's actual internals the way postgres's `999` is — if it
   fails to start with a permissions error, check what uid/gid the image
@@ -221,7 +245,7 @@ of it remains in force. What's lost is the guarantee that a future careless
 manifest can't silently regress it.
 
 `k8s/network-policies.yaml` adds a default-deny-ingress policy plus explicit
-allows: only chat-server can reach postgres/minio, and only the Tailscale
+allows: only chat-server can reach postgres/seaweedfs, and only the Tailscale
 operator's own proxy pod (a different namespace) can reach livekit.
 
 **Important**: NetworkPolicy objects only do anything if your cluster's CNI

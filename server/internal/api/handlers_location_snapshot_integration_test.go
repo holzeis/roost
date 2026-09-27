@@ -1,7 +1,7 @@
 //go:build integration
 
 // Run with both DATABASE_URL and the S3_* vars set — the docker-compose
-// stack's postgres/minio services work:
+// stack's postgres/seaweedfs services work:
 // DATABASE_URL=postgres://... S3_ENDPOINT=localhost:9000 S3_ACCESS_KEY=roost S3_SECRET_KEY=roost-dev-password \
 //   go test -tags=integration ./internal/api/...
 package api

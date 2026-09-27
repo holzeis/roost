@@ -1,7 +1,11 @@
-// Package storage wraps the MinIO client for shared images/video (FR2.*).
-// Per the architecture decision that MinIO is never tailnet-exposed, all
-// access goes through the chat server: clients upload to and download from
-// the server, and the server is the only thing that ever talks to MinIO.
+// Package storage wraps an S3-compatible client for shared images/video
+// (FR2.*) — SeaweedFS's own S3 gateway in this deployment (see
+// architecture-overview.md's "SeaweedFS for object storage, not MinIO" for
+// why), reached via minio-go, a generic S3 client despite its name; nothing
+// here is MinIO-specific. Per the architecture decision that the object
+// store is never tailnet-exposed, all access goes through the chat server:
+// clients upload to and download from the server, and the server is the
+// only thing that ever talks to it.
 package storage
 
 import (
@@ -106,6 +110,33 @@ func (s *Store) Copy(ctx context.Context, srcKey, dstKey string) error {
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if err := s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
 		return fmt.Errorf("storage: delete object: %w", err)
+	}
+	return nil
+}
+
+// RemoveBucketRecursively deletes every object in this store's bucket, then
+// the bucket itself. Not used by the running server at all — only by
+// integration test cleanup (see internal/api's newAPITestServer and this
+// package's own newTestStore), each of which creates a fresh,
+// uniquely-named throwaway bucket per test run. That was harmless left
+// uncleaned under MinIO (an empty/abandoned bucket cost ~0 disk), but
+// SeaweedFS eagerly pre-allocates real disk per bucket regardless of how
+// little data it holds — confirmed empirically to reach several GB per
+// full test suite run — so leaving these bucket forever is no longer free.
+// Deliberately implemented with only standard List/Remove S3 calls, not
+// MinIO's own x-minio-force-delete extension, so it works the same
+// regardless of which S3-compatible backend is configured.
+func (s *Store) RemoveBucketRecursively(ctx context.Context) error {
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Recursive: true}) {
+		if obj.Err != nil {
+			return fmt.Errorf("storage: list objects for cleanup: %w", obj.Err)
+		}
+		if err := s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("storage: remove object %q for cleanup: %w", obj.Key, err)
+		}
+	}
+	if err := s.client.RemoveBucket(ctx, s.bucket); err != nil {
+		return fmt.Errorf("storage: remove bucket for cleanup: %w", err)
 	}
 	return nil
 }

@@ -77,7 +77,7 @@ spec:
             - name: DATABASE_URL
               value: "postgres://roost:$(POSTGRES_PASSWORD)@postgres.roost.svc.cluster.local:5432/roost?sslmode=disable"
             - name: S3_ENDPOINT
-              value: "minio.roost.svc.cluster.local:9000"
+              value: "seaweedfs.roost.svc.cluster.local:8333"
             - name: S3_BUCKET
               value: "roost-media"
             - name: S3_USE_SSL
@@ -86,12 +86,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: roost-secrets
-                  key: minio-access-key
+                  key: s3-access-key
             - name: S3_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: roost-secrets
-                  key: minio-secret-key
+                  key: s3-secret-key
             - name: LIVEKIT_URL
               value: "ws://livekit.roost.svc.cluster.local:7880"
             - name: LIVEKIT_API_KEY

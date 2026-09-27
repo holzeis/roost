@@ -1,7 +1,7 @@
 //go:build integration
 
 // Run with both DATABASE_URL and the S3_* vars set — the docker-compose
-// stack's postgres/minio services work:
+// stack's postgres/seaweedfs services work:
 // DATABASE_URL=postgres://... S3_ENDPOINT=localhost:9000 S3_ACCESS_KEY=roost S3_SECRET_KEY=roost-dev-password \
 //   go test -tags=integration ./internal/api/...
 package api
@@ -28,7 +28,7 @@ import (
 	"roost/server/internal/store"
 )
 
-// newAPITestServer builds a Server backed by real Postgres and MinIO
+// newAPITestServer builds a Server backed by real Postgres and SeaweedFS
 // connections (shared by every *_integration_test.go file in this
 // package) — skips instead of failing when either isn't configured, same
 // as the store/storage packages' own integration test helpers.
@@ -63,6 +63,13 @@ func newAPITestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("new media store: %v", err)
 	}
+	// See storage.Store.RemoveBucketRecursively's own doc comment for why
+	// leaving this throwaway per-test-run bucket around is no longer free.
+	t.Cleanup(func() {
+		if err := media.RemoveBucketRecursively(context.Background()); err != nil {
+			t.Logf("cleanup: remove test bucket: %v", err)
+		}
+	})
 
 	return &Server{Store: store.New(pool), Media: media}
 }

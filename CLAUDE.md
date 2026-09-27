@@ -31,7 +31,7 @@ If any of these paths don't exist yet in the repo, ask where they've been placed
 
 ## Local development
 
-- The full stack runs locally via `docker-compose.yml` — chat server, Postgres, MinIO, and LiveKit, mirroring the services described in the architecture doc.
+- The full stack runs locally via `docker-compose.yml` — chat server, Postgres, SeaweedFS (S3-compatible object storage), and LiveKit, mirroring the services described in the architecture doc.
 - Keep the compose setup functional and current; anyone should be able to clone the repo and run the whole backend locally with one command.
 
 ## iOS simulator setup
