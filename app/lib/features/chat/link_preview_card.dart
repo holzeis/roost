@@ -1,7 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/chat_providers.dart';
+import '../../providers/image_cache_provider.dart';
 
 final _urlPattern = RegExp(r'https?://[^\s]+');
 
@@ -45,12 +47,14 @@ class LinkPreviewCard extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (data.imageUrl != null)
-                Image.network(
-                  data.imageUrl!,
+                CachedNetworkImage(
+                  imageUrl: data.imageUrl!,
+                  cacheManager: ref.watch(imageCacheManagerProvider),
                   height: 120,
                   width: double.infinity,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stack) =>
+                  placeholder: (context, url) => const SizedBox.shrink(),
+                  errorWidget: (context, url, error) =>
                       const SizedBox.shrink(),
                 ),
               Padding(

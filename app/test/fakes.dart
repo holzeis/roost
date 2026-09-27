@@ -1,13 +1,116 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:file/file.dart' as pkg_file;
+import 'package:file/local.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/location/location_service.dart';
+
+/// A 1x1 transparent PNG — real, decodable image bytes.
+final Uint8List _tinyPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+);
+
+/// A BaseCacheManager fake that never touches the real network, sqflite, or
+/// flutter_cache_manager's own internal StreamController/WebHelper
+/// machinery at all — every method just resolves immediately with the same
+/// real, on-disk 1x1 PNG, regardless of URL. Deliberately implements the
+/// *interface* directly (not the real CacheManager class with fake
+/// dependencies swapped in underneath, which was tried first and still hung
+/// — something in that class's own internals never reaches a state
+/// WidgetTester.pumpAndSettle() considers settled). Matches this project's
+/// fakes-over-mocks convention.
+class FakeCacheManager implements BaseCacheManager {
+  pkg_file.File? _file;
+
+  Future<pkg_file.File> _resolveFile() async {
+    final existing = _file;
+    if (existing != null) return existing;
+    // dart:io directly — this fake exists precisely to avoid needing any
+    // platform-channel plugin (path_provider included) to work under
+    // `flutter test`.
+    final file = const LocalFileSystem().file('${Directory.systemTemp.path}/fake_cache_manager_test_image.png');
+    await file.writeAsBytes(_tinyPng);
+    _file = file;
+    return file;
+  }
+
+  FileInfo _fileInfo(pkg_file.File file, String url) =>
+      FileInfo(file, FileSource.Cache, DateTime.now().add(const Duration(days: 1)), url);
+
+  @override
+  Future<pkg_file.File> getSingleFile(String url, {String? key, Map<String, String>? headers}) =>
+      _resolveFile();
+
+  @override
+  @Deprecated('Prefer to use the new getFileStream method')
+  Stream<FileInfo> getFile(String url, {String? key, Map<String, String>? headers}) =>
+      getFileStream(url, key: key, headers: headers).where((r) => r is FileInfo).cast<FileInfo>();
+
+  @override
+  Stream<FileResponse> getFileStream(
+    String url, {
+    String? key,
+    Map<String, String>? headers,
+    bool withProgress = false,
+  }) async* {
+    yield _fileInfo(await _resolveFile(), url);
+  }
+
+  @override
+  Future<FileInfo> downloadFile(
+    String url, {
+    String? key,
+    Map<String, String>? authHeaders,
+    bool force = false,
+  }) async =>
+      _fileInfo(await _resolveFile(), url);
+
+  @override
+  Future<FileInfo?> getFileFromCache(String key, {bool ignoreMemCache = false}) async =>
+      _fileInfo(await _resolveFile(), key);
+
+  @override
+  Future<FileInfo?> getFileFromMemory(String key) async => _fileInfo(await _resolveFile(), key);
+
+  @override
+  Future<pkg_file.File> putFile(
+    String url,
+    Uint8List fileBytes, {
+    String? key,
+    String? eTag,
+    Duration maxAge = const Duration(days: 30),
+    String fileExtension = 'file',
+  }) =>
+      _resolveFile();
+
+  @override
+  Future<pkg_file.File> putFileStream(
+    String url,
+    Stream<List<int>> source, {
+    String? key,
+    String? eTag,
+    Duration maxAge = const Duration(days: 30),
+    String fileExtension = 'file',
+  }) =>
+      _resolveFile();
+
+  @override
+  Future<void> removeFile(String key) async {}
+
+  @override
+  Future<void> emptyCache() async {}
+
+  @override
+  Future<void> dispose() async {}
+}
 
 /// Stands in for the real platform channel behind ImagePicker.pickImage —
 /// there's no real camera/gallery under `flutter test`, so without this any

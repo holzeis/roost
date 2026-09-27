@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +21,7 @@ import 'package:roost/features/chat/media_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
+import 'package:roost/providers/image_cache_provider.dart';
 import 'package:roost/router/app_router.dart';
 import 'package:roost/theme/app_theme.dart';
 import 'package:roost/widgets/avatar.dart';
@@ -105,6 +107,7 @@ Future<void> _pumpApp(WidgetTester tester, FakeApiClient api, {List<Override> ex
       overrides: [
         apiClientProvider.overrideWithValue(api),
         wsClientProvider.overrideWithValue(api.ws),
+        imageCacheManagerProvider.overrideWithValue(FakeCacheManager()),
         ...extraOverrides,
       ],
       child: const RoostApp(),
@@ -845,18 +848,18 @@ void main() {
 
     final imagesBeforeReply = find.byType(Image).evaluate().length;
 
-    await tester.longPress(find.byIcon(TablerIcons.photoOff));
+    await tester.longPress(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Reply'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Replying to'), findsOneWidget);
     expect(find.text('Photo'), findsOneWidget); // label — this message has no caption
-    // The draft bar's own thumbnail is a new Image widget (fake:// isn't a
-    // real network scheme, so it falls through to the same error-icon
-    // fallback as everywhere else, but the widget itself confirms a
-    // thumbnail was attempted, which is what mediaId being threaded through
-    // the draft actually enables here).
+    // The draft bar's own thumbnail is a new Image widget (the fake
+    // cache manager resolves it successfully, same as the bubble it's
+    // quoting — the widget itself confirms a thumbnail was attempted, which
+    // is what mediaId being threaded through the draft actually enables
+    // here).
     expect(find.byType(Image).evaluate().length, greaterThan(imagesBeforeReply));
 
     await tester.enterText(find.byType(TextField).last, 'nice shot');
@@ -943,12 +946,11 @@ void main() {
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    // fake:// isn't a real network scheme, so Image.network fails to load
-    // and falls through to the error builder — confirming the message was
-    // routed to the media renderer at all (as opposed to the plain text one).
-    expect(find.byIcon(TablerIcons.photoOff), findsOneWidget);
+    // Confirms the message was routed to the media renderer at all (as
+    // opposed to the plain text one).
+    expect(find.byType(MediaBubbleContent), findsOneWidget);
 
-    await tester.longPress(find.byIcon(TablerIcons.photoOff));
+    await tester.longPress(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
 
     expect(find.text('Download'), findsOneWidget);
@@ -963,7 +965,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(TablerIcons.photoOff), findsNothing);
+    expect(find.byType(MediaBubbleContent), findsNothing);
     expect(api.mediaBytesById.containsKey('media-1'), isFalse);
   });
 
@@ -1039,7 +1041,7 @@ void main() {
     final image = tester.widget<Image>(
       find.descendant(of: find.byType(MediaBubbleContent), matching: find.byType(Image)).first,
     );
-    final provider = image.image as NetworkImage;
+    final provider = image.image as CachedNetworkImageProvider;
     expect(provider.url, api.mediaPreviewUrl('media-1'));
   });
 
@@ -1101,7 +1103,7 @@ void main() {
     final image = tester.widget<Image>(
       find.descendant(of: find.byType(InitialAvatar), matching: find.byType(Image)).first,
     );
-    final provider = image.image as NetworkImage;
+    final provider = image.image as CachedNetworkImageProvider;
     expect(provider.url, api.mediaPreviewUrl('avatar-mom'));
   });
 
@@ -1209,7 +1211,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // A plain tap (not long-press) opens the viewer.
-    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.tap(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
 
     // Now on the media viewer, not the chat screen — its back button and
@@ -1229,7 +1231,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('👍'), findsOneWidget);
 
-    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.tap(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Reply'));
     await tester.pumpAndSettle();
@@ -1246,7 +1248,7 @@ void main() {
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.tap(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
 
     // React with 👍 first.
@@ -1277,7 +1279,7 @@ void main() {
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.tap(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(TablerIcons.moodSmile));
@@ -1309,7 +1311,7 @@ void main() {
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.tap(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
 
     // Mom's reaction sits next to the still-available add button — it isn't
@@ -1334,7 +1336,7 @@ void main() {
 
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(TablerIcons.photoOff));
+    await tester.tap(find.byType(MediaBubbleContent));
     await tester.pumpAndSettle();
 
     expect(find.text('Delete'), findsOneWidget);
@@ -1635,9 +1637,8 @@ void main() {
 
     expect(api.me.avatarMediaId, isNotNull);
     // Renders the freshly uploaded photo instead of the initial fallback —
-    // fake:// isn't a real network scheme, so it falls through to the same
-    // error builder the initial letter would otherwise show, but the
-    // Image.network widget itself only appears once avatarMediaId is set.
+    // the CachedNetworkImage/Image widget only appears once avatarMediaId
+    // is set.
     expect(find.byType(Image), findsOneWidget);
   });
 

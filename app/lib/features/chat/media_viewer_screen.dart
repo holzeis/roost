@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +14,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../providers/image_cache_provider.dart';
 import 'forward_sheet.dart';
 import 'media_message.dart';
 import 'message_action_overlay.dart' show ReactionPicker, confirmDelete;
@@ -210,6 +213,11 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
             itemCount: media.length,
             onPageChanged: (i) => setState(() => _index = i),
             backgroundDecoration: const BoxDecoration(color: Colors.black),
+            // Static, not PhotoView's own default (an indeterminate
+            // CircularProgressIndicator) — see media_message.dart's
+            // identical reasoning on why an animating placeholder can never
+            // let WidgetTester.pumpAndSettle() settle.
+            loadingBuilder: (context, event) => const SizedBox.shrink(),
             builder: (context, i) {
               final message = media[i];
               if (message.kind == 'video') {
@@ -227,7 +235,10 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
                 );
               }
               return PhotoViewGalleryPageOptions(
-                imageProvider: NetworkImage(apiClient.mediaUrl(message.mediaId!)),
+                imageProvider: CachedNetworkImageProvider(
+                  apiClient.mediaUrl(message.mediaId!),
+                  cacheManager: ref.watch(imageCacheManagerProvider),
+                ),
                 onTapUp: (_, __, ___) => _toggleOverlays(),
                 minScale: PhotoViewComputedScale.contained,
                 initialScale: PhotoViewComputedScale.contained,
@@ -258,6 +269,7 @@ class _MediaViewerScreenState extends ConsumerState<MediaViewerScreen> {
                         media: media,
                         currentIndex: index,
                         mediaUrl: apiClient.mediaUrl,
+                        cacheManager: ref.watch(imageCacheManagerProvider),
                         onSelect: _goTo,
                       ),
                     const SizedBox(height: 8),
@@ -542,12 +554,14 @@ class _Filmstrip extends StatelessWidget {
     required this.media,
     required this.currentIndex,
     required this.mediaUrl,
+    required this.cacheManager,
     required this.onSelect,
   });
 
   final List<ApiMessage> media;
   final int currentIndex;
   final String Function(String mediaId) mediaUrl;
+  final BaseCacheManager cacheManager;
   final void Function(int index) onSelect;
 
   @override
@@ -579,7 +593,11 @@ class _Filmstrip extends StatelessWidget {
                 children: [
                   message.kind == 'video'
                       ? Container(color: Colors.white24)
-                      : Image.network(mediaUrl(message.mediaId!), fit: BoxFit.cover),
+                      : CachedNetworkImage(
+                          imageUrl: mediaUrl(message.mediaId!),
+                          cacheManager: cacheManager,
+                          fit: BoxFit.cover,
+                        ),
                   if (message.kind == 'video')
                     const Center(
                       child: Icon(TablerIcons.playerPlayFilled, color: Colors.white, size: 18),

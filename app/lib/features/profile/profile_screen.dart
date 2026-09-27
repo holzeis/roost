@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +7,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../providers/image_cache_provider.dart';
 import '../../theme/theme_controller.dart';
 import '../../widgets/back_button.dart';
 
@@ -158,17 +160,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : avatarMediaId != null
-                            ? Image.network(
+                            ? CachedNetworkImage(
                                 // See widgets/avatar.dart's identical
                                 // comment — always shown small, so the
-                                // faster preview beats the full original.
-                                ref
+                                // faster preview beats the full original,
+                                // cached to disk so it's instant next time.
+                                imageUrl: ref
                                     .read(apiClientProvider)
                                     .mediaPreviewUrl(avatarMediaId),
+                                cacheManager: ref.watch(imageCacheManagerProvider),
                                 width: 64,
                                 height: 64,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stack) => Text(
+                                placeholder: (context, url) => const SizedBox.shrink(),
+                                errorWidget: (context, url, error) => Text(
                                   (me.valueOrNull?.displayName.isNotEmpty ??
                                           false)
                                       ? me.value!.displayName[0].toUpperCase()

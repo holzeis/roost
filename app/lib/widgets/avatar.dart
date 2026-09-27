@@ -1,7 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/chat_providers.dart';
+import '../providers/image_cache_provider.dart';
 
 /// A muted, theme-agnostic palette so avatars read as intentional accents
 /// rather than clashing with either light or dark surfaces — the same
@@ -81,17 +83,26 @@ class InitialAvatar extends ConsumerWidget {
         borderRadius: radius,
       ),
       child: mediaId != null
-          ? Image.network(
+          ? CachedNetworkImage(
               // The smaller/faster preview — always shown small here
               // regardless of the source photo's real dimensions, so the
               // full-quality original (mediaUrl) would just be wasted
               // bandwidth. Falls back to the original server-side if this
               // avatar has no preview (see mediaPreviewUrl's own comment).
-              ref.watch(apiClientProvider).mediaPreviewUrl(mediaId),
+              // Cached to disk (FR2.4: media never changes once uploaded) —
+              // an avatar already seen loads instantly on a later app open
+              // instead of re-fetching it every time.
+              imageUrl: ref.watch(apiClientProvider).mediaPreviewUrl(mediaId),
+              cacheManager: ref.watch(imageCacheManagerProvider),
               width: size,
               height: size,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stack) => _glyph(),
+              // Static, not an indeterminate spinner — see media_message.dart's
+              // identical reasoning (any *animating* placeholder keeps
+              // scheduling frames forever, which WidgetTester.pumpAndSettle()
+              // can never settle past).
+              placeholder: (context, url) => const SizedBox.shrink(),
+              errorWidget: (context, url, error) => _glyph(),
             )
           : _glyph(),
     );

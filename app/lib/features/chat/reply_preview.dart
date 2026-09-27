@@ -1,9 +1,11 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../providers/image_cache_provider.dart';
 
 /// A one-line label for a message when it's quoted rather than shown in
 /// full — used by both the reply quote on a bubble and the composer's
@@ -47,20 +49,19 @@ class _QuoteThumbnail extends ConsumerWidget {
       borderRadius: BorderRadius.circular(6),
       // The faster preview, same as the bubble it's quoting — shown small
       // here regardless, so there's no reason to fetch the full original.
-      child: Image.network(
-        ref.watch(apiClientProvider).mediaPreviewUrl(mediaId),
+      // Cached to disk, same as every other image in the app.
+      child: CachedNetworkImage(
+        imageUrl: ref.watch(apiClientProvider).mediaPreviewUrl(mediaId),
+        cacheManager: ref.watch(imageCacheManagerProvider),
         width: 40,
         height: 40,
         fit: BoxFit.cover,
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return Container(
-            width: 40,
-            height: 40,
-            color: tint.withValues(alpha: 0.1),
-          );
-        },
-        errorBuilder: (context, error, stack) => Container(
+        placeholder: (context, url) => Container(
+          width: 40,
+          height: 40,
+          color: tint.withValues(alpha: 0.1),
+        ),
+        errorWidget: (context, url, error) => Container(
           width: 40,
           height: 40,
           color: tint.withValues(alpha: 0.15),

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../providers/image_cache_provider.dart';
 import '../../theme/app_theme.dart';
 
 /// The inline content of an image/video message bubble (FR2.3: viewed
@@ -79,8 +81,12 @@ class MediaBubbleContent extends ConsumerWidget {
             // less data to fetch — since this is only ever a thumbnail-size
             // rendering; the full-screen viewer (media_viewer_screen.dart)
             // fetches the real, untouched original via mediaUrl instead.
-            child: Image.network(
-              api.mediaPreviewUrl(message.mediaId!),
+            // Cached to disk (FR2.4: media never changes once uploaded), so
+            // scrolling back through history re-shows an already-seen photo
+            // instantly instead of re-fetching it.
+            child: CachedNetworkImage(
+              imageUrl: api.mediaPreviewUrl(message.mediaId!),
+              cacheManager: ref.watch(imageCacheManagerProvider),
               fit: BoxFit.cover,
               // No fixed size here — it already fills whatever box the
               // AspectRatio above reserved, so there's nothing left to jump
@@ -90,16 +96,16 @@ class MediaBubbleContent extends ConsumerWidget {
               // portrait photo can reserve real height) otherwise reads as
               // a jarring, half-transparent hole for the moment it takes
               // this to load, right where the newest message lands next to
-              // the composer.
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return Container(
-                  color: scheme.primary.withValues(alpha: 0.12),
-                  alignment: Alignment.center,
-                  child: const CircularProgressIndicator(strokeWidth: 2),
-                );
-              },
-              errorBuilder: (context, error, stack) => Container(
+              // the composer. Static, not a spinner — an *animating*
+              // placeholder schedules a new frame forever for as long as
+              // it's shown, which WidgetTester.pumpAndSettle() (used
+              // throughout this app's tests) can never settle past.
+              placeholder: (context, url) => Container(
+                color: scheme.primary.withValues(alpha: 0.12),
+                alignment: Alignment.center,
+                child: Icon(TablerIcons.photo, color: scheme.primary),
+              ),
+              errorWidget: (context, url, error) => Container(
                 color: scheme.primary.withValues(alpha: 0.12),
                 alignment: Alignment.center,
                 child: Icon(TablerIcons.photoOff, color: scheme.primary),
