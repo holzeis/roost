@@ -5,6 +5,12 @@ the app via GitHub Actions instead of a local Xcode/Android Studio export.
 Kept separate from `docs/ios-dev-setup.md`, which is about running the app
 on your own machine/simulator, not shipping it.
 
+**Trigger**: the `ios` job runs automatically whenever `app/` changes land
+on `main`, once the setup below is done — no manual step needed per release.
+`android` stays `workflow_dispatch`-only (a manual "Run workflow" click in
+the Actions tab) until its own signing/upload setup is finished; see that
+section below. Either job can also always be run manually regardless.
+
 ## Pointing the release build at the real server
 
 `app/lib/data/api_config.dart`'s `API_BASE_URL`/`LIVEKIT_URL` default to

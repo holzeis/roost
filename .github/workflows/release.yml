@@ -7,14 +7,21 @@ name: Release
 # image, etc).
 #
 # iOS/TestFlight is wired up — see docs/release-setup.md for the one-time
-# Apple/App Store Connect setup and the repo secrets it needs. Android still
-# needs its own signing secrets (see that job's TODOs) before it can run.
-# The trigger stays manual-only until both sides are confirmed working end
-# to end, so it can't fire and fail unexpectedly on a push.
+# Apple/App Store Connect setup and the repo secrets it needs — so it fires
+# automatically whenever app/ changes land on main. Android still needs its
+# own signing secrets (see that job's TODOs) before it can actually ship
+# anything, so its job stays gated to workflow_dispatch only below — an
+# automatic run would either fail outright or silently build-and-not-upload
+# on every app change, neither of which is better than just not running it
+# yet. Un-gate it once ANDROID_KEYSTORE_BASE64/etc. and the Play Console
+# upload step are actually in place.
 on:
   workflow_dispatch:
-  # push:
-  #   tags: ["v*"]
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/release.yml"
 
 # Least-privilege default — revisit once the upload steps below are wired
 # to real credentials/actions; some may need their own scoped permissions
@@ -26,6 +33,11 @@ jobs:
   android:
     name: release / android internal track
     runs-on: ubuntu-latest
+    # Not wired up yet (see the TODOs below and docs/release-setup.md) — only
+    # runs when someone deliberately dispatches it, never on the automatic
+    # push trigger above, so an ordinary app change doesn't burn a runner on
+    # a build with no signing that has nowhere to go anyway.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
