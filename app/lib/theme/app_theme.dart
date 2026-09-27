@@ -10,7 +10,15 @@ class RoostColors {
   RoostColors._();
 
   // Light — "paper" neutrals warmed from the logo's cream, not a cold gray.
-  static const lightSurface0 = Color(0xFFE7E0D0);
+  // lightSurface0 is the one exception: iOS's own keyboard chrome (the
+  // QuickType predictive-text bar above it, most visibly) always renders in
+  // iOS's own fixed systemGray6 (#F2F2F7 in light mode) — nothing in this
+  // app's theme can recolor that native strip, so matching it here instead
+  // is what keeps the header/composer chrome (both driven by this same
+  // value, see AppTheme._base) reading as one continuous surface right up
+  // to the keyboard's edge, rather than a warm-cream seam next to a cool
+  // system gray one.
+  static const lightSurface0 = Color(0xFFF2F2F7);
   static const lightSurface1 = Color(0xFFF7F2E6);
   static const lightSurface2 = Color(0xFFDCD3BE);
   static const lightTextPrimary = Color(0xFF221F1C);
