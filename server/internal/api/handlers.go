@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
@@ -18,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
@@ -444,8 +444,22 @@ const previewJPEGQuality = 55
 // library only reads JPEG/PNG/GIF), or a corrupt upload. The caller treats
 // that as "no preview" and falls back to serving the original for both
 // purposes — this never fails the upload itself.
+//
+// Decoded via imaging.Decode with AutoOrientation, not the bare stdlib
+// image.Decode: a phone photo's pixel data is very often stored in the
+// camera sensor's own orientation, correct only once a viewer applies the
+// image's EXIF Orientation tag — which the original upload still carries
+// (untouched bytes, so the full-screen viewer displays it correctly), but
+// which jpeg.Encode below has no way to write back out, since re-encoding
+// produces a brand new JPEG with no EXIF at all. Baking the correction into
+// the pixels themselves here — before that tag is lost — is what makes the
+// preview (what an avatar and every inline chat photo actually render)
+// come out right-side up instead of however the sensor happened to be
+// held. bounds below reflects the corrected (possibly width/height-swapped
+// for a 90°/270° correction) orientation, exactly matching what the
+// preview image itself now looks like.
 func generateImagePreview(data []byte) (preview []byte, width, height int, ok bool) {
-	img, _, err := image.Decode(bytes.NewReader(data))
+	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if err != nil {
 		return nil, 0, 0, false
 	}
