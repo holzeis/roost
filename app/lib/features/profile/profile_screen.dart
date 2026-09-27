@@ -172,6 +172,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 width: 64,
                                 height: 64,
                                 fit: BoxFit.cover,
+                                // No crossfade — see widgets/avatar.dart's
+                                // identical reasoning.
+                                fadeInDuration: Duration.zero,
+                                fadeOutDuration: Duration.zero,
                                 placeholder: (context, url) => const SizedBox.shrink(),
                                 errorWidget: (context, url, error) => Text(
                                   (me.valueOrNull?.displayName.isNotEmpty ??

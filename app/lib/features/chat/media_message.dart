@@ -88,6 +88,9 @@ class MediaBubbleContent extends ConsumerWidget {
               imageUrl: api.mediaPreviewUrl(message.mediaId!),
               cacheManager: ref.watch(imageCacheManagerProvider),
               fit: BoxFit.cover,
+              // No crossfade — see widgets/avatar.dart's identical reasoning.
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
               // No fixed size here — it already fills whatever box the
               // AspectRatio above reserved, so there's nothing left to jump
               // between "loading" and "loaded". A solid tinted background

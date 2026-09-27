@@ -277,6 +277,10 @@ class _ExpiredLocationPreview extends ConsumerWidget {
                   imageUrl: ref.watch(apiClientProvider).mediaPreviewUrl(snapshotMediaId),
                   cacheManager: ref.watch(imageCacheManagerProvider),
                   fit: BoxFit.cover,
+                  // No crossfade — see widgets/avatar.dart's identical
+                  // reasoning.
+                  fadeInDuration: Duration.zero,
+                  fadeOutDuration: Duration.zero,
                   placeholder: (context, url) => fallbackIcon(),
                   errorWidget: (context, url, error) => fallbackIcon(),
                 )
@@ -365,6 +369,10 @@ class _MapMarkerAvatar extends ConsumerWidget {
                 imageUrl: ref.watch(apiClientProvider).mediaPreviewUrl(avatarMediaId),
                 cacheManager: ref.watch(imageCacheManagerProvider),
                 fit: BoxFit.cover,
+                // No crossfade — see widgets/avatar.dart's identical
+                // reasoning.
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
                 placeholder: (context, url) => ColoredBox(color: seedColor),
                 errorWidget: (context, url, error) => glyph(),
               )

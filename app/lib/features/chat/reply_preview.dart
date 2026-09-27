@@ -56,6 +56,9 @@ class _QuoteThumbnail extends ConsumerWidget {
         width: 40,
         height: 40,
         fit: BoxFit.cover,
+        // No crossfade — see widgets/avatar.dart's identical reasoning.
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
         placeholder: (context, url) => Container(
           width: 40,
           height: 40,

@@ -53,6 +53,10 @@ class LinkPreviewCard extends ConsumerWidget {
                   height: 120,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  // No crossfade — see widgets/avatar.dart's identical
+                  // reasoning.
+                  fadeInDuration: Duration.zero,
+                  fadeOutDuration: Duration.zero,
                   placeholder: (context, url) => const SizedBox.shrink(),
                   errorWidget: (context, url, error) =>
                       const SizedBox.shrink(),

@@ -97,6 +97,12 @@ class InitialAvatar extends ConsumerWidget {
               width: size,
               height: size,
               fit: BoxFit.cover,
+              // No crossfade — an avatar should just appear, not visibly
+              // fade in every time this widget rebuilds (cached_network_image
+              // defaults to a 500ms fade, meant for a slow first load off the
+              // network, not a disk-cache hit that resolves in a few ms).
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
               // Static, not an indeterminate spinner — see media_message.dart's
               // identical reasoning (any *animating* placeholder keeps
               // scheduling frames forever, which WidgetTester.pumpAndSettle()

@@ -597,6 +597,10 @@ class _Filmstrip extends StatelessWidget {
                           imageUrl: mediaUrl(message.mediaId!),
                           cacheManager: cacheManager,
                           fit: BoxFit.cover,
+                          // No crossfade — see widgets/avatar.dart's
+                          // identical reasoning.
+                          fadeInDuration: Duration.zero,
+                          fadeOutDuration: Duration.zero,
                         ),
                   if (message.kind == 'video')
                     const Center(
