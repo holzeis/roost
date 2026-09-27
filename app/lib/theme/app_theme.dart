@@ -16,13 +16,13 @@ class RoostColors {
   // strip, so matching it here instead is what keeps the header/composer
   // chrome (both driven by this same value, see AppTheme._base) reading as
   // one continuous surface right up to the keyboard's edge, rather than a
-  // warm-cream seam next to a cool system gray one. This exact value
-  // (0xE0E0E6) was measured by averaging pixel samples from a real device
-  // screenshot of the QuickType bar, not taken from Apple's documented
-  // systemGray6 (#F2F2F7) — that documented value turned out visibly
-  // lighter than the bar actually renders, closer to systemGray5 territory.
-  // Re-measure from a fresh screenshot rather than guessing again if this
-  // ever needs revisiting.
+  // seam against it. This exact value (0xE0E0E6) was measured by averaging
+  // pixel samples from a real device screenshot of the QuickType bar, not
+  // taken from Apple's documented systemGray6 (#F2F2F7) — that documented
+  // value turned out visibly lighter than the bar actually renders. See
+  // darkSurface0 below for the same fix in dark mode. Re-measure from a
+  // fresh screenshot rather than guessing again if this ever needs
+  // revisiting.
   static const lightSurface0 = Color(0xFFE0E0E6);
   static const lightSurface1 = Color(0xFFF7F2E6);
   static const lightSurface2 = Color(0xFFDCD3BE);
@@ -37,7 +37,12 @@ class RoostColors {
   static const lightDanger = Color(0xFF9A4A3E); // muted brick, not a bright red
 
   // Dark — an extension of the same brand blue, not a neutral near-black.
-  static const darkSurface0 = Color(0xFF14171F);
+  // darkSurface0 is the same exception as lightSurface0 above: it has to
+  // match iOS's fixed native QuickType-bar gray (dark mode's is lighter and
+  // less blue than a naive "just darken the brand blue" guess would land
+  // on), measured the same way — averaged pixel samples from a real device
+  // screenshot.
+  static const darkSurface0 = Color(0xFF191A1E);
   static const darkSurface1 = Color(0xFF1C2029);
   static const darkSurface2 = Color(0xFF0F1116);
   static const darkTextPrimary = Color(0xFFECE5D7);
