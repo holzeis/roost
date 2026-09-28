@@ -87,6 +87,12 @@ void main() {
     });
   });
 
+  group('ringTimeout', () {
+    test('is 30 seconds', () {
+      expect(ringTimeout, const Duration(seconds: 30));
+    });
+  });
+
   group('incoming call detection', () {
     late FakeApiClient api;
     late ProviderContainer container;

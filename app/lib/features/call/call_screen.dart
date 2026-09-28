@@ -59,6 +59,12 @@ class CallScreen extends ConsumerStatefulWidget {
   ConsumerState<CallScreen> createState() => _CallScreenState();
 }
 
+/// FR4.5's auto-hang-up: how long a call rings before giving up on an
+/// unanswered callee, same as manually cancelling. A top-level constant
+/// (rather than inlined in _connect) so it has one obvious place to tune
+/// and is directly importable by a test.
+const ringTimeout = Duration(seconds: 30);
+
 /// Resolves the [ApiCall] a CallScreen instance should join: prefers
 /// [initialMessage] (the caller's *only* source — see CallScreen's own doc
 /// comment on why messagesProvider's cache never has it for them) and falls
@@ -169,9 +175,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       if (mounted) setState(() => _connecting = false);
 
       // FR3.4-style client-driven timeout, matching the location-sharing
-      // pattern: if nobody else has joined within 45s, give up rather than
-      // ring forever. Cancelled above the moment someone connects.
-      _ringTimeout = Timer(const Duration(seconds: 45), () {
+      // pattern: if nobody else has joined within ringTimeout, give up
+      // rather than ring forever. Cancelled above the moment someone
+      // connects.
+      _ringTimeout = Timer(ringTimeout, () {
         if (_room.remoteParticipants.isEmpty) _hangUp();
       });
     } catch (error) {
