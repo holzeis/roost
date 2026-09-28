@@ -1467,11 +1467,24 @@ func (s *Server) handleLocationSnapshot(w http.ResponseWriter, r *http.Request) 
 // (client-side) and the room's normal history both pick this up with no
 // new WebSocket plumbing.
 //
-// FR5.1: a member not currently reachable over the WebSocket (backgrounded
-// or fully closed app) gets a push call-wake fallback instead, to every
-// device they've registered (see handleRegisterDevice). Best-effort — a
-// delivery failure here never fails the API response, since push is a
-// fallback path, not the primary one.
+// The caller's own client still needs this event too, even though it
+// already has msg from this handler's HTTP response and uses that to jump
+// straight to the call screen: chat_providers.dart's MessagesController
+// never mutates its message list except in response to a WS event (see
+// deliverMessageEvent's doc comment for the same reasoning on ordinary
+// messages), so skipping the echo here left the call message entirely
+// absent from the caller's own local list — meaning a later message.updated
+// (the call being finalized as missed/declined/ended) had no matching id to
+// update and was silently dropped, only surfacing after the next full
+// history refetch. The caller gets no push fallback for it, though — see
+// deliverMessageEvent, which never pushes a sender about their own message
+// either.
+//
+// FR5.1: a member (other than the caller) not currently reachable over the
+// WebSocket (backgrounded or fully closed app) gets a push call-wake
+// fallback instead, to every device they've registered (see
+// handleRegisterDevice). Best-effort — a delivery failure here never fails
+// the API response, since push is a fallback path, not the primary one.
 func (s *Server) handleStartCall(w http.ResponseWriter, r *http.Request) {
 	caller, ok := session.UserFromContext(r.Context())
 	if !ok {
@@ -1489,6 +1502,7 @@ func (s *Server) handleStartCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.Hub.SendToUser(caller.ID, ws.Event{Type: "message.created", Payload: msg})
 	s.deliverToRoom(r.Context(), roomID, caller.ID, ws.Event{Type: "message.created", Payload: msg},
 		func(ctx context.Context, memberID string) {
 			var callID string
@@ -1537,15 +1551,18 @@ func (s *Server) deliverToRoom(
 // deliverMessageEvent implements FR5.2's WS-first, push-fallback delivery
 // for a genuinely new message (text, media, location, or forward — not
 // reactions/edits/receipts, which aren't "new messages"). Deliberately does
-// NOT reuse deliverToRoom, despite the similar shape: handleStartCall's
-// caller doesn't need its own message.created event echoed back (its client
-// already transitions to the call screen from the HTTP response), but a
-// message's sender does — the client has no local optimistic append of its
-// own, so the WS broadcast back to the sender's own socket is the only way
-// it ever renders the message it just sent (see chat_providers.dart's
-// send()). The sender is still never sent a *push* about their own message,
-// though — there's no reason to notify someone about something they did
-// themselves. senderName is display-only, for the notification's title —
+// NOT reuse deliverToRoom, despite the similar shape: a message's sender
+// needs its own message.created event echoed back — the client has no
+// local optimistic append of its own, so the WS broadcast back to the
+// sender's own socket is the only way it ever renders the message it just
+// sent (see chat_providers.dart's send()) — and handleStartCall's caller
+// needs the same echo for the same reason (see that handler's own doc
+// comment), just via a direct extra send rather than this function, since
+// it still wants deliverToRoom's per-member push-wake fallback for
+// everyone else. The sender is still never sent a *push* about their own
+// message, though — there's no reason to notify someone about something
+// they did themselves. senderName is display-only, for the notification's
+// title —
 // see push.MessagePayload's own doc comment on why the body never carries
 // the actual message content.
 func (s *Server) deliverMessageEvent(ctx context.Context, roomID, senderID, senderName string, msg models.Message) {

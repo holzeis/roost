@@ -410,6 +410,68 @@ func TestHandleStartCall_NoPushWhenEveryoneIsOnline(t *testing.T) {
 	}
 }
 
+// TestHandleStartCall_BroadcastsToCallerOverWebSocket guards a real
+// regression: handleStartCall originally excluded the caller from the
+// message.created broadcast, on the assumption the caller's client didn't
+// need it since it already has the message from this handler's own HTTP
+// response and uses that to jump straight to the call screen. But the app's
+// MessagesController never mutates its message list except in response to a
+// WS event (see TestHandleCreateMessage_BroadcastsToSenderOverWebSocket's
+// identical fix for ordinary messages) — so the call message was entirely
+// absent from the caller's own local chat list, meaning a later
+// message.updated (the call finalized as missed/declined/ended) had no
+// matching id to update and was silently dropped until the next full
+// history refetch. The caller must still never be pushed about their own
+// call, though.
+func TestHandleStartCall_BroadcastsToCallerOverWebSocket(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	caller, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("ws-caller-%d@github", run), "Caller")
+	if err != nil {
+		t.Fatalf("create caller: %v", err)
+	}
+	callee, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("ws-callee-%d@github", run), "Callee")
+	if err != nil {
+		t.Fatalf("create callee: %v", err)
+	}
+
+	callerConn := &recordingWSConn{}
+	s.Hub.Register(caller.ID, callerConn)
+
+	room, err := s.Store.CreateRoom(ctx, caller.ID, nil, false, []string{caller.ID, callee.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/rooms/"+room.ID+"/calls", nil)
+	req = req.WithContext(session.WithUser(req.Context(), caller))
+	req = withURLParam(req, "roomID", room.ID)
+	rec := httptest.NewRecorder()
+
+	s.handleStartCall(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	events := callerConn.eventsSnapshot()
+	if len(events) != 1 || events[0].Type != "message.created" {
+		t.Fatalf("expected exactly one message.created event sent to the caller's own socket, got %+v", events)
+	}
+
+	// callee has no registered device, so this only proves the caller
+	// specifically was excluded from the push, not just that no push
+	// happened at all.
+	if calls := pushSender.callsSnapshot(); len(calls) != 0 {
+		t.Fatalf("caller should never get a push call-wake about their own call, got %+v", calls)
+	}
+}
+
 // TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly
 // is FR5.2's core behavior — the same "WS, else push" pattern as FR5.1's
 // call wake, now generalized (deliverMessageEvent) to every message-
