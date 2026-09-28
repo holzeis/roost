@@ -10,18 +10,16 @@ class RoostColors {
   RoostColors._();
 
   // Light — "paper" neutrals warmed from the logo's cream, not a cold gray.
-  // lightSurface0 is the one exception: iOS's own keyboard chrome (the
-  // QuickType predictive-text bar above it, most visibly) always renders in
-  // a fixed native gray — nothing in this app's theme can recolor that
-  // strip, so matching it here instead is what keeps the header/composer
-  // chrome (both driven by this same value, see AppTheme._base) reading as
-  // one continuous surface right up to the keyboard's edge, rather than a
-  // seam against it. This exact value (0xD7D7DC) is the user's own
-  // color-picked value off a real device, not taken from Apple's documented
-  // systemGray6 (#F2F2F7) or an earlier pixel-averaged guess (0xE0E0E6) —
-  // both turned out off. See darkSurface0 below for the same fix in dark
-  // mode. Re-measure/re-pick from a fresh screenshot rather than guessing
-  // again if this ever needs revisiting.
+  // lightSurface0 is the one exception, and is deliberately NOT trying to
+  // match iOS's own QuickType predictive-text-bar gray (that's a fixed
+  // native strip this app's theme can't recolor anyway). It's this value
+  // that has to match instead: at the bar's rounded top corners, the
+  // curved cutout reveals whatever sits behind it, which is the native
+  // root view's own background — see the LaunchBackground.colorset comment
+  // in chat_screen.dart for why that's a second, native source of truth
+  // that must be hand-kept equal to this one. This exact value (0xD7D7DC)
+  // is the user's own color-picked value off a real device. See
+  // darkSurface0 below for the same fix in dark mode.
   static const lightSurface0 = Color(0xFFD7D7DC);
   static const lightSurface1 = Color(0xFFF7F2E6);
   static const lightSurface2 = Color(0xFFDCD3BE);
@@ -36,9 +34,10 @@ class RoostColors {
   static const lightDanger = Color(0xFF9A4A3E); // muted brick, not a bright red
 
   // Dark — an extension of the same brand blue, not a neutral near-black.
-  // darkSurface0 is the same exception as lightSurface0 above: it has to
-  // match iOS's fixed native QuickType-bar gray. This exact value
-  // (0x18191C) is the user's own color-picked value off a real device.
+  // darkSurface0 is the same exception as lightSurface0 above, matched to
+  // LaunchBackground.colorset's dark variant for the same reason. This
+  // exact value (0x18191C) is the user's own color-picked value off a real
+  // device.
   static const darkSurface0 = Color(0xFF18191C);
   static const darkSurface1 = Color(0xFF1C2029);
   static const darkSurface2 = Color(0xFF0F1116);

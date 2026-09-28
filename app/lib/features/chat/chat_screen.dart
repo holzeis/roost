@@ -56,13 +56,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       // Deliberately NOT chatWallpaperColor: that's only the message list's
-      // own decoration (below), painted by the Container around it. The
-      // Scaffold's own base fill is what shows through at the iOS
-      // keyboard's rounded predictive-text-bar corners (resizeToAvoidBottomInset
-      // doesn't quite cover them), and that needs to match the composer's
-      // own scaffoldBackgroundColor sitting right above it — otherwise that
-      // sliver reads as a jarring, wallpaper-colored notch beside the
-      // keyboard instead of a seamless continuation of the composer.
+      // own decoration (below), painted by the Container around it.
+      //
+      // The sliver that peeks through at the iOS keyboard's rounded
+      // predictive-text-bar corners is NOT this Scaffold's own fill at all
+      // — it's the native root view's background, sourced from
+      // ios/Runner/Base.lproj/LaunchScreen.storyboard (which Flutter's iOS
+      // embedding shows through underneath the Flutter surface during the
+      // keyboard's resize animation, right at that curved corner cutout,
+      // outside anything Flutter itself paints). No Dart-side Theme value
+      // can reach it. It's kept matching the composer's own
+      // scaffoldBackgroundColor via a separate native asset color —
+      // ios/Runner/Assets.xcassets/LaunchBackground.colorset — which must
+      // be hand-kept in sync with RoostColors.lightSurface0/darkSurface0
+      // (app_theme.dart) since they're two independent sources of truth.
       appBar: AppBar(
         titleSpacing: 4,
         leading: const TablerBackButton(),
