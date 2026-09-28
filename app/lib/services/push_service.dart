@@ -50,7 +50,9 @@ CallKitParams callKitParamsFromPushData(Map<String, dynamic> data) {
     nameCaller: (callerName != null && callerName.isNotEmpty) ? callerName : 'Incoming call',
     appName: 'Roost',
     handle: 'Roost',
-    type: 0,
+    // Video — every call starts as one (FR4.1/FR4.2), matching the APNs
+    // side's isVideo.
+    type: 1,
     extra: {
       'roomId': data['roomId'] as String? ?? '',
       'messageId': data['messageId'] as String? ?? '',

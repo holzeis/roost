@@ -136,27 +136,12 @@ func NewAPNsSender(keyID, teamID string, privateKeyPEM []byte, bundleID string, 
 }
 
 func (a *APNsSender) SendCallWake(ctx context.Context, deviceToken string, payload CallWakePayload) error {
-	nameCaller := payload.CallerName
-	if nameCaller == "" {
-		nameCaller = "Incoming call"
-	}
-	body := map[string]any{
-		"aps":        map[string]any{},
-		"id":         payload.MessageID,
-		"nameCaller": nameCaller,
-		"handle":     "Roost",
-		"isVideo":    false,
-		"roomId":     payload.RoomID,
-		"messageId":  payload.MessageID,
-		"callId":     payload.CallID,
-		"callerId":   payload.CallerID,
-	}
 	n := &apns2.Notification{
 		DeviceToken: deviceToken,
 		Topic:       a.bundleID + ".voip",
 		PushType:    apns2.PushTypeVOIP,
 		Priority:    apns2.PriorityHigh,
-		Payload:     body,
+		Payload:     apnsCallWakeBody(payload),
 	}
 	res, err := a.client.PushWithContext(ctx, n)
 	if err != nil {
@@ -166,6 +151,26 @@ func (a *APNsSender) SendCallWake(ctx context.Context, deviceToken string, paylo
 		return fmt.Errorf("push: apns rejected call wake: %d %s", res.StatusCode, res.Reason)
 	}
 	return nil
+}
+
+// apnsCallWakeBody builds the VoIP push body AppDelegate.swift reads — see
+// APNsSender's doc comment.
+func apnsCallWakeBody(payload CallWakePayload) map[string]any {
+	nameCaller := payload.CallerName
+	if nameCaller == "" {
+		nameCaller = "Incoming call"
+	}
+	return map[string]any{
+		"aps":        map[string]any{},
+		"id":         payload.MessageID,
+		"nameCaller": nameCaller,
+		"handle":     "Roost",
+		"isVideo":    true, // every call starts as video (FR4.1/FR4.2)
+		"roomId":     payload.RoomID,
+		"messageId":  payload.MessageID,
+		"callId":     payload.CallID,
+		"callerId":   payload.CallerID,
+	}
 }
 
 // FCMSender wakes Android for the incoming-call UI via a high-priority,

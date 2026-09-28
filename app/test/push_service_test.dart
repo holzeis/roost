@@ -88,6 +88,7 @@ void main() {
 
       expect(params.id, 'msg-1');
       expect(params.nameCaller, 'Mom');
+      expect(params.type, 1, reason: 'calls are video calls');
       expect(params.extra, {
         'roomId': 'room-1',
         'messageId': 'msg-1',
