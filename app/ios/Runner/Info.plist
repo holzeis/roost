@@ -80,5 +80,23 @@
 	     non-exempt encryption, which this isn't. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- TEMPORARY, remove once flutter/flutter#179482 is fixed upstream
+	     (tracked fix: flutter/flutter PR #186365, unmerged as of writing).
+	     iOS 26's Liquid Glass keyboard is translucent/rounded; Flutter's
+	     Scaffold paints its background assuming an opaque keyboard, so a
+	     persistent bar sitting directly above the keyboard (our message
+	     composer) shows a color seam at the keyboard's rounded corners no
+	     app-level color/layout change can fix — see chat_screen.dart's
+	     Scaffold body comment and RoostColors.lightSurface0/darkSurface0
+	     for the (correct, keep-in-place) composer/keyboard color match
+	     this sits on top of. Setting this reverts the WHOLE app's native
+	     chrome (nav bars, tab bars, sheets, keyboard) to the pre-iOS-26
+	     design, which also eliminates this seam as a side effect. Apple
+	     has stated this key is a temporary compatibility aid, expected to
+	     stop working around iOS 27 — this is not a permanent fix, and
+	     should be removed (not just left in place) once the Flutter fix
+	     ships, to pick back up Liquid Glass's actual intended look. -->
+	<key>UIDesignRequiresCompatibility</key>
+	<true/>
 </dict>
 </plist>
