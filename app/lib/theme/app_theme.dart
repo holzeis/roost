@@ -16,14 +16,13 @@ class RoostColors {
   // strip, so matching it here instead is what keeps the header/composer
   // chrome (both driven by this same value, see AppTheme._base) reading as
   // one continuous surface right up to the keyboard's edge, rather than a
-  // seam against it. This exact value (0xE0E0E6) was measured by averaging
-  // pixel samples from a real device screenshot of the QuickType bar, not
-  // taken from Apple's documented systemGray6 (#F2F2F7) — that documented
-  // value turned out visibly lighter than the bar actually renders. See
-  // darkSurface0 below for the same fix in dark mode. Re-measure from a
-  // fresh screenshot rather than guessing again if this ever needs
-  // revisiting.
-  static const lightSurface0 = Color(0xFFE0E0E6);
+  // seam against it. This exact value (0xD7D7DC) is the user's own
+  // color-picked value off a real device, not taken from Apple's documented
+  // systemGray6 (#F2F2F7) or an earlier pixel-averaged guess (0xE0E0E6) —
+  // both turned out off. See darkSurface0 below for the same fix in dark
+  // mode. Re-measure/re-pick from a fresh screenshot rather than guessing
+  // again if this ever needs revisiting.
+  static const lightSurface0 = Color(0xFFD7D7DC);
   static const lightSurface1 = Color(0xFFF7F2E6);
   static const lightSurface2 = Color(0xFFDCD3BE);
   static const lightTextPrimary = Color(0xFF221F1C);
@@ -38,11 +37,9 @@ class RoostColors {
 
   // Dark — an extension of the same brand blue, not a neutral near-black.
   // darkSurface0 is the same exception as lightSurface0 above: it has to
-  // match iOS's fixed native QuickType-bar gray (dark mode's is lighter and
-  // less blue than a naive "just darken the brand blue" guess would land
-  // on), measured the same way — averaged pixel samples from a real device
-  // screenshot.
-  static const darkSurface0 = Color(0xFF191A1E);
+  // match iOS's fixed native QuickType-bar gray. This exact value
+  // (0x18191C) is the user's own color-picked value off a real device.
+  static const darkSurface0 = Color(0xFF18191C);
   static const darkSurface1 = Color(0xFF1C2029);
   static const darkSurface2 = Color(0xFF0F1116);
   static const darkTextPrimary = Color(0xFFECE5D7);
