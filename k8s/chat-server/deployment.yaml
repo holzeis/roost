@@ -127,6 +127,14 @@ spec:
                   name: roost-secrets
                   key: apns-private-key
                   optional: true
+            # Installed builds come from TestFlight (see the iOS release
+            # workflow), which always holds production-environment APNs
+            # tokens — the sandbox gateway rejects those (and any
+            # production-only .p8 key) with 403 BadEnvironmentKeyInToken,
+            # so a closed app never wakes for a call. Not a secret, so a
+            # plain value rather than a roost-secrets key.
+            - name: APNS_PRODUCTION
+              value: "true"
             - name: FCM_SERVICE_ACCOUNT_JSON
               valueFrom:
                 secretKeyRef:

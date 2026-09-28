@@ -130,6 +130,14 @@ the Simulator. Once enrolled, at <https://developer.apple.com/account/resources>
    or `kubectl patch secret roost-secrets` for a real deployment — see
    `k8s/README.md`'s push section. Never paste the `.p8` contents into a
    chat/conversation; set it directly in the file/secret yourself.
+   `APNS_PRODUCTION` picks Apple's gateway and must match the build on the
+   phone: `true` for TestFlight/App Store builds (the k8s Deployment sets
+   this, since the release pipeline ships via TestFlight), unset for
+   Xcode/`flutter run` builds, which get sandbox tokens. A mismatch — or a
+   `.p8` key scoped to only the other environment — makes Apple reject
+   every call-wake push (`403 BadEnvironmentKeyInToken` or
+   `400 BadDeviceToken` in the chat-server logs), so a closed app never
+   rings even though calls to an open app still work over the WebSocket.
 5. **Build and install** a release build per the section above, on the
    physical device you registered — `flutter run --release -d <device-id>`.
 

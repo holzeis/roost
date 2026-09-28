@@ -105,6 +105,9 @@ services:
       APNS_KEY_ID: "${APNS_KEY_ID:-}"
       APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
       APNS_PRIVATE_KEY: "${APNS_PRIVATE_KEY:-}"
+      # "true" for TestFlight/App Store builds (production APNs tokens);
+      # leave unset for Xcode/`flutter run` builds (sandbox tokens).
+      APNS_PRODUCTION: "${APNS_PRODUCTION:-}"
       FCM_SERVICE_ACCOUNT_JSON: "${FCM_SERVICE_ACCOUNT_JSON:-}"
       # FR3.7 ended-share map snapshot (see server/internal/staticmap) —
       # same no-safe-dev-fallback reasoning as the push vars above; unset
