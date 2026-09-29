@@ -720,17 +720,18 @@ class _JumpToBottomButton extends StatelessWidget {
 /// Sent/delivered/seen tick (FR1.5, FR1.6), rendered next to the timestamp
 /// on the sender's own message bubbles only. Delivered and seen both use
 /// the double-check glyph (TablerIcons.checks) — seen is distinguished by
-/// full opacity rather than a separate color, so it still reads clearly on
-/// the primary-colored fromMe bubble in both themes.
-WidgetSpan _statusIconSpan(String status, Color onPrimary) {
-  final seen = status == 'seen';
+/// the blue read-tick color, the same cue WhatsApp uses.
+Color statusTickColor(BuildContext context, String status) => status == 'seen'
+    ? readTickColor(context)
+    : onSentBubbleColor(context).withValues(alpha: 0.62);
+
+WidgetSpan _statusIconSpan(BuildContext context, String status) {
   final icon = status == 'sent' ? TablerIcons.check : TablerIcons.checks;
   return WidgetSpan(
     alignment: PlaceholderAlignment.middle,
     child: Padding(
       padding: const EdgeInsets.only(left: 3),
-      child: Icon(icon,
-          size: 13, color: onPrimary.withValues(alpha: seen ? 1 : 0.62)),
+      child: Icon(icon, size: 13, color: statusTickColor(context, status)),
     ),
   );
 }
@@ -789,6 +790,9 @@ class _MessageRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    // Text/icons on this bubble — the viewer's own messages sit on their
+    // own sent-bubble color, not the accent (see RoostColors).
+    final onBubble = fromMe ? onSentBubbleColor(context) : scheme.onSurface;
     final align = fromMe ? MainAxisAlignment.end : MainAxisAlignment.start;
     final timeLabel =
         TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
@@ -843,7 +847,7 @@ class _MessageRow extends ConsumerWidget {
           ? EdgeInsets.zero
           : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: fromMe ? scheme.primary : scheme.surface,
+        color: fromMe ? sentBubbleColor(context) : scheme.surface,
         borderRadius: borderRadius,
         boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
       ),
@@ -860,7 +864,7 @@ class _MessageRow extends ConsumerWidget {
                 children: [
                   Icon(TablerIcons.arrowForwardUp,
                       size: 12,
-                      color: (fromMe ? scheme.onPrimary : scheme.onSurface)
+                      color: onBubble
                           .withValues(alpha: 0.55)),
                   const SizedBox(width: 3),
                   Text(
@@ -868,7 +872,7 @@ class _MessageRow extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
-                      color: (fromMe ? scheme.onPrimary : scheme.onSurface)
+                      color: onBubble
                           .withValues(alpha: 0.55),
                     ),
                   ),
@@ -882,7 +886,7 @@ class _MessageRow extends ConsumerWidget {
               child: ReplyQuoteChip(
                 snippet: message.replyTo!,
                 senderName: _nameFor(message.replyTo!.senderId),
-                tint: fromMe ? scheme.onPrimary : scheme.primary,
+                tint: fromMe ? onBubble : scheme.primary,
                 onTap: () => onJumpToReply(message.replyTo!.id),
               ),
             ),
@@ -911,7 +915,7 @@ class _MessageRow extends ConsumerWidget {
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.3,
-                    color: fromMe ? scheme.onPrimary : scheme.onSurface,
+                    color: onBubble,
                   ),
                 ),
               ),
@@ -923,7 +927,7 @@ class _MessageRow extends ConsumerWidget {
               message: message,
               roomId: roomId,
               isGroup: isGroup,
-              textColor: fromMe ? scheme.onPrimary : scheme.onSurface,
+              textColor: onBubble,
             )
           else ...[
             if (showSenderLabel)
@@ -943,7 +947,7 @@ class _MessageRow extends ConsumerWidget {
                 style: TextStyle(
                     fontSize: 16.5,
                     height: 1.3,
-                    color: fromMe ? scheme.onPrimary : scheme.onSurface),
+                    color: onBubble),
                 children: [
                   TextSpan(text: message.body ?? ''),
                   TextSpan(
@@ -952,11 +956,11 @@ class _MessageRow extends ConsumerWidget {
                     style: roostMono(
                       context,
                       fontSize: 11.5,
-                      color: (fromMe ? scheme.onPrimary : scheme.onSurface)
+                      color: onBubble
                           .withValues(alpha: 0.62),
                     ),
                   ),
-                  if (fromMe) _statusIconSpan(message.status, scheme.onPrimary),
+                  if (fromMe) _statusIconSpan(context, message.status),
                 ],
               ),
             ),
@@ -1327,12 +1331,12 @@ class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: _armed
-                    ? ochreColor(context).withValues(alpha: 0.2)
+                    ? secondaryAccentColor(context).withValues(alpha: 0.2)
                     : scheme.onSurface.withValues(alpha: 0.08),
               ),
               child: Icon(TablerIcons.arrowBackUp,
                   size: 16,
-                  color: _armed ? ochreColor(context) : scheme.onSurface.withValues(alpha: 0.5)),
+                  color: _armed ? secondaryAccentColor(context) : scheme.onSurface.withValues(alpha: 0.5)),
             ),
           ),
           Transform.translate(
@@ -1377,7 +1381,7 @@ class _ReactionChip extends StatelessWidget {
             fontWeight:
                 reaction.reactedByMe ? FontWeight.w700 : FontWeight.w400,
             color: reaction.reactedByMe
-                ? ochreColor(context)
+                ? secondaryAccentColor(context)
                 : scheme.onSurface.withValues(alpha: 0.7),
           ),
         ),

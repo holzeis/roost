@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Color tokens pulled from the app's own mark (assets/logo/roost-logo.svg —
-/// a slate-blue badge with a cream house-shaped speech bubble) rather than a
-/// generic Material seed color unrelated to it, and from
-/// docs/mockups/roost-mockups-utility-dense.html's warm-paper neutrals.
-/// Keep these in sync if either reference changes.
+/// Color tokens for the WhatsApp-style palette (chosen 2026-09-29 from the
+/// palette proposals): a teal-green accent, beige chat wallpaper, and
+/// sent bubbles in their own pale/dark green rather than the accent — so
+/// sent bubbles have dedicated tokens ([lightSentBubble] etc.) instead of
+/// reusing the accent/onAccent pair the way the previous palette did.
 class RoostColors {
   RoostColors._();
 
-  // Light — "paper" neutrals warmed from the logo's cream, not a cold gray.
-  // lightSurface0 is the one exception, and is deliberately NOT trying to
+  // Light. lightSurface0 is the one exception, and is deliberately NOT trying to
   // match iOS's own QuickType predictive-text-bar gray (that's a fixed
   // native strip this app's theme can't recolor anyway). It's this value
   // that has to match instead: at the bar's rounded top corners, the
@@ -21,42 +20,47 @@ class RoostColors {
   // is the user's own color-picked value off a real device. See
   // darkSurface0 below for the same fix in dark mode.
   static const lightSurface0 = Color(0xFFD7D7DC);
-  static const lightSurface1 = Color(0xFFF7F2E6);
-  static const lightSurface2 = Color(0xFFDCD3BE);
-  static const lightTextPrimary = Color(0xFF221F1C);
-  static const lightTextSecondary = Color(0xFF5B5648);
-  static const lightTextMuted = Color(0xFF948E7D);
-  static const lightAccent = Color(0xFF4A5C8A); // the logo's own slate blue
-  static const lightAccentDeep = Color(0xFF33436B);
-  static const lightOnAccent = Color(0xFFFBF3E9); // the logo's own cream
-  static const lightSuccess = Color(0xFF3FA360);
-  static const lightOchre = Color(0xFF8C5F22); // presence/live/highlight — the one secondary accent
-  static const lightDanger = Color(0xFF9A4A3E); // muted brick, not a bright red
+  static const lightSurface1 = Color(0xFFFFFFFF);
+  static const lightSurface2 = Color(0xFFEFEAE2);
+  static const lightTextPrimary = Color(0xFF111B21);
+  static const lightTextSecondary = Color(0xFF54656F);
+  static const lightTextMuted = Color(0xFF8696A0);
+  static const lightAccent = Color(0xFF008069); // teal green
+  static const lightAccentDeep = Color(0xFF00735E);
+  static const lightOnAccent = Color(0xFFFFFFFF);
+  static const lightSuccess = Color(0xFF1FA855);
+  static const lightSecondaryAccent = Color(0xFF027EB5); // presence/live/highlight — the one secondary accent
+  static const lightDanger = Color(0xFFEA0038);
+  static const lightSentBubble = Color(0xFFD9FDD3);
+  static const lightOnSentBubble = Color(0xFF111B21);
+  static const lightReadTick = Color(0xFF53BDEB);
 
-  // Dark — an extension of the same brand blue, not a neutral near-black.
-  // darkSurface0 is the same exception as lightSurface0 above, matched to
+  // Dark. darkSurface0 is the same exception as lightSurface0 above, matched to
   // LaunchBackground.colorset's dark variant for the same reason. This
   // exact value (0x18191C) is the user's own color-picked value off a real
   // device.
   static const darkSurface0 = Color(0xFF18191C);
-  static const darkSurface1 = Color(0xFF1C2029);
-  static const darkSurface2 = Color(0xFF0F1116);
-  static const darkTextPrimary = Color(0xFFECE5D7);
-  static const darkTextSecondary = Color(0xFFB7AF9E);
-  static const darkTextMuted = Color(0xFF78715F);
-  static const darkAccent = Color(0xFF93A6DA);
-  static const darkAccentDeep = Color(0xFF6E82B8);
-  static const darkOnAccent = Color(0xFF12151F);
-  static const darkSuccess = Color(0xFF4BBF78);
-  static const darkOchre = Color(0xFFD9A75C);
-  static const darkDanger = Color(0xFFCF8A7D);
+  static const darkSurface1 = Color(0xFF202C33);
+  static const darkSurface2 = Color(0xFF0B141A);
+  static const darkTextPrimary = Color(0xFFE9EDEF);
+  static const darkTextSecondary = Color(0xFFAEBAC1);
+  static const darkTextMuted = Color(0xFF8696A0);
+  static const darkAccent = Color(0xFF00A884);
+  static const darkAccentDeep = Color(0xFF00A884);
+  static const darkOnAccent = Color(0xFF111B21);
+  static const darkSuccess = Color(0xFF25D366);
+  static const darkSecondaryAccent = Color(0xFF53BDEB);
+  static const darkDanger = Color(0xFFF15C6D);
+  static const darkSentBubble = Color(0xFF005C4B);
+  static const darkOnSentBubble = Color(0xFFE9EDEF);
+  static const darkReadTick = Color(0xFF53BDEB);
 
   // A touch darker/warmer than the scaffold background — the chat screen's
   // wallpaper behind the message bubbles, the same trick WhatsApp uses to
   // give the conversation area its own depth instead of blending into the
   // app chrome above it.
-  static const lightChatWallpaper = Color(0xFFDCD3BE);
-  static const darkChatWallpaper = Color(0xFF0F1116);
+  static const lightChatWallpaper = Color(0xFFEFEAE2);
+  static const darkChatWallpaper = Color(0xFF0B141A);
 }
 
 /// Chat-bubble constants shared by the message list — kept here rather than
@@ -109,10 +113,32 @@ AssetImage chatWallpaperImage(BuildContext context) {
       : 'assets/wallpaper/chat_doodle_light.png');
 }
 
-Color ochreColor(BuildContext context) {
+Color secondaryAccentColor(BuildContext context) {
   return Theme.of(context).brightness == Brightness.dark
-      ? RoostColors.darkOchre
-      : RoostColors.lightOchre;
+      ? RoostColors.darkSecondaryAccent
+      : RoostColors.lightSecondaryAccent;
+}
+
+/// The viewer's own message bubbles — deliberately not the accent (see
+/// [RoostColors]).
+Color sentBubbleColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? RoostColors.darkSentBubble
+      : RoostColors.lightSentBubble;
+}
+
+/// Text and icons on [sentBubbleColor].
+Color onSentBubbleColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? RoostColors.darkOnSentBubble
+      : RoostColors.lightOnSentBubble;
+}
+
+/// The seen (read) double-check on the viewer's own messages (FR1.6).
+Color readTickColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? RoostColors.darkReadTick
+      : RoostColors.lightReadTick;
 }
 
 /// The app's "system chrome" typographic register — timestamps, member

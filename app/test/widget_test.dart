@@ -16,6 +16,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
+import 'package:roost/features/chat/chat_screen.dart';
 import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/chat/media_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
@@ -306,6 +307,52 @@ void main() {
     final image = (decoratedBox.decoration as BoxDecoration).image!.image;
     expect(image, isA<AssetImage>());
     expect((image as AssetImage).assetName, 'assets/wallpaper/chat_doodle_light.png');
+  });
+
+  testWidgets('Sent messages use the sent-bubble colors, not the accent; received ones stay on the surface',
+      (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    Color? bubbleColorOf(String text) {
+      final bubble = find.ancestor(
+        of: find.textContaining(text),
+        matching: find.byWidgetPredicate(
+            (w) => w is Container && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).color != null),
+      );
+      return (tester.widget<Container>(bubble.first).decoration as BoxDecoration).color;
+    }
+
+    expect(bubbleColorOf('On my way, leaving now'), RoostColors.lightSentBubble);
+    expect(bubbleColorOf("Dinner's at 7"), RoostColors.lightSurface1);
+
+    final sentText = tester.widget<Text>(find.byWidgetPredicate(
+        (w) => w is Text && (w.textSpan?.toPlainText().contains('On my way, leaving now') ?? false)));
+    expect(sentText.textSpan!.style?.color, RoostColors.lightOnSentBubble);
+  });
+
+  testWidgets('A seen tick is the blue read-tick color; sent/delivered ticks are a faded on-bubble color',
+      (tester) async {
+    final colors = <String, Color>{};
+    for (final brightness in Brightness.values) {
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(brightness: brightness),
+        home: Builder(builder: (context) {
+          for (final status in ['sent', 'delivered', 'seen']) {
+            colors['$brightness/$status'] = statusTickColor(context, status);
+          }
+          return const SizedBox.shrink();
+        }),
+      ));
+      await tester.pumpAndSettle(); // let MaterialApp's theme animation finish
+    }
+
+    expect(colors['${Brightness.light}/seen'], RoostColors.lightReadTick);
+    expect(colors['${Brightness.dark}/seen'], RoostColors.darkReadTick);
+    expect(colors['${Brightness.light}/delivered'], RoostColors.lightOnSentBubble.withValues(alpha: 0.62));
+    expect(colors['${Brightness.dark}/sent'], RoostColors.darkOnSentBubble.withValues(alpha: 0.62));
   });
 
   testWidgets('chatWallpaperImage resolves the dark asset under a dark theme', (tester) async {

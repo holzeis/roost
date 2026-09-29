@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
+import '../../theme/app_theme.dart';
 
 final _urlPattern = RegExp(r'https?://[^\s]+');
 
@@ -20,15 +21,15 @@ class LinkPreviewCard extends ConsumerWidget {
 
   final String url;
 
-  /// Whether this sits on the primary (sent-by-me) bubble color, so text
-  /// contrast can be chosen accordingly.
+  /// Whether this sits on the sent-by-me bubble color, so text contrast
+  /// can be chosen accordingly.
   final bool onBackground;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final preview = ref.watch(linkPreviewProvider(url));
     final scheme = Theme.of(context).colorScheme;
-    final fg = onBackground ? scheme.onPrimary : scheme.onSurface;
+    final fg = onBackground ? onSentBubbleColor(context) : scheme.onSurface;
 
     return preview.when(
       loading: () => const SizedBox.shrink(),

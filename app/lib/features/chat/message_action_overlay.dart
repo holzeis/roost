@@ -355,7 +355,7 @@ class ReactionPicker extends ConsumerWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: selectedEmojis.contains(emoji)
-                        ? ochreColor(context).withValues(alpha: 0.25)
+                        ? secondaryAccentColor(context).withValues(alpha: 0.25)
                         : null,
                   ),
                   padding: const EdgeInsets.all(7),
