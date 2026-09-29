@@ -10,34 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../firebase_options.dart';
 import '../providers/chat_providers.dart';
 import '../router/app_router.dart';
-
-/// Given the extra data on an accepted incoming-call CallKit event, the
-/// app-router path to navigate to — the same in-app flow the WebSocket-
-/// delivered call.created path already uses (IncomingCallScreen re-derives
-/// caller name/status from roomId+messageId on its own, so nothing else
-/// needs to travel through the push payload). Null when the data is
-/// incomplete, which a real event never should be but a malformed/forged
-/// one could. Pulled out of PushService as a plain function so it's
-/// unit-testable without a real platform channel.
-String? routeForAcceptedCall(Map<String, dynamic>? extra) {
-  final roomId = extra?['roomId'] as String?;
-  final messageId = extra?['messageId'] as String?;
-  if (roomId == null || roomId.isEmpty || messageId == null || messageId.isEmpty) {
-    return null;
-  }
-  return '/call/$roomId/incoming?messageId=$messageId';
-}
-
-/// Given the extra data on a declined incoming-call CallKit event, the call
-/// id to decline via the API directly — a decline made right from the
-/// native CallKit UI happens before the app's own providers are
-/// necessarily running, so this can't go through the normal
-/// IncomingCallScreen flow the way an accept does.
-String? callIdToDecline(Map<String, dynamic>? extra) {
-  final callId = extra?['callId'] as String?;
-  if (callId == null || callId.isEmpty) return null;
-  return callId;
-}
+import 'native_call.dart';
 
 /// Builds the flutter_callkit_incoming params for showing the native
 /// incoming-call UI from an FR5.1 call-wake payload — shared by the
@@ -63,8 +36,8 @@ CallKitParams callKitParamsFromPushData(Map<String, dynamic> data) {
 }
 
 /// Given the data on a tapped FR5.2 message notification, the chat to open
-/// — null when incomplete. Pulled out for the same testability reason as
-/// [routeForAcceptedCall].
+/// — null when incomplete. Pulled out of PushService as a plain function so
+/// it's unit-testable without a real platform channel.
 String? routeForMessageNotification(Map<String, dynamic>? data) {
   final roomId = data?['roomId'] as String?;
   if (roomId == null || roomId.isEmpty) return null;
@@ -120,6 +93,8 @@ class PushService {
 
   Future<void> init() async {
     _callKitSub = FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent);
+    // Also starts ending native calls whose call finished server-side.
+    unawaited(_ref.read(nativeCallControllerProvider).resumeAcceptedCalls());
 
     // Best-effort: Firebase may not be configured yet (a placeholder
     // firebase_options.dart before a real project exists) or this may not
@@ -178,16 +153,10 @@ class PushService {
     switch (event) {
       case CallEventActionDidUpdateDevicePushTokenVoip():
         unawaited(_refreshIOSVoipToken());
-      case CallEventActionCallAccept(:final callKitParams):
-        final route = routeForAcceptedCall(callKitParams.extra);
-        if (route != null) appRouter.push(route);
-      case CallEventActionCallDecline(:final callKitParams):
-        final callId = callIdToDecline(callKitParams.extra);
-        if (callId != null) {
-          unawaited(_ref.read(apiClientProvider).declineCall(callId).catchError((_) {}));
-        }
       default:
-        break;
+        // Accept/decline/end — see NativeCallController. Only one listener
+        // on onEvent: its EventChannel supports a single native listener.
+        unawaited(_ref.read(nativeCallControllerProvider).handleEvent(event));
     }
   }
 

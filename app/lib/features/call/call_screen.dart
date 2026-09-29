@@ -9,6 +9,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import '../../data/api_config.dart';
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../services/native_call.dart';
 import '../../widgets/avatar.dart';
 import 'call_controls.dart';
 
@@ -77,7 +78,7 @@ ApiCall? resolveCallToJoin(String messageId, ApiMessage? initialMessage, List<Ap
   return match.isEmpty ? null : match.first.call;
 }
 
-class _CallScreenState extends ConsumerState<CallScreen> {
+class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObserver {
   final _room = lk.Room();
   lk.EventsListener<lk.RoomEvent>? _listener;
   String? _callId;
@@ -96,11 +97,41 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   String? _mediaWarning;
   bool _leaving = false;
   final _stopwatch = Stopwatch();
+  // Set when the call was answered from the native CallKit UI while the app
+  // wasn't in the foreground (e.g. the lock screen) — iOS won't let a
+  // backgrounded app capture the camera, so it's turned on once the app is
+  // brought forward instead of failing outright.
+  bool _cameraPendingForeground = false;
+  late final NativeCallController _nativeCalls;
+  StreamSubscription<String>? _nativeEndedSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _nativeCalls = ref.read(nativeCallControllerProvider);
+    // Hung up from the native CallKit UI (lock screen, Dynamic Island).
+    _nativeEndedSub = _nativeCalls.endedFromNative.listen((messageId) {
+      if (sameCallId(messageId, widget.messageId)) _hangUp();
+    });
     _connect();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !_cameraPendingForeground) return;
+    _cameraPendingForeground = false;
+    unawaited(_enableCamera());
+  }
+
+  Future<void> _enableCamera() async {
+    try {
+      await _room.localParticipant?.setCameraEnabled(true);
+    } catch (_) {
+      if (mounted) setState(() => _mediaWarning = 'Camera unavailable');
+      return;
+    }
+    if (mounted) setState(() => _cameraOn = true);
   }
 
   Future<void> _connect() async {
@@ -153,7 +184,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         _micOn = false;
         unavailable.add('Microphone');
       }
-      if (_cameraOn) {
+      if (_cameraOn && WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        _cameraOn = false;
+        _cameraPendingForeground = true;
+      } else if (_cameraOn) {
         try {
           await _room.localParticipant?.setCameraEnabled(true);
         } catch (_) {
@@ -190,6 +224,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     if (_leaving) return;
     _leaving = true;
     _ringTimeout?.cancel();
+    _cameraPendingForeground = false;
+    unawaited(_nativeCalls.endCall(widget.messageId));
     final callId = _callId;
     if (callId != null) {
       try {
@@ -217,6 +253,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Future<void> _toggleCamera() async {
+    _cameraPendingForeground = false;
     final next = !_cameraOn;
     try {
       await _room.localParticipant?.setCameraEnabled(next);
@@ -247,6 +284,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_nativeEndedSub?.cancel());
+    // Covers leaving without _hangUp (e.g. the error screen's button).
+    unawaited(_nativeCalls.endCall(widget.messageId));
     _ringTimeout?.cancel();
     _listener?.dispose();
     _room.disconnect();

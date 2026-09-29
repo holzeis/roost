@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,13 +8,14 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../services/native_call.dart';
 import 'call_controls.dart';
 
-/// The native CallKit/ConnectionService screen (FR4.4) for a fully-closed
-/// app needs push to wake the app first (deferred — see
-/// docs/architecture-overview.md's call flow and FR5); this in-app screen
-/// is the fallback shown whenever the call invite arrives while this app
-/// process is alive, foregrounded or backgrounded, over the WebSocket
+/// The native CallKit/ConnectionService screen (FR4.4) covers a push-woken
+/// app (FR5.1 — see NativeCallController, which joins straight into
+/// CallScreen on a native accept, skipping this screen); this in-app screen
+/// is shown whenever the call invite arrives while this app process is
+/// alive, foregrounded or backgrounded, over the WebSocket
 /// (see incomingCallProvider / RoostApp in lib/main.dart, which is what
 /// navigates here). Reuses the same accept/decline affordances (FR4.5).
 class IncomingCallScreen extends ConsumerStatefulWidget {
@@ -42,6 +45,9 @@ class _IncomingCallScreenState extends ConsumerState<IncomingCallScreen> {
     try {
       await ref.read(apiClientProvider).acceptCall(message.call!.id);
       ref.read(incomingCallProvider.notifier).dismiss();
+      // Answered here rather than on the native CallKit screen — stop
+      // that one ringing too.
+      await ref.read(nativeCallControllerProvider).endCall(widget.messageId);
       if (!mounted) return;
       _popped = true; // this screen is being replaced, not popped
       context.pushReplacement(
@@ -58,6 +64,7 @@ class _IncomingCallScreenState extends ConsumerState<IncomingCallScreen> {
 
   Future<void> _decline(ApiMessage message) async {
     ref.read(incomingCallProvider.notifier).dismiss();
+    unawaited(ref.read(nativeCallControllerProvider).endCall(widget.messageId));
     _popOnce();
     try {
       await ref.read(apiClientProvider).declineCall(message.call!.id);
