@@ -9,17 +9,14 @@ import 'package:google_fonts/google_fonts.dart';
 class RoostColors {
   RoostColors._();
 
-  // Light. lightSurface0 is the one exception, and is deliberately NOT trying to
-  // match iOS's own QuickType predictive-text-bar gray (that's a fixed
-  // native strip this app's theme can't recolor anyway). It's this value
-  // that has to match instead: at the bar's rounded top corners, the
-  // curved cutout reveals whatever sits behind it, which is the native
-  // root view's own background — see the LaunchBackground.colorset comment
-  // in chat_screen.dart for why that's a second, native source of truth
-  // that must be hand-kept equal to this one. This exact value (0xD7D7DC)
-  // is the user's own color-picked value off a real device. See
-  // darkSurface0 below for the same fix in dark mode.
-  static const lightSurface0 = Color(0xFFD7D7DC);
+  // Light. lightSurface0 is the app background (scaffold, app bars, the
+  // chat composer) — WhatsApp's own, chosen over the old keyboard-matched
+  // gray, so the composer no longer blends into the iOS keyboard bar. It
+  // must still equal LaunchBackground.colorset: at the keyboard bar's
+  // rounded top corners, the curved cutout reveals the native root view's
+  // own background — see the comment in chat_screen.dart for why that's a
+  // second, native source of truth that must be hand-kept equal to this.
+  static const lightSurface0 = Color(0xFFFFFFFF);
   static const lightSurface1 = Color(0xFFFFFFFF);
   static const lightSurface2 = Color(0xFFEFEAE2);
   static const lightTextPrimary = Color(0xFF111B21);
@@ -35,11 +32,9 @@ class RoostColors {
   static const lightOnSentBubble = Color(0xFF111B21);
   static const lightReadTick = Color(0xFF53BDEB);
 
-  // Dark. darkSurface0 is the same exception as lightSurface0 above, matched to
-  // LaunchBackground.colorset's dark variant for the same reason. This
-  // exact value (0x18191C) is the user's own color-picked value off a real
-  // device.
-  static const darkSurface0 = Color(0xFF18191C);
+  // Dark. darkSurface0 is the same as lightSurface0 above, matched to
+  // LaunchBackground.colorset's dark variant for the same reason.
+  static const darkSurface0 = Color(0xFF111B21);
   static const darkSurface1 = Color(0xFF202C33);
   static const darkSurface2 = Color(0xFF0B141A);
   static const darkTextPrimary = Color(0xFFE9EDEF);
