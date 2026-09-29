@@ -31,8 +31,24 @@ import 'fakes.dart';
 
 const _me = ApiUser(id: 'me', displayName: 'Dev User');
 
-FakeApiClient _seededApiClient() {
-  final api = FakeApiClient(FakeWsClient())
+/// Holds every text send open until [_release] completes, so a test can
+/// look at the composer mid-send.
+class _SlowSendApiClient extends FakeApiClient {
+  _SlowSendApiClient(this._release) : super(FakeWsClient());
+
+  final Future<void> _release;
+
+  @override
+  Future<ApiMessage> sendTextMessage(String roomId, String body, {String? replyToMessageId}) async {
+    await _release;
+    return super.sendTextMessage(roomId, body, replyToMessageId: replyToMessageId);
+  }
+}
+
+FakeApiClient _seededApiClient() => _seed(FakeApiClient(FakeWsClient()));
+
+FakeApiClient _seed(FakeApiClient api) {
+  api
     ..me = _me
     ..contacts = const [
       ApiContact(id: 'user-mom', displayName: 'Mom', online: true),
@@ -662,6 +678,39 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.messagesByRoom['room-family']!.any((m) => m.body == 'hello from a test'), isTrue);
+  });
+
+  testWidgets('While a message is sending, a spinner replaces the trailing button without resizing the field',
+      (tester) async {
+    final pending = Completer<void>();
+    final api = _SlowSendApiClient(pending.future);
+    _seed(api);
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final field = find.byType(TextField).last;
+    final idleWidth = tester.getSize(field).width;
+    final cameraButton = find.widgetWithIcon(IconButton, TablerIcons.camera);
+    final idleButtonRect = tester.getRect(cameraButton);
+
+    await tester.enterText(field, 'hello');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pump();
+
+    final spinner = find.byKey(const ValueKey('composer-sending'));
+    expect(spinner, findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(cameraButton, findsNothing, reason: 'the spinner takes the button\'s place, not an extra slot');
+    expect(tester.getSize(field).width, idleWidth);
+    expect(tester.getRect(spinner), idleButtonRect);
+
+    pending.complete();
+    await tester.pumpAndSettle();
+
+    expect(spinner, findsNothing);
+    expect(cameraButton, findsOneWidget);
   });
 
   testWidgets('Typing pings the room and stops once the message is sent (FR1.7)', (tester) async {

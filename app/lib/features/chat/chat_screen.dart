@@ -1798,6 +1798,22 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: _controller,
                     builder: (context, value, _) {
+                      // In place of the trailing button, in its exact
+                      // footprint — appending it as an extra row child
+                      // squeezed the text field and sat off-center.
+                      if (_sending) {
+                        return SizedBox.square(
+                          key: const ValueKey('composer-sending'),
+                          dimension: kMinInteractiveDimension,
+                          child: Center(
+                            child: SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: scheme.primary),
+                            ),
+                          ),
+                        );
+                      }
                       if (value.text.trim().isEmpty) {
                         return IconButton(
                           icon: Icon(TablerIcons.camera,
@@ -1808,18 +1824,10 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
                       }
                       return IconButton(
                         icon: Icon(TablerIcons.send, color: scheme.primary),
-                        onPressed: _sending ? null : _send,
+                        onPressed: _send,
                       );
                     },
                   ),
-                  if (_sending)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
-                    ),
                 ],
               ),
             ),
