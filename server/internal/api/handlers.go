@@ -409,7 +409,7 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 // roomID — replying across rooms would let a client reference another
 // room's message it may not even be a member of.
 func (s *Server) validReplyTarget(w http.ResponseWriter, r *http.Request, roomID, replyToMessageID string) bool {
-	original, err := s.Store.GetMessage(r.Context(), replyToMessageID)
+	original, err := s.liveMessage(r.Context(), replyToMessageID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "reply target not found")
 		return false
@@ -778,7 +778,9 @@ func parseByteRange(header string, size int64) (start, end int64, ok bool) {
 // handleDeleteMedia implements FR2.5. Only the uploader may delete their own
 // media. Deleting the media object cascades to delete the message it
 // belongs to (migration 0002) — the message *was* the shared photo/video —
-// so this also broadcasts message.deleted to the room.
+// so this also broadcasts message.deleted to the room. Once someone has
+// seen it, the message stays as a "Deleted message" placeholder instead
+// (FR1.15 — see handleDeleteMessage).
 func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUser(w, r)
 	if !ok {
@@ -805,6 +807,12 @@ func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	seen, err := s.Store.HasBeenSeen(r.Context(), message.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up the message for this media")
+		return
+	}
+
 	if err := s.Media.Delete(r.Context(), obj.ObjectKey); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not delete file")
 		return
@@ -818,22 +826,29 @@ func (s *Server) handleDeleteMedia(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("delete media: could not delete preview object", "error", err)
 		}
 	}
+	// Already seen: keep the message as a placeholder, detaching it from
+	// the media first so deleting the media object below doesn't cascade
+	// the message row away with it (migration 0002).
+	if seen {
+		if _, err := s.Store.SoftDeleteMessage(r.Context(), message.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not delete message")
+			return
+		}
+	}
 	if err := s.Store.DeleteMediaObject(r.Context(), mediaID); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not delete media record")
 		return
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
-		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.deleted", Payload: map[string]string{
-			"messageId": message.ID, "roomId": message.RoomID,
-		}})
-	}
+	s.broadcastMessageDeletion(r.Context(), message, seen)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleDeleteMessage implements FR1.15 for every kind except image/video —
 // those go through handleDeleteMedia instead, since deleting the underlying
-// file (not just the row) is that endpoint's job.
+// file (not just the row) is that endpoint's job. A message someone other
+// than the sender has already seen becomes a "Deleted message" placeholder
+// (Store.SoftDeleteMessage); one nobody has seen yet is removed entirely.
 func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUser(w, r)
 	if !ok {
@@ -857,22 +872,70 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "only the sender can delete this message")
 		return
 	}
+	if message.DeletedAt != nil {
+		w.WriteHeader(http.StatusNoContent) // already a placeholder
+		return
+	}
 	if message.Kind == models.MessageKindImage || message.Kind == models.MessageKindVideo {
 		writeError(w, http.StatusBadRequest, "delete this message's media instead, via DELETE /api/media/:id")
 		return
 	}
 
-	if err := s.Store.DeleteMessage(r.Context(), messageID); err != nil {
+	seen, err := s.Store.HasBeenSeen(r.Context(), messageID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not look up message")
+		return
+	}
+	if seen {
+		if _, err := s.Store.SoftDeleteMessage(r.Context(), messageID); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not delete message")
+			return
+		}
+	} else if err := s.Store.DeleteMessage(r.Context(), messageID); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not delete message")
 		return
 	}
 
-	if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), message.RoomID); err == nil {
+	s.broadcastMessageDeletion(r.Context(), message, seen)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// liveMessage is Store.GetMessage for acting on a message — reacting,
+// editing, forwarding, replying, updating a location share: a
+// placeholder-deleted message (FR1.15) reports as not found, since there's
+// nothing left to act on.
+func (s *Server) liveMessage(ctx context.Context, id string) (models.Message, error) {
+	message, err := s.Store.GetMessage(ctx, id)
+	if err == nil && message.DeletedAt != nil {
+		return models.Message{}, store.ErrNotFound
+	}
+	return message, err
+}
+
+// broadcastMessageDeletion tells message's room it was deleted (FR1.15): a
+// message.updated carrying the placeholder when it had already been seen
+// (softDeleted), otherwise message.deleted so clients drop it entirely.
+func (s *Server) broadcastMessageDeletion(ctx context.Context, message models.Message, softDeleted bool) {
+	memberIDs, err := s.Store.ListRoomMemberIDs(ctx, message.RoomID)
+	if err != nil {
+		return
+	}
+	if !softDeleted {
 		s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.deleted", Payload: map[string]string{
 			"messageId": message.ID, "roomId": message.RoomID,
 		}})
+		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	placeholder, err := s.Store.GetMessage(ctx, message.ID)
+	if err != nil {
+		slog.Error("delete: reload placeholder failed", "message", message.ID, "error", err)
+		return
+	}
+	messages := []models.Message{placeholder}
+	if err := s.Store.AttachReplyPreviews(ctx, messages); err != nil {
+		slog.Error("delete: attach reply preview failed", "message", message.ID, "error", err)
+	}
+	s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: messages[0]})
 }
 
 func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
@@ -925,7 +988,7 @@ func (s *Server) handleSearchMessages(w http.ResponseWriter, r *http.Request) {
 // member of its room, returning the room ID on success. Shared by add/remove
 // since both need the same authorization check before touching a reaction.
 func (s *Server) messageRoomForReaction(w http.ResponseWriter, r *http.Request, userID, messageID string) (roomID string, ok bool) {
-	message, err := s.Store.GetMessage(r.Context(), messageID)
+	message, err := s.liveMessage(r.Context(), messageID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "message not found")
 		return "", false
@@ -1094,7 +1157,7 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message, err := s.Store.GetMessage(r.Context(), messageID)
+	message, err := s.liveMessage(r.Context(), messageID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "message not found")
 		return
@@ -1156,7 +1219,7 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	original, err := s.Store.GetMessage(r.Context(), messageID)
+	original, err := s.liveMessage(r.Context(), messageID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "message not found")
 		return
@@ -1286,7 +1349,7 @@ func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
 // handleUpdateLocation and handleEndLocationShare, mirroring how
 // messageRoomForReaction centralizes the lookup+authorization for reactions.
 func (s *Server) locationShareForUpdate(w http.ResponseWriter, r *http.Request, userID, messageID string) (models.Message, bool) {
-	message, err := s.Store.GetMessage(r.Context(), messageID)
+	message, err := s.liveMessage(r.Context(), messageID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "message not found")
 		return models.Message{}, false
@@ -1402,7 +1465,7 @@ func (s *Server) handleLocationSnapshot(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	messageID := chi.URLParam(r, "messageID")
-	message, err := s.Store.GetMessage(r.Context(), messageID)
+	message, err := s.liveMessage(r.Context(), messageID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "message not found")
 		return

@@ -35,6 +35,10 @@ const (
 	MessageKindVideo    MessageKind = "video"
 	MessageKindLocation MessageKind = "location"
 	MessageKindCall     MessageKind = "call"
+	// MessageKindDeleted is never stored — it's what a room's last-message
+	// preview and a reply's quote report for a placeholder-deleted message
+	// (FR1.15, see Message.DeletedAt), so clients can label it.
+	MessageKindDeleted MessageKind = "deleted"
 )
 
 type Message struct {
@@ -57,6 +61,10 @@ type Message struct {
 	ReplyTo          *MessageSnippet `json:"replyTo,omitempty"`
 	// Forwarded marks a message created via the forward action (FR1.11).
 	Forwarded bool `json:"forwarded,omitempty"`
+	// DeletedAt is set when the sender deleted this message after someone
+	// had already seen it (FR1.15): its content is gone and clients show a
+	// "Deleted message" placeholder in its place.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
 	// Status is the sender-facing delivery/seen status (FR1.5, FR1.6),
 	// computed at read time by the store from message_receipts — see

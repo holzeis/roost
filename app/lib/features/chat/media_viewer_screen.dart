@@ -20,9 +20,10 @@ import 'media_message.dart';
 import 'message_action_overlay.dart' show ReactionPicker, confirmDelete;
 
 /// The image/video subset of a room's messages, in the same order they were
-/// given — the gallery this viewer pages through.
+/// given — the gallery this viewer pages through. A deleted photo/video
+/// (FR1.15's placeholder) has no media left to show, so it's skipped.
 List<ApiMessage> mediaMessagesIn(List<ApiMessage> messages) =>
-    messages.where((m) => m.kind == 'image' || m.kind == 'video').toList();
+    messages.where((m) => (m.kind == 'image' || m.kind == 'video') && !m.isDeleted).toList();
 
 /// Where to start the gallery: the message that was tapped, or the first
 /// page if it isn't in `media` (e.g. deleted between the tap and opening).

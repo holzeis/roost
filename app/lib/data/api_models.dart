@@ -85,6 +85,7 @@ class ApiMessage {
     this.replyToMessageId,
     this.replyTo,
     this.forwarded = false,
+    this.deletedAt,
     this.status = 'sent',
     this.location,
     this.call,
@@ -109,6 +110,7 @@ class ApiMessage {
             ? ApiMessageSnippet.fromJson(json['replyTo'] as Map<String, dynamic>)
             : null,
         forwarded: json['forwarded'] as bool? ?? false,
+        deletedAt: json['deletedAt'] != null ? DateTime.parse(json['deletedAt'] as String) : null,
         // Absent means no recipient has acked yet (FR1.5/FR1.6) — the
         // server omits the field via `omitempty` rather than sending "sent".
         status: json['status'] as String? ?? 'sent',
@@ -131,6 +133,12 @@ class ApiMessage {
   final String? replyToMessageId;
   final ApiMessageSnippet? replyTo;
   final bool forwarded;
+  /// Set when the sender deleted this message after someone had already
+  /// seen it (FR1.15) — its content is gone, and it renders as a "Deleted
+  /// message" placeholder. (A message nobody had seen yet is removed
+  /// entirely instead, via message.deleted.)
+  final DateTime? deletedAt;
+  bool get isDeleted => deletedAt != null;
   /// 'sent' | 'delivered' | 'seen' (FR1.5, FR1.6). Only meaningful for a
   /// message sent by the current user — recipients ignore it.
   final String status;
@@ -168,6 +176,7 @@ class ApiMessage {
         replyToMessageId: replyToMessageId,
         replyTo: replyTo,
         forwarded: forwarded,
+        deletedAt: deletedAt,
         status: status ?? this.status,
         location: location ?? this.location,
         call: call ?? this.call,

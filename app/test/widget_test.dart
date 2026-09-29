@@ -1087,6 +1087,56 @@ void main() {
     expect(api.messagesByRoom['room-family']!.any((m) => m.id == 'm2'), isFalse);
   });
 
+  testWidgets('Deleting a message someone has already seen leaves a "Deleted message" placeholder (FR1.15)',
+      (tester) async {
+    final api = _seededApiClient();
+    final messages = api.messagesByRoom['room-family']!;
+    final index = messages.indexWhere((m) => m.id == 'm2');
+    messages[index] = messages[index].copyWith(status: 'seen');
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.textContaining('On my way, leaving now'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('On my way, leaving now'), findsNothing);
+    expect(find.text('Deleted message'), findsOneWidget);
+    expect(find.byType(DeletedMessageBubble), findsOneWidget);
+
+    // Nothing left to act on: long-pressing the placeholder opens no menu.
+    await tester.longPress(find.text('Deleted message'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reply'), findsNothing);
+    expect(find.text('Delete'), findsNothing);
+  });
+
+  testWidgets('A room whose latest message was deleted previews it as "Deleted message"', (tester) async {
+    final api = _seededApiClient();
+    final family = api.rooms.first;
+    api.rooms = [
+      ApiRoom(
+        id: family.id,
+        name: family.name,
+        isGroup: family.isGroup,
+        createdBy: family.createdBy,
+        createdAt: family.createdAt,
+        members: family.members,
+        lastMessageKind: 'deleted',
+        lastMessageAt: DateTime.now(),
+      ),
+      ...api.rooms.skip(1),
+    ];
+    await _pumpApp(tester, api);
+
+    expect(find.text('Deleted message'), findsOneWidget);
+  });
+
   testWidgets('A reaction badge hangs below its bubble, overlapping it by only ~10%', (tester) async {
     final api = _seededApiClient();
     final messages = api.messagesByRoom['room-family']!;

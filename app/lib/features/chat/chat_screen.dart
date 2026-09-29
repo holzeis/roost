@@ -804,6 +804,54 @@ class TextWithTrailingMeta extends StatelessWidget {
   }
 }
 
+/// FR1.15: a message its sender deleted after someone had already seen it
+/// — the same bubble shape and color, with its content replaced by a
+/// "Deleted message" marker and only the time kept.
+class DeletedMessageBubble extends StatelessWidget {
+  const DeletedMessageBubble({
+    super.key,
+    required this.color,
+    required this.onColor,
+    required this.borderRadius,
+    required this.meta,
+  });
+
+  final Color color;
+  final Color onColor;
+  final BorderRadius borderRadius;
+  final BubbleMeta meta;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = onColor.withValues(alpha: 0.6);
+    return Container(
+      constraints: BoxConstraints(maxWidth: ChatBubbleStyle.maxWidth(context)),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: borderRadius,
+        boxShadow: ChatBubbleStyle.shadow(Theme.of(context).brightness),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Icon(TablerIcons.ban, size: 16, color: muted),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              deletedMessageLabel,
+              style: TextStyle(fontSize: 16, height: 1.3, fontStyle: FontStyle.italic, color: muted),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Transform.translate(offset: const Offset(0, TextWithTrailingMeta.drop), child: meta),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageRow extends ConsumerWidget {
   const _MessageRow({
     super.key,
@@ -913,7 +961,14 @@ class _MessageRow extends ConsumerWidget {
         ? BorderRadius.only(topLeft: framelessRadius.topLeft, topRight: framelessRadius.topRight)
         : framelessRadius;
 
-    final bubbleContent = Container(
+    final Widget bubbleContent = message.isDeleted
+        ? DeletedMessageBubble(
+            color: fromMe ? sentBubbleColor(context) : scheme.surface,
+            onColor: onBubble,
+            borderRadius: borderRadius,
+            meta: BubbleMeta(timeLabel: timeLabel, edited: false, color: onBubble),
+          )
+        : Container(
       constraints: BoxConstraints(
           maxWidth: isFrameless
               ? ChatBubbleStyle.mediaMaxWidth(context)
@@ -1175,12 +1230,16 @@ class _MessageRow extends ConsumerWidget {
         // repeating it on every one of their messages is only useful once
         // there's more than one "other" sender to tell apart.
         if (!fromMe && isGroup) avatarSlot,
-        _SwipeToReplyBubble(
-          onLongPress: openActions,
-          onReply: () => ref.read(composerDraftProvider(roomId).notifier).state =
-              ReplyDraft(message),
-          child: Opacity(opacity: isLifted ? 0 : 1, child: bubbleWithReactions),
-        ),
+        // Nothing left to reply to, react to, or act on (FR1.15).
+        if (message.isDeleted)
+          bubble
+        else
+          _SwipeToReplyBubble(
+            onLongPress: openActions,
+            onReply: () => ref.read(composerDraftProvider(roomId).notifier).state =
+                ReplyDraft(message),
+            child: Opacity(opacity: isLifted ? 0 : 1, child: bubbleWithReactions),
+          ),
       ],
     );
   }

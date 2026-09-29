@@ -194,12 +194,12 @@ func (s *Store) FindDirectRoom(ctx context.Context, userA, userB string) (models
 func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.Room, error) {
 	const q = `
 		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at,
-		       lm.body, lm.kind, lm.created_at,
+		       lm.body, CASE WHEN lm.deleted_at IS NOT NULL THEN 'deleted' ELSE lm.kind END, lm.created_at,
 		       members.member_ids
 		FROM rooms r
 		JOIN room_members rm ON rm.room_id = r.id
 		LEFT JOIN LATERAL (
-			SELECT body, kind, created_at FROM messages
+			SELECT body, kind, created_at, deleted_at FROM messages
 			WHERE room_id = r.id
 			ORDER BY created_at DESC
 			LIMIT 1
@@ -287,7 +287,7 @@ func (s *Store) IsRoomMember(ctx context.Context, roomID, userID string) (bool, 
 func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body string, replyTo *string, forwarded bool) (models.Message, error) {
 	const q = `
 		INSERT INTO messages (room_id, sender_id, kind, body, reply_to_message_id, forwarded) VALUES ($1, $2, 'text', $3, $4, $5)
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
 	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body, replyTo, forwarded))
 }
 
@@ -304,7 +304,7 @@ func (s *Store) CreateLocationMessage(ctx context.Context, roomID, senderID stri
 
 	const insertMessage = `
 		INSERT INTO messages (room_id, sender_id, kind) VALUES ($1, $2, 'location')
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
 	msg, err := scanMessage(tx.QueryRow(ctx, insertMessage, roomID, senderID))
 	if err != nil {
 		return models.Message{}, err
@@ -405,7 +405,7 @@ func (s *Store) CreateCall(ctx context.Context, roomID, callerID string) (models
 
 	const insertMessage = `
 		INSERT INTO messages (room_id, sender_id, kind) VALUES ($1, $2, 'call')
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
 	msg, err := scanMessage(tx.QueryRow(ctx, insertMessage, roomID, callerID))
 	if err != nil {
 		return models.Message{}, err
@@ -655,12 +655,12 @@ func (s *Store) DeleteMediaObject(ctx context.Context, id string) error {
 func (s *Store) CreateMediaMessage(ctx context.Context, roomID, senderID, kind, mediaID string, caption *string, replyTo *string, forwarded bool) (models.Message, error) {
 	const q = `
 		INSERT INTO messages (room_id, sender_id, kind, body, media_id, reply_to_message_id, forwarded) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
 	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, kind, caption, mediaID, replyTo, forwarded))
 }
 
 func (s *Store) GetMessage(ctx context.Context, id string) (models.Message, error) {
-	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded FROM messages WHERE id = $1`
+	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at FROM messages WHERE id = $1`
 	return scanMessage(s.pool.QueryRow(ctx, q, id))
 }
 
@@ -677,12 +677,66 @@ func (s *Store) DeleteMessage(ctx context.Context, id string) error {
 	return nil
 }
 
+// HasBeenSeen reports whether any member other than the sender has seen
+// messageID (a message_receipts row with seen_at set) — FR1.15's cue for
+// whether a delete leaves a placeholder (SoftDeleteMessage) or removes the
+// message outright (DeleteMessage).
+func (s *Store) HasBeenSeen(ctx context.Context, messageID string) (bool, error) {
+	const q = `
+		SELECT EXISTS(
+			SELECT 1 FROM message_receipts mr
+			JOIN messages m ON m.id = mr.message_id
+			WHERE mr.message_id = $1 AND mr.seen_at IS NOT NULL AND mr.user_id != m.sender_id
+		)`
+	var seen bool
+	if err := s.pool.QueryRow(ctx, q, messageID).Scan(&seen); err != nil {
+		return false, fmt.Errorf("store: has been seen: %w", err)
+	}
+	return seen, nil
+}
+
+// SoftDeleteMessage implements FR1.15's placeholder delete: the row stays
+// (so it still shows, as "Deleted message", where everyone already saw it)
+// but everything it carried is wiped — body, media reference, reactions,
+// and the location subtype row. Clearing media_id first is what lets the
+// caller then delete an image/video's media object without the migration
+// 0002 cascade taking this row with it. Replies to it keep pointing at it
+// and now quote it as deleted (see AttachReplyPreviews).
+func (s *Store) SoftDeleteMessage(ctx context.Context, id string) (models.Message, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Message{}, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const wipe = `
+		UPDATE messages SET body = NULL, media_id = NULL, deleted_at = COALESCE(deleted_at, now())
+		WHERE id = $1
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
+	msg, err := scanMessage(tx.QueryRow(ctx, wipe, id))
+	if err != nil {
+		return models.Message{}, err
+	}
+	for _, q := range []string{
+		`DELETE FROM message_reactions WHERE message_id = $1`,
+		`DELETE FROM location_shares WHERE message_id = $1`,
+	} {
+		if _, err := tx.Exec(ctx, q, id); err != nil {
+			return models.Message{}, fmt.Errorf("store: soft delete message: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return models.Message{}, fmt.Errorf("store: commit: %w", err)
+	}
+	return msg, nil
+}
+
 // GetMessageByMediaID finds the message a media object belongs to — used
 // before deleting the media object (which cascades to delete this message
 // row, see migration 0002) so the caller can still broadcast which room and
 // message just disappeared.
 func (s *Store) GetMessageByMediaID(ctx context.Context, mediaID string) (models.Message, error) {
-	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded FROM messages WHERE media_id = $1`
+	const q = `SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at FROM messages WHERE media_id = $1`
 	return scanMessage(s.pool.QueryRow(ctx, q, mediaID))
 }
 
@@ -695,7 +749,7 @@ func (s *Store) GetMessageByMediaID(ctx context.Context, mediaID string) (models
 // real past location and must never be open to a user outside that room.
 func (s *Store) GetMessageByLocationSnapshotMediaID(ctx context.Context, mediaID string) (models.Message, error) {
 	const q = `
-		SELECT m.id, m.room_id, m.sender_id, m.kind, m.body, m.media_id, m.created_at, m.edited_at, m.reply_to_message_id, m.forwarded
+		SELECT m.id, m.room_id, m.sender_id, m.kind, m.body, m.media_id, m.created_at, m.edited_at, m.reply_to_message_id, m.forwarded, m.deleted_at
 		FROM messages m
 		JOIN location_shares ls ON ls.message_id = m.id
 		WHERE ls.snapshot_media_id = $1`
@@ -709,8 +763,8 @@ func (s *Store) GetMessageByLocationSnapshotMediaID(ctx context.Context, mediaID
 func (s *Store) EditMessageBody(ctx context.Context, id, newBody string) (models.Message, error) {
 	const q = `
 		UPDATE messages SET body = $1, edited_at = now()
-		WHERE id = $2 AND kind = 'text'
-		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded`
+		WHERE id = $2 AND kind = 'text' AND deleted_at IS NULL
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
 	return scanMessage(s.pool.QueryRow(ctx, q, newBody, id))
 }
 
@@ -730,7 +784,10 @@ func (s *Store) AttachReplyPreviews(ctx context.Context, messages []models.Messa
 		return nil
 	}
 
-	const q = `SELECT id, sender_id, kind, LEFT(COALESCE(body, ''), 140), media_id FROM messages WHERE id = ANY($1)`
+	const q = `
+		SELECT id, sender_id, CASE WHEN deleted_at IS NOT NULL THEN 'deleted' ELSE kind END,
+		       LEFT(COALESCE(body, ''), 140), media_id
+		FROM messages WHERE id = ANY($1)`
 	rows, err := s.pool.Query(ctx, q, replyIDs)
 	if err != nil {
 		return fmt.Errorf("store: attach reply previews: %w", err)
@@ -1039,7 +1096,7 @@ func (s *Store) AttachCalls(ctx context.Context, messages []models.Message) erro
 func scanMessage(row pgx.Row) (models.Message, error) {
 	var m models.Message
 	var kind string
-	err := row.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt, &m.ReplyToMessageID, &m.Forwarded)
+	err := row.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt, &m.ReplyToMessageID, &m.Forwarded, &m.DeletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.Message{}, ErrNotFound
 	}
@@ -1057,7 +1114,7 @@ func (s *Store) ListMessages(ctx context.Context, roomID string, before time.Tim
 		before = time.Now().Add(24 * time.Hour)
 	}
 	const q = `
-		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded
+		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at
 		FROM messages
 		WHERE room_id = $1 AND created_at < $2
 		ORDER BY created_at DESC
@@ -1083,7 +1140,7 @@ func (s *Store) ListMessages(ctx context.Context, roomID string, before time.Tim
 // SearchMessages implements FR1.8, using the generated body_tsv column.
 func (s *Store) SearchMessages(ctx context.Context, roomID, query string) ([]models.Message, error) {
 	const q = `
-		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded
+		SELECT id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at
 		FROM messages
 		WHERE room_id = $1 AND body_tsv @@ plainto_tsquery('english', $2)
 		ORDER BY created_at DESC
@@ -1109,7 +1166,7 @@ func (s *Store) SearchMessages(ctx context.Context, roomID, query string) ([]mod
 func scanMessageRow(rows pgx.Rows) (models.Message, error) {
 	var m models.Message
 	var kind string
-	if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt, &m.ReplyToMessageID, &m.Forwarded); err != nil {
+	if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &kind, &m.Body, &m.MediaID, &m.CreatedAt, &m.EditedAt, &m.ReplyToMessageID, &m.Forwarded, &m.DeletedAt); err != nil {
 		return models.Message{}, fmt.Errorf("store: scan message: %w", err)
 	}
 	m.Kind = models.MessageKind(kind)

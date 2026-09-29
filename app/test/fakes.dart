@@ -402,6 +402,22 @@ class FakeApiClient extends ApiClient {
       final matches = entry.value.where((m) => m.id == messageId);
       if (matches.isEmpty) continue;
       final message = matches.first;
+      // Mirrors the server (FR1.15): already seen → a placeholder that
+      // keeps the message's place; not yet seen → removed outright.
+      if (message.status == 'seen') {
+        final placeholder = ApiMessage(
+          id: message.id,
+          roomId: message.roomId,
+          senderId: message.senderId,
+          kind: message.kind,
+          createdAt: message.createdAt,
+          status: message.status,
+          deletedAt: DateTime.now(),
+        );
+        entry.value[entry.value.indexOf(message)] = placeholder;
+        ws.emit(WsEvent('message.updated', jsonDecode(jsonEncode(_messageJson(placeholder))) as Map<String, dynamic>));
+        return;
+      }
       entry.value.removeWhere((m) => m.id == messageId);
       ws.emit(WsEvent('message.deleted', {'messageId': message.id, 'roomId': message.roomId}));
       return;
@@ -578,6 +594,7 @@ class FakeApiClient extends ApiClient {
                 'mediaId': m.replyTo!.mediaId,
               },
         'forwarded': m.forwarded,
+        'deletedAt': m.deletedAt?.toIso8601String(),
         'status': m.status,
         'location': m.location == null
             ? null

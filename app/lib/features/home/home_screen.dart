@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
+import '../chat/reply_preview.dart' show deletedMessageLabel;
 import '../../providers/chat_providers.dart';
 import '../../util/time_format.dart';
 import '../../widgets/avatar.dart';
@@ -252,6 +253,8 @@ String _lastMessagePreview(ApiRoom room) {
       return 'Video';
     case 'call':
       return 'Call';
+    case 'deleted':
+      return deletedMessageLabel;
     default:
       return room.lastMessageBody ?? 'No messages yet';
   }

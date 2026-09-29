@@ -103,6 +103,7 @@ scoped to text bodies only.
 | `created_at`, `edited_at` | timestamptz | `edited_at` is also set by an edit (FR1.13), not just media deletion cascades |
 | `reply_to_message_id` | uuid, FK → `messages`, nullable, `ON DELETE SET NULL` | The quoted message (FR1.10). Deleting the original clears this rather than deleting the reply — the reply just loses its preview |
 | `forwarded` | boolean, default `false` | Set on a message created via the forward action (FR1.11), so clients can render a "Forwarded" label |
+| `deleted_at` | timestamptz, nullable | Set when the sender deletes a message someone else has already seen (FR1.15): the row stays as a "Deleted message" placeholder, with `body` and `media_id` cleared and its reactions and `location_shares` row removed. A message nobody has seen yet is deleted outright instead. Room previews and reply quotes report such a message with the display-only kind `deleted` — migration 0008 |
 
 Forwarding never sets both `reply_to_message_id` and `forwarded` — they're
 separate actions. Forwarding an image/video message doesn't reuse the

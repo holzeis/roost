@@ -7,13 +7,20 @@ import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
 
+/// What a placeholder-deleted message (FR1.15) shows in place of its
+/// content — in its own bubble, a reply quote, and the room list.
+const deletedMessageLabel = 'Deleted message';
+
 /// A one-line label for a message when it's quoted rather than shown in
 /// full — used by both the reply quote on a bubble and the composer's
 /// draft bar. A photo/video's own caption (if it has one) takes priority
 /// over the generic "Photo"/"Video" fallback, the same way a text message's
 /// own body already does.
 String messagePreviewLabel(ApiMessage message) {
+  if (message.isDeleted) return deletedMessageLabel;
   switch (message.kind) {
+    case 'deleted': // a quoted message that was since deleted (FR1.15)
+      return deletedMessageLabel;
     case 'image':
       return (message.body?.isNotEmpty ?? false) ? message.body! : 'Photo';
     case 'video':
@@ -32,6 +39,7 @@ IconData? _previewIcon(String kind) => switch (kind) {
       'image' => TablerIcons.camera,
       'video' => TablerIcons.video,
       'location' => TablerIcons.mapPin,
+      'deleted' => TablerIcons.ban,
       _ => null,
     };
 
