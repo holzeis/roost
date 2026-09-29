@@ -725,15 +725,83 @@ Color statusTickColor(BuildContext context, String status) => status == 'seen'
     ? readTickColor(context)
     : onSentBubbleColor(context).withValues(alpha: 0.62);
 
-WidgetSpan _statusIconSpan(BuildContext context, String status) {
-  final icon = status == 'sent' ? TablerIcons.check : TablerIcons.checks;
-  return WidgetSpan(
-    alignment: PlaceholderAlignment.middle,
-    child: Padding(
-      padding: const EdgeInsets.only(left: 3),
-      child: Icon(icon, size: 13, color: statusTickColor(context, status)),
-    ),
-  );
+/// A text bubble's "edited · time · tick" footer — always at the bubble's
+/// bottom-right, a little below the last line of text (see
+/// [TextWithTrailingMeta]).
+class BubbleMeta extends StatelessWidget {
+  const BubbleMeta({super.key, required this.timeLabel, required this.edited, required this.color, this.status});
+
+  final String timeLabel;
+  final bool edited;
+  final Color color;
+
+  /// The viewer's own message's delivery status, or null for anyone else's.
+  final String? status;
+
+  static const tickWidth = 16.0;
+
+  String get label => '${edited ? 'edited  ' : ''}$timeLabel';
+
+  static TextStyle labelStyle(BuildContext context, Color color) =>
+      roostMono(context, fontSize: 11, color: color.withValues(alpha: 0.62));
+
+  @override
+  Widget build(BuildContext context) {
+    final status = this.status;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: labelStyle(context, color)),
+        if (status != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 3),
+            child: Icon(status == 'sent' ? TablerIcons.check : TablerIcons.checks,
+                size: 13, color: statusTickColor(context, status)),
+          ),
+      ],
+    );
+  }
+}
+
+/// A text message body with [meta] pinned to its bottom-right corner, the
+/// way WhatsApp does it: an invisible placeholder the meta's width ends the
+/// text, so the meta shares the last line when there's room and gets a
+/// line of its own when there isn't — never overlapping the text either way.
+class TextWithTrailingMeta extends StatelessWidget {
+  const TextWithTrailingMeta({super.key, required this.body, required this.color, required this.meta});
+
+  final String body;
+  final Color color;
+  final BubbleMeta meta;
+
+  /// How far below the last text line's bottom the meta sits.
+  static const drop = 4.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final painter = TextPainter(
+      text: TextSpan(text: meta.label, style: BubbleMeta.labelStyle(context, color)),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final metaWidth = painter.width + (meta.status != null ? BubbleMeta.tickWidth : 0);
+    painter.dispose();
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Text.rich(
+          TextSpan(
+            style: TextStyle(fontSize: 16.5, height: 1.3, color: color),
+            children: [
+              TextSpan(text: body),
+              WidgetSpan(child: SizedBox(width: metaWidth + 10, height: 1)),
+            ],
+          ),
+        ),
+        Positioned(right: 0, bottom: -drop, child: meta),
+      ],
+    );
+  }
 }
 
 class _MessageRow extends ConsumerWidget {
@@ -797,6 +865,13 @@ class _MessageRow extends ConsumerWidget {
     final timeLabel =
         TimeOfDay.fromDateTime(message.createdAt.toLocal()).format(context);
     final isMedia = message.kind == 'image' || message.kind == 'video';
+    final linkUrl = message.kind == 'text' && message.body != null ? firstUrlIn(message.body!) : null;
+    final meta = BubbleMeta(
+      timeLabel: timeLabel,
+      edited: message.editedAt != null,
+      color: onBubble,
+      status: fromMe ? message.status : null,
+    );
     final isLocation = message.kind == 'location';
     final isCall = message.kind == 'call';
 
@@ -942,33 +1017,14 @@ class _MessageRow extends ConsumerWidget {
                   ),
                 ),
               ),
-            Text.rich(
-              TextSpan(
-                style: TextStyle(
-                    fontSize: 16.5,
-                    height: 1.3,
-                    color: onBubble),
-                children: [
-                  TextSpan(text: message.body ?? ''),
-                  TextSpan(
-                    text:
-                        '${message.editedAt != null ? ' (edited)' : ''}  $timeLabel',
-                    style: roostMono(
-                      context,
-                      fontSize: 11.5,
-                      color: onBubble
-                          .withValues(alpha: 0.62),
-                    ),
-                  ),
-                  if (fromMe) _statusIconSpan(context, message.status),
-                ],
-              ),
-            ),
-            if (message.kind == 'text' &&
-                message.body != null &&
-                firstUrlIn(message.body!) != null)
-              LinkPreviewCard(
-                  url: firstUrlIn(message.body!)!, onBackground: fromMe),
+            if (linkUrl == null)
+              TextWithTrailingMeta(body: message.body ?? '', color: onBubble, meta: meta)
+            else ...[
+              Text(message.body ?? '',
+                  style: TextStyle(fontSize: 16.5, height: 1.3, color: onBubble)),
+              LinkPreviewCard(url: linkUrl, onBackground: fromMe),
+              Align(alignment: Alignment.centerRight, child: meta),
+            ],
           ],
         ],
       ),
@@ -1013,7 +1069,6 @@ class _MessageRow extends ConsumerWidget {
     // real list underneath, and that duplicate can't reuse `bubbleKey` —
     // GlobalKeys can't appear twice in the tree at once — so it needs its
     // own, otherwise-identical instance built from unkeyed `bubbleContent`.
-    const reactionBadgeProtrusion = 14.0;
     Widget withReactions(Widget bubbleWidget) {
       if (message.reactions.isEmpty) return bubbleWidget;
       return Stack(
@@ -1349,6 +1404,15 @@ class _SwipeToReplyBubbleState extends State<_SwipeToReplyBubble>
   }
 }
 
+/// A reaction chip's fixed height — fixed (rather than whatever the emoji
+/// font's line height happens to be) so [reactionBadgeProtrusion] can
+/// place it precisely.
+const reactionChipHeight = 28.0;
+
+/// How far a reaction chip hangs below its bubble: all but ~10% of its
+/// height, so it only just touches the bubble's bottom edge.
+const reactionBadgeProtrusion = reactionChipHeight * 0.9;
+
 class _ReactionChip extends StatelessWidget {
   const _ReactionChip({required this.reaction, required this.onTap});
 
@@ -1359,15 +1423,15 @@ class _ReactionChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     // A ring the color of the wallpaper behind the bubble, not a plain
-    // border — reads as a distinct badge sitting on the seam between the
-    // bubble and the chat background, the way the reaction sits half on
-    // each. Sitting directly on the bubble corner (see the Stack in
-    // _MessageRow) rather than in a caption row underneath it.
+    // border — reads as a distinct badge just touching the bubble's bottom
+    // edge (see the Stack in _MessageRow and [reactionBadgeProtrusion]).
     return InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        height: reactionChipHeight,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
         decoration: BoxDecoration(
           color: scheme.surface,
           borderRadius: BorderRadius.circular(999),

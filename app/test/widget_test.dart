@@ -1087,6 +1087,49 @@ void main() {
     expect(api.messagesByRoom['room-family']!.any((m) => m.id == 'm2'), isFalse);
   });
 
+  testWidgets('A reaction badge hangs below its bubble, overlapping it by only ~10%', (tester) async {
+    final api = _seededApiClient();
+    final messages = api.messagesByRoom['room-family']!;
+    final index = messages.indexWhere((m) => m.id == 'm1');
+    messages[index] = messages[index].copyWith(
+      reactions: const [ApiReaction(emoji: '😮', count: 1, reactedByMe: false)],
+    );
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final bubble = find.ancestor(
+      of: find.textContaining("Dinner's at 7"),
+      matching: find.byWidgetPredicate(
+          (w) => w is Container && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).color != null),
+    );
+    final chip = find.ancestor(of: find.text('😮'), matching: find.byType(InkWell)).first;
+    final bubbleRect = tester.getRect(bubble.first);
+    final chipRect = tester.getRect(chip);
+
+    expect(chipRect.height, reactionChipHeight);
+    expect(bubbleRect.bottom - chipRect.top, closeTo(reactionChipHeight * 0.1, 0.01));
+  });
+
+  testWidgets('The time sits at the bottom-right of a text bubble, a little below the last line', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final textBlock = find.ancestor(of: find.textContaining("Dinner's at 7"), matching: find.byType(TextWithTrailingMeta));
+    final body = find.descendant(of: textBlock, matching: find.byType(RichText)).first;
+    final meta = find.descendant(of: textBlock, matching: find.byType(BubbleMeta));
+
+    final bodyRect = tester.getRect(body);
+    final metaRect = tester.getRect(meta);
+    expect(metaRect.right, closeTo(bodyRect.right, 0.01));
+    expect(metaRect.bottom, closeTo(bodyRect.bottom + TextWithTrailingMeta.drop, 0.01));
+    // Reserved space on the text's own last line keeps the two from overlapping.
+    expect(metaRect.left, greaterThanOrEqualTo(bodyRect.left));
+  });
+
   testWidgets('Image messages render inline and can be deleted', (tester) async {
     final api = _seededApiClient();
     await _pumpApp(tester, api);
