@@ -6,6 +6,7 @@ import 'package:mime/mime.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
+import '../../demo/demo_mode.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
 import '../../theme/theme_controller.dart';
@@ -232,13 +233,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           ),
           const Divider(height: 24),
-          ListTile(
-            leading: const Icon(TablerIcons.wifi),
-            title: const Text('Tailnet identity'),
-            subtitle: Text(me.hasValue
-                ? 'Resolved from your Tailscale connection'
-                : 'Loading…'),
-          ),
+          if (ref.watch(demoModeProvider).enabled)
+            ListTile(
+              leading: const Icon(TablerIcons.logout),
+              title: const Text('Exit demo'),
+              subtitle: const Text('Discards the sample data and returns to your family server'),
+              onTap: () => ref.read(demoModeProvider).setEnabled(false),
+            )
+          else
+            ListTile(
+              leading: const Icon(TablerIcons.wifi),
+              title: const Text('Tailnet identity'),
+              subtitle: Text(me.hasValue
+                  ? 'Resolved from your Tailscale connection'
+                  : 'Loading…'),
+            ),
           ListTile(
             leading: const Icon(TablerIcons.moon),
             title: const Text('Theme'),

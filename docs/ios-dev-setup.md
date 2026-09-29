@@ -181,6 +181,43 @@ with `Invalid APNs credential` (visible in the chat-server logs) — the
 message-notification push silently never arrives, even though the direct
 APNs path FR5.1's call-wake uses is unaffected (it never goes through FCM).
 
+## App Store review (demo mode)
+
+Reviewers can't join the family tailnet, so release builds can offer an
+in-app demo (FR7.5, `app/lib/demo/`): on the "Could not reach the chat
+server" screen an **Explore the demo** button signs in a demo user
+("Alex (Demo)") with sample family chats. Everything stays on the device —
+there's no demo server. A banner marks demo mode; **Profile → Exit demo**
+leaves it and discards the sample data.
+
+- **Turn it on for a submission**: set the GitHub repository variable
+  `DEMO_AVAILABLE` to `true` (Settings → Secrets and variables → Actions →
+  Variables); the release workflow passes it to the build as
+  `--dart-define=DEMO_AVAILABLE=true`.
+- **Turn it off**: set the variable to `false` (or delete it) and ship the
+  next build. Builds without it never show the demo.
+- **Try it locally**: `flutter run --dart-define=DEMO_AVAILABLE=true` with
+  no chat server running.
+- **Check the reviewer's path on a simulator** (tap-through integration
+  test, not part of CI since it needs a simulator):
+  `flutter test integration_test/demo_review_test.dart -d <simulator-id>
+  --dart-define=DEMO_AVAILABLE=true --dart-define=API_BASE_URL=http://127.0.0.1:9`
+  (the API URL points at nothing, so the app can't reach a server — exactly
+  what a reviewer sees).
+
+Review notes to paste into App Store Connect:
+
+> Roost connects to a family's private server, which isn't reachable from
+> outside that family's network. To review, open the app and tap "Explore
+> the demo" on the start screen. You're signed in automatically as a demo
+> user with sample conversations; everything stays on the device. Video
+> calls need the private network and a second device and aren't available
+> in the demo.
+
+The demo's sample photos (`app/assets/demo/`) are simple illustrations
+generated for the demo, so there are no image rights to worry about; swap
+in your own family-free photos if you prefer.
+
 ## Talking to a local chat server
 
 The Simulator runs on your Mac's network namespace, so `docker-compose.yml`'s

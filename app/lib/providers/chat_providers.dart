@@ -6,15 +6,22 @@ import 'package:geolocator/geolocator.dart';
 import '../data/api_client.dart';
 import '../data/api_models.dart';
 import '../data/ws_client.dart';
+import '../demo/demo_mode.dart';
 import '../features/location/location_service.dart';
 
-final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+/// The family's real server, or the in-app demo backend in demo mode (App
+/// Store review — see lib/demo/demo_mode.dart).
+final apiClientProvider = Provider<ApiClient>(
+  (ref) => ref.watch(demoModeProvider).enabled ? ref.watch(demoBackendProvider).api : ApiClient(),
+);
 
 final locationServiceProvider = Provider<LocationService>((ref) => LocationService());
 
 /// One WebSocket connection for the app's lifetime (docs/architecture-overview.md:
 /// "signaling and media are separate paths" — this carries chat signaling).
 final wsClientProvider = Provider<WsClient>((ref) {
+  // The demo backend owns (and disposes) its own event stream.
+  if (ref.watch(demoModeProvider).enabled) return ref.watch(demoBackendProvider).ws;
   final client = WsClient()..connect();
   ref.onDispose(client.dispose);
   return client;

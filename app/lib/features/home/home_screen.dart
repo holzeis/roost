@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
+import '../../demo/demo_mode.dart';
 import '../chat/reply_preview.dart' show deletedMessageLabel;
 import '../../providers/chat_providers.dart';
 import '../../util/time_format.dart';
@@ -213,16 +214,46 @@ class _EmptyRooms extends StatelessWidget {
   }
 }
 
-class _ErrorState extends StatelessWidget {
+class _ErrorState extends ConsumerWidget {
   const _ErrorState({required this.error});
   final Object error;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // App Store review: the reviewer can't reach a family's private server,
+    // so builds that offer the demo (see lib/demo/demo_mode.dart) point
+    // them to it right here.
+    final offerDemo = ref.watch(demoAvailableProvider) && !ref.watch(demoModeProvider).enabled;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text('Could not reach the chat server.\n$error', textAlign: TextAlign.center),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Could not reach the chat server.',
+                textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            // The technical cause, for troubleshooting — kept small so it
+            // doesn't dominate the screen.
+            Text('$error',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55))),
+            if (offerDemo) ...[
+              const SizedBox(height: 24),
+              const Text(
+                'Not connected to a family server? Try Roost with sample chats — everything stays on this phone.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                icon: const Icon(TablerIcons.flask),
+                label: const Text('Explore the demo'),
+                onPressed: () => ref.read(demoModeProvider).setEnabled(true),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

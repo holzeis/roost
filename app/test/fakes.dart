@@ -11,6 +11,7 @@ import 'package:image_picker_platform_interface/image_picker_platform_interface.
 import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
+import 'package:roost/demo/demo_json.dart';
 import 'package:roost/features/location/location_service.dart';
 
 /// A 1x1 transparent PNG — real, decodable image bytes.
@@ -574,46 +575,7 @@ class FakeApiClient extends ApiClient {
     }
   }
 
-  Map<String, dynamic> _messageJson(ApiMessage m) => {
-        'id': m.id,
-        'roomId': m.roomId,
-        'senderId': m.senderId,
-        'kind': m.kind,
-        'body': m.body,
-        'mediaId': m.mediaId,
-        'createdAt': m.createdAt.toIso8601String(),
-        'editedAt': m.editedAt?.toIso8601String(),
-        'replyToMessageId': m.replyToMessageId,
-        'replyTo': m.replyTo == null
-            ? null
-            : {
-                'id': m.replyTo!.id,
-                'senderId': m.replyTo!.senderId,
-                'kind': m.replyTo!.kind,
-                'body': m.replyTo!.body,
-                'mediaId': m.replyTo!.mediaId,
-              },
-        'forwarded': m.forwarded,
-        'deletedAt': m.deletedAt?.toIso8601String(),
-        'status': m.status,
-        'location': m.location == null
-            ? null
-            : {
-                'lat': m.location!.lat,
-                'lng': m.location!.lng,
-                'expiresAt': m.location!.expiresAt.toIso8601String(),
-                'endedAt': m.location!.endedAt?.toIso8601String(),
-                'snapshotMediaId': m.location!.snapshotMediaId,
-              },
-        'call': m.call == null
-            ? null
-            : {
-                'id': m.call!.id,
-                'status': m.call!.status,
-                'startedAt': m.call!.startedAt.toIso8601String(),
-                'endedAt': m.call!.endedAt?.toIso8601String(),
-              },
-      };
+  Map<String, dynamic> _messageJson(ApiMessage m) => messageToJson(m);
 }
 
 class FakeWsClient extends WsClient {

@@ -12,6 +12,7 @@ import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../util/video_source.dart';
 
 /// The inline content of an image/video message bubble (FR2.3: viewed
 /// inline). Text messages don't go through this — see chat_screen.dart.
@@ -140,7 +141,7 @@ class _VideoThumbnailState extends State<_VideoThumbnail> {
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+    _controller = videoControllerForUrl(widget.url)
       ..initialize().then((_) {
         if (mounted) setState(() => _ready = true);
       }).catchError((_) {});

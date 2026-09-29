@@ -14,6 +14,13 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'http://localhost:8080',
 );
 
+/// Whether this build offers the in-app demo (lib/demo/) on the "can't reach
+/// the server" screen — for App Store review, where the reviewer can't join
+/// the family's tailnet. Off unless the build sets it:
+///   flutter build ipa --dart-define=DEMO_AVAILABLE=true
+/// Turning it off again is just a build without it (see release.yml).
+const demoAvailable = bool.fromEnvironment('DEMO_AVAILABLE');
+
 /// The same host, as a ws:// URL, for the /ws endpoint.
 String get wsBaseUrl => apiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws');
 

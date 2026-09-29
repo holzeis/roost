@@ -10,6 +10,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
+import '../../demo/demo_call_notice.dart';
 import '../../providers/chat_providers.dart';
 import '../../theme/app_theme.dart';
 import '../../util/time_format.dart';
@@ -132,6 +133,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 /// the incoming-call screen for their own call.
 Future<void> _startCall(
     BuildContext context, WidgetRef ref, String roomId, bool isGroup) async {
+  if (await showDemoCallNoticeIfDemo(context, ref)) return;
+  if (!context.mounted) return;
   try {
     final message = await ref.read(apiClientProvider).startCall(roomId);
     if (context.mounted) {

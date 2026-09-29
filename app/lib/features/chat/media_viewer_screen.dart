@@ -15,6 +15,7 @@ import 'package:video_player/video_player.dart';
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
+import '../../util/video_source.dart';
 import 'forward_sheet.dart';
 import 'media_message.dart';
 import 'message_action_overlay.dart' show ReactionPicker, confirmDelete;
@@ -728,7 +729,7 @@ class _InlineVideoPageState extends State<_InlineVideoPage> {
     // Never loops (the default) and never autoplays — opens paused on the
     // first frame with a play button overlay, same as a static photo, until
     // the viewer taps it.
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+    _controller = videoControllerForUrl(widget.url)
       ..addListener(_rewindOnEnd)
       ..initialize().then((_) {
         if (!mounted) return;

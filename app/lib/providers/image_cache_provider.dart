@@ -1,6 +1,8 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../demo/demo_mode.dart';
+
 /// A cache key of our own, not DefaultCacheManager's 'libCachedImageData' —
 /// this is a genuinely separate Config (see _cacheManager below), not that
 /// singleton, so it needs its own cache directory/database name to avoid
@@ -30,4 +32,6 @@ final _cacheManager = CacheManager(Config(_cacheKey, repo: JsonCacheInfoReposito
 /// own internal StreamController/WebHelper machinery never reaches a state
 /// WidgetTester.pumpAndSettle() considers settled, even with every one of
 /// its dependencies faked out from underneath it.
-final imageCacheManagerProvider = Provider<BaseCacheManager>((ref) => _cacheManager);
+final imageCacheManagerProvider = Provider<BaseCacheManager>(
+  (ref) => ref.watch(demoModeProvider).enabled ? ref.watch(demoCacheManagerProvider) : _cacheManager,
+);

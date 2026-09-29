@@ -86,4 +86,5 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR7.2 | The app supports a light theme and a dark theme | Must |
 | FR7.3 | The user can set their theme preference to light, dark, or match system | Must |
 | FR7.4 | Desktop/web client | Out of scope (deferred) |
+| FR7.5 | An in-app demo mode for app store review, offered on the "can't reach the server" screen: a demo user signed in automatically, sample family chats, and no connection to any server. Calls explain they're unavailable. Can be switched off with a build setting | Must |
 

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
+import '../../demo/demo_call_notice.dart';
 import '../../providers/chat_providers.dart';
 
 /// The inline content of a call message bubble (FR4.8): an icon + label
@@ -64,6 +65,8 @@ class CallBubbleContent extends ConsumerWidget {
   }
 
   Future<void> _join(BuildContext context, WidgetRef ref) async {
+    if (await showDemoCallNoticeIfDemo(context, ref)) return;
+    if (!context.mounted) return;
     final call = message.call;
     try {
       if (call != null && call.status == 'ringing') {
