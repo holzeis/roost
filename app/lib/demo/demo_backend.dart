@@ -549,6 +549,10 @@ class DemoWsClient extends WsClient {
   @override
   void connect() {}
 
+  /// Nothing to reconnect to — the demo's events never stop.
+  @override
+  void reconnectNow() {}
+
   @override
   Stream<WsEvent> get events => _events.stream;
 

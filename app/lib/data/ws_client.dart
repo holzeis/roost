@@ -22,6 +22,13 @@ class WsEvent {
 class WsClient {
   WsClient({String? baseUrl}) : _baseUrl = baseUrl ?? wsBaseUrl;
 
+  /// Emitted locally (never sent by the server) each time the socket
+  /// connects or reconnects. Anything broadcast while it was down — e.g. a
+  /// message that arrived as a push notification while the app was
+  /// suspended — never reaches this client over the socket, so listeners
+  /// re-fetch their state on this event.
+  static const connectedEvent = 'connection.ready';
+
   final String _baseUrl;
   final _controller = StreamController<WsEvent>.broadcast();
   WebSocketChannel? _channel;
@@ -38,14 +45,19 @@ class WsClient {
   void _connectOnce() {
     final channel = WebSocketChannel.connect(Uri.parse('$_baseUrl/ws'));
     _channel = channel;
+    // A channel replaced by reconnectNow() still reports its own close —
+    // it must not schedule a reconnect of its own on top of the new one.
+    bool current() => identical(_channel, channel);
 
     // channel.stream's onError doesn't reliably catch a failure to
     // establish the connection in the first place (e.g. the server isn't
     // up yet) — that surfaces through `ready` instead. Without this, a
     // refused connection prints as an unhandled exception instead of
     // quietly triggering a reconnect.
-    channel.ready.catchError((Object _) {
-      _scheduleReconnect();
+    channel.ready.then((_) {
+      if (current() && !_controller.isClosed) _controller.add(const WsEvent(connectedEvent, {}));
+    }).catchError((Object _) {
+      if (current()) _scheduleReconnect();
     });
 
     channel.stream.listen(
@@ -53,8 +65,12 @@ class WsClient {
         final decoded = jsonDecode(raw as String) as Map<String, dynamic>;
         _controller.add(WsEvent(decoded['type'] as String, decoded['payload'] as Map<String, dynamic>? ?? const {}));
       },
-      onError: (Object _) => _scheduleReconnect(),
-      onDone: _scheduleReconnect,
+      onError: (Object _) {
+        if (current()) _scheduleReconnect();
+      },
+      onDone: () {
+        if (current()) _scheduleReconnect();
+      },
       cancelOnError: true,
     );
   }
@@ -63,6 +79,20 @@ class WsClient {
     if (_closed) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), _connectOnce);
+  }
+
+  /// Drops the current connection and opens a fresh one right away. Called
+  /// when the app returns to the foreground: iOS suspends a backgrounded
+  /// app, and the socket it had may be dead without either side having
+  /// noticed yet — the server has meanwhile been sending pushes instead.
+  /// The fresh connection's [connectedEvent] then triggers the catch-up.
+  void reconnectNow() {
+    if (_closed) return;
+    _reconnectTimer?.cancel();
+    final old = _channel;
+    _channel = null;
+    old?.sink.close();
+    _connectOnce();
   }
 
   ApiMessage? messageFrom(WsEvent event) {

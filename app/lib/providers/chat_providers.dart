@@ -98,6 +98,36 @@ class EditDraft extends ComposerDraft {
 
 final composerDraftProvider = StateProvider.family<ComposerDraft?, String>((ref, roomId) => null);
 
+/// How many of a room's newest messages a catch-up re-fetches.
+const catchUpPageSize = 50;
+
+/// Merges [latest] — a fresh newest-first page of a room's history, from a
+/// catch-up after reconnecting — into [current], the oldest-first list
+/// already on screen. Fetched copies replace their stale versions (edits,
+/// reactions, receipts, deletions made while away); messages missing
+/// from the page that fall inside its time range were deleted while away
+/// and are dropped; older messages outside the page are kept as they are;
+/// and anything newer than the page (arrived live while the fetch was in
+/// flight) is kept too. [complete] means the page is the room's whole
+/// history, so its range extends back to the very beginning.
+List<ApiMessage> mergeLatestMessages(List<ApiMessage> current, List<ApiMessage> latest, {required bool complete}) {
+  // No page, no time range to judge deletions by — keep what's there.
+  if (latest.isEmpty) return current;
+  final byId = {for (final m in latest) m.id: m};
+  final oldest = latest.map((m) => m.createdAt).reduce((a, b) => a.isBefore(b) ? a : b);
+  final newest = latest.map((m) => m.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
+  bool inRange(ApiMessage m) => (complete || !m.createdAt.isBefore(oldest)) && !m.createdAt.isAfter(newest);
+  final merged = <ApiMessage>[
+    for (final m in current)
+      if (byId.containsKey(m.id))
+        byId.remove(m.id)!
+      else if (!inRange(m))
+        m,
+    ...byId.values,
+  ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  return merged;
+}
+
 final messagesProvider = AsyncNotifierProvider.family<MessagesController, List<ApiMessage>, String>(
   MessagesController.new,
 );
@@ -111,6 +141,8 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
       final event = next.valueOrNull;
       if (event == null) return;
       switch (event.type) {
+        case WsClient.connectedEvent:
+          unawaited(_catchUp());
         case 'message.created':
           final message = ref.read(wsClientProvider).messageFrom(event);
           if (message == null || message.roomId != arg) return;
@@ -153,6 +185,26 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     final ordered = history.reversed.toList();
     unawaited(_ackDelivered(ordered));
     return ordered;
+  }
+
+  /// Re-fetches the latest history after the WebSocket (re)connects, since
+  /// anything broadcast while it was down — typically a message that
+  /// arrived as a push notification while the app was suspended — was
+  /// never delivered to this controller. Best-effort: on failure the list
+  /// just stays as it was until the next reconnect.
+  Future<void> _catchUp() async {
+    if (state.valueOrNull == null) return;
+    final List<ApiMessage> latest;
+    try {
+      latest = await ref.read(apiClientProvider).listMessages(arg, limit: catchUpPageSize);
+    } catch (_) {
+      return;
+    }
+    final current = state.valueOrNull;
+    if (current == null) return;
+    final known = {for (final m in current) m.id};
+    state = AsyncData(mergeLatestMessages(current, latest, complete: latest.length < catchUpPageSize));
+    unawaited(_ackDelivered(latest.where((m) => !known.contains(m.id))));
   }
 
   /// Acks messages from other senders as delivered (FR1.5) the moment this

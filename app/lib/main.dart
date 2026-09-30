@@ -94,9 +94,22 @@ class RoostApp extends ConsumerStatefulWidget {
 }
 
 class _RoostAppState extends ConsumerState<RoostApp> {
+  // Coming back to the foreground: iOS may have silently killed the socket
+  // while the app was suspended, and messages sent meanwhile went out as
+  // push notifications instead — reconnect now, which also makes every
+  // open chat catch up (see WsClient.connectedEvent).
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(onResume: () => ref.read(wsClientProvider).reconnectNow());
     // FR5.1: registers this device for push-woken incoming calls and wires
     // up CallKit accept/decline — a one-time app-startup side effect, not
     // tied to any particular screen's lifecycle. Skipped in the demo, which

@@ -586,6 +586,12 @@ class FakeWsClient extends WsClient {
     // No real socket in tests; nothing to do.
   }
 
+  /// How many times the app asked for a fresh connection (on resume).
+  int reconnects = 0;
+
+  @override
+  void reconnectNow() => reconnects++;
+
   @override
   Stream<WsEvent> get events => _controller.stream;
 
