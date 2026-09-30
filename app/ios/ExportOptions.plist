@@ -12,6 +12,8 @@
 	<dict>
 		<key>me.holzeis.roost.roost</key>
 		<string>Roost App Store</string>
+		<key>me.holzeis.roost.roost.ShareExtension</key>
+		<string>Roost Share Extension App Store</string>
 	</dict>
 	<key>uploadSymbols</key>
 	<true/>

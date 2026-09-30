@@ -122,6 +122,16 @@ jobs:
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/roost.mobileprovision
 
+      # The share extension (ios/ShareExtension/, "share into Roost") is its
+      # own App ID with its own profile, named "Roost Share Extension App
+      # Store" to match ExportOptions.plist — see docs/ios-dev-setup.md.
+      - name: Install share extension provisioning profile
+        env:
+          IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          echo "$IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/roost-share-extension.mobileprovision
+
       # AppDelegate.swift reads GMSApiKey from Info.plist, substituted at
       # build time from Config.xcconfig (gitignored, per-developer — see
       # README's "Google Maps API keys"), which doesn't exist on this
