@@ -102,4 +102,17 @@ void main() {
     expect(find.textContaining('Could not start call'), findsOneWidget);
     expect(chatScreens(), 1);
   });
+
+  testWidgets("the router reports an opened chat as the screen on top (what NotificationOpener compares)",
+      (tester) async {
+    await pumpHome(tester);
+    expect(appRouter.state.uri.path, '/');
+
+    await tester.tap(find.text('Mom'));
+    await tester.pumpAndSettle();
+
+    expect(appRouter.state.uri.path, '/chat/room-1');
+    expect(appRouter.routerDelegate.currentConfiguration.uri.path, '/',
+        reason: 'the base location stays "/" — why it was the wrong thing to compare');
+  });
 }

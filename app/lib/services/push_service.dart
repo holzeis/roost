@@ -168,7 +168,9 @@ class PushService {
   void _openMessageNotification(Map<String, dynamic> data) {
     final route = _notificationOpener.routeToPush(
       data,
-      currentLocation: appRouter.routerDelegate.currentConfiguration.uri.path,
+      // state (the top match), not currentConfiguration.uri — the latter is
+      // only the base location and never shows an imperatively pushed chat.
+      currentLocation: appRouter.state.uri.path,
     );
     if (route != null) appRouter.push(route);
   }
