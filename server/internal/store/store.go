@@ -375,6 +375,86 @@ func (s *Store) UpdateLocationPosition(ctx context.Context, messageID string, la
 	return l, nil
 }
 
+// activeShareFilter matches a user's location shares that are still live:
+// not ended, not expired, and whose message hasn't been deleted.
+const activeShareFilter = `
+	m.kind = 'location' AND m.deleted_at IS NULL
+	AND ls.ended_at IS NULL AND ls.expires_at > now()`
+
+// ListActiveLocationShares returns senderID's live location shares across
+// every room, with their Location attached — what the app resumes tracking
+// after it was restarted (FR3.3), since tracking only lives in the running
+// app.
+func (s *Store) ListActiveLocationShares(ctx context.Context, senderID string) ([]models.Message, error) {
+	q := `
+		SELECT m.id, m.room_id, m.sender_id, m.kind, m.body, m.media_id, m.created_at, m.edited_at, m.reply_to_message_id, m.forwarded, m.deleted_at
+		FROM messages m JOIN location_shares ls ON ls.message_id = m.id
+		WHERE m.sender_id = $1 AND` + activeShareFilter + `
+		ORDER BY m.created_at`
+	rows, err := s.pool.Query(ctx, q, senderID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list active location shares: %w", err)
+	}
+	defer rows.Close()
+	messages := []models.Message{}
+	for rows.Next() {
+		m, err := scanMessageRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.AttachLocations(ctx, messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+// EndActiveLocationSharesInRoom ends senderID's live location shares in
+// roomID and returns their messages (with Location attached) for
+// broadcasting. Called before a new share starts, so a person has at most
+// one live share per room: an earlier one the app lost track of (e.g. after
+// a reinstall) would otherwise keep showing a frozen position as "live".
+func (s *Store) EndActiveLocationSharesInRoom(ctx context.Context, roomID, senderID string) ([]models.Message, error) {
+	q := `
+		UPDATE location_shares ls SET ended_at = now()
+		FROM messages m
+		WHERE ls.message_id = m.id AND m.room_id = $1 AND m.sender_id = $2 AND` + activeShareFilter + `
+		RETURNING m.id`
+	rows, err := s.pool.Query(ctx, q, roomID, senderID)
+	if err != nil {
+		return nil, fmt.Errorf("store: end active location shares: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: scan ended share: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	messages := make([]models.Message, 0, len(ids))
+	for _, id := range ids {
+		m, err := s.GetMessage(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, m)
+	}
+	if err := s.AttachLocations(ctx, messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
 // EndLocationShare implements FR3.5. Idempotent — ending an already-ended
 // share just returns its existing ended_at rather than overwriting it or
 // erroring, since two racing "end" requests (e.g. a retry) shouldn't matter.

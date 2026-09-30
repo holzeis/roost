@@ -39,7 +39,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 |---|---|---|
 | FR3.1 | Users can share their live location within a chat | Must |
 | FR3.2 | The sender selects how long the location will be shared (TTL) at the time of sharing, from a small set of preset durations | Must |
-| FR3.3 | While a share is active, recipients see the sender's location update in near-real time | Must |
+| FR3.3 | While a share is active, recipients see the sender's location update in near-real time — including while the sender's app is in the background, and after the app restarts (it resumes tracking the sender's live shares, or ends them if location access is gone). A person has at most one live share per chat: starting a new one ends the previous one, and deleting a share stops its tracking | Must |
 | FR3.4 | Once the TTL elapses, the client stops sending updates and the location is no longer shown as live | Must |
 | FR3.5 | The sender can manually end a location share before its TTL elapses | Should |
 | FR3.6 | Recipients can see how much time remains on an active location share | Could |

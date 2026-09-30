@@ -48,6 +48,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/me", s.handleGetMe)
 			r.Patch("/me", s.handleUpdateMe)
 			r.Post("/me/avatar", s.handleUploadAvatar)
+			r.Get("/me/location-shares", s.handleListMyLocationShares)
 			r.Post("/devices", s.handleRegisterDevice)
 
 			r.Get("/users", s.handleListUsers)

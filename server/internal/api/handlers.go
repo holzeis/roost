@@ -1334,6 +1334,21 @@ func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One live share per person per room: end any earlier one first, so a
+	// share the app lost track of can't linger with a frozen position.
+	ended, err := s.Store.EndActiveLocationSharesInRoom(r.Context(), roomID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create location share")
+		return
+	}
+	if len(ended) > 0 {
+		if memberIDs, err := s.Store.ListRoomMemberIDs(r.Context(), roomID); err == nil {
+			for _, m := range ended {
+				s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.updated", Payload: m})
+			}
+		}
+	}
+
 	msg, err := s.Store.CreateLocationMessage(r.Context(), roomID, userID, body.Lat, body.Lng, ttl)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not create location share")
@@ -1342,6 +1357,22 @@ func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
 
 	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+// handleListMyLocationShares returns the caller's live location shares
+// across all rooms, so the app can resume tracking them after a restart
+// (it only tracks while running).
+func (s *Server) handleListMyLocationShares(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	shares, err := s.Store.ListActiveLocationShares(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not list location shares")
+		return
+	}
+	writeJSON(w, http.StatusOK, shares)
 }
 
 // locationShareForUpdate fetches messageID, verifies it's an active
