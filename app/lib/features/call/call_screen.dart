@@ -290,7 +290,9 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
     unawaited(_nativeCalls.endCall(widget.messageId));
     _ringTimeout?.cancel();
     _listener?.dispose();
-    _room.disconnect();
+    // dispose(), not just disconnect(): the Room owns timers of its own
+    // (e.g. a periodic cleanup) that would otherwise outlive every call.
+    unawaited(_room.dispose());
     super.dispose();
   }
 

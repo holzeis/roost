@@ -46,8 +46,9 @@ class _IncomingCallScreenState extends ConsumerState<IncomingCallScreen> {
       await ref.read(apiClientProvider).acceptCall(message.call!.id);
       ref.read(incomingCallProvider.notifier).dismiss();
       // Answered here rather than on the native CallKit screen — stop
-      // that one ringing too.
-      await ref.read(nativeCallControllerProvider).endCall(widget.messageId);
+      // that one ringing too. Not awaited: joining the call mustn't wait
+      // on a platform round-trip.
+      unawaited(ref.read(nativeCallControllerProvider).endCall(widget.messageId));
       if (!mounted) return;
       _popped = true; // this screen is being replaced, not popped
       context.pushReplacement(
