@@ -64,6 +64,36 @@ void main() {
     });
   });
 
+  group('NotificationOpener', () {
+    test('opens the chat for a tapped notification', () {
+      final opener = NotificationOpener();
+      expect(opener.routeToPush({'roomId': 'room-1', 'messageId': 'm1'}, currentLocation: '/'), '/chat/room-1');
+    });
+
+    test('ignores the same tap reported a second time (iOS reports it twice)', () {
+      final opener = NotificationOpener();
+      final data = {'roomId': 'room-1', 'messageId': 'm1'};
+      expect(opener.routeToPush(data, currentLocation: '/'), '/chat/room-1');
+      expect(opener.routeToPush(data, currentLocation: '/chat/room-1'), isNull);
+      expect(opener.routeToPush(data, currentLocation: '/'), isNull);
+    });
+
+    test("doesn't push a chat that's already on top", () {
+      final opener = NotificationOpener();
+      expect(opener.routeToPush({'roomId': 'room-1', 'messageId': 'm2'}, currentLocation: '/chat/room-1'), isNull);
+    });
+
+    test('a later notification still opens its chat', () {
+      final opener = NotificationOpener();
+      expect(opener.routeToPush({'roomId': 'room-1', 'messageId': 'm1'}, currentLocation: '/'), '/chat/room-1');
+      expect(opener.routeToPush({'roomId': 'room-2', 'messageId': 'm3'}, currentLocation: '/chat/room-1'), '/chat/room-2');
+    });
+
+    test('ignores a notification without a room', () {
+      expect(NotificationOpener().routeToPush({'messageId': 'm1'}, currentLocation: '/'), isNull);
+    });
+  });
+
   group('routeForMessageNotification', () {
     test('builds the chat route from roomId', () {
       expect(routeForMessageNotification({'roomId': 'room-1'}), '/chat/room-1');

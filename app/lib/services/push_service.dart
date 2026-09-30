@@ -44,6 +44,26 @@ String? routeForMessageNotification(Map<String, dynamic>? data) {
   return '/chat/$roomId';
 }
 
+/// Decides whether a tapped message notification should open its chat.
+/// iOS can report a single tap twice — through both getInitialMessage and
+/// onMessageOpenedApp — which pushed the same chat on top of itself, so
+/// "back" led to the same chat again. A notification is only ever handled
+/// once, and a chat that's already the screen on top isn't pushed again.
+class NotificationOpener {
+  final _handled = <String>{};
+
+  /// The route to push for a notification carrying [data], or null to do
+  /// nothing. [currentLocation] is the path of the screen now on top.
+  String? routeToPush(Map<String, dynamic> data, {required String currentLocation}) {
+    final route = routeForMessageNotification(data);
+    if (route == null) return null;
+    final messageId = data['messageId'] as String?;
+    if (messageId != null && !_handled.add(messageId)) return null;
+    if (currentLocation == route) return null;
+    return route;
+  }
+}
+
 /// Whether an FCM message is FR5.1's call-wake (Android only — iOS's call
 /// wake never goes through FCM, only PushKit) rather than an FR5.2 message
 /// notification: call wake arrives data-only, with no `notification` block
@@ -90,6 +110,7 @@ class PushService {
 
   final Ref _ref;
   StreamSubscription<CallEvent?>? _callKitSub;
+  final _notificationOpener = NotificationOpener();
 
   Future<void> init() async {
     _callKitSub = FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent);
@@ -145,7 +166,10 @@ class PushService {
   }
 
   void _openMessageNotification(Map<String, dynamic> data) {
-    final route = routeForMessageNotification(data);
+    final route = _notificationOpener.routeToPush(
+      data,
+      currentLocation: appRouter.routerDelegate.currentConfiguration.uri.path,
+    );
     if (route != null) appRouter.push(route);
   }
 
