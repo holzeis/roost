@@ -17,6 +17,7 @@ import '../../util/time_format.dart';
 import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
 import 'call_message.dart';
+import 'fast_scroll_detector.dart';
 import 'forward_sheet.dart';
 import 'link_preview_card.dart';
 import 'media_caption_screen.dart';
@@ -287,6 +288,11 @@ class _MessageListState extends ConsumerState<_MessageList> {
   Timer? _scrollActivityTimer;
   bool _scrollActive = false;
 
+  // A very fast flick through the history hides the keyboard (it's in the
+  // way of what the user is looking for); a slow scroll leaves it up, so
+  // glancing back at a message mid-reply doesn't interrupt typing.
+  final _fastScroll = FastScrollDetector();
+
   void _onScrollActivity() {
     if (!_scrollActive && mounted) setState(() => _scrollActive = true);
     _scrollActivityTimer?.cancel();
@@ -461,6 +467,9 @@ class _MessageListState extends ConsumerState<_MessageList> {
             if (notification is ScrollStartNotification ||
                 notification is ScrollUpdateNotification) {
               _onScrollActivity();
+            }
+            if (_fastScroll.handle(notification)) {
+              FocusManager.instance.primaryFocus?.unfocus();
             }
             return false;
           },
