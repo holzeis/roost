@@ -78,6 +78,10 @@ func run() error {
 		StaticMap: staticmap.NewGoogleFetcher(cfg.GoogleMapsStaticAPIKey),
 	}
 
+	// FR4.8: a call nobody answered ends up "missed" even when the
+	// caller's app never gets to end it itself.
+	go srv.RunCallExpiry(ctx)
+
 	listener, cleanup, err := newListener(ctx, cfg.ListenAddr, &srv.Resolver)
 	if err != nil {
 		return err

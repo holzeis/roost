@@ -527,6 +527,80 @@ func (s *Store) LeaveCall(ctx context.Context, callID, userID string) (models.Me
 	return messages[0], true, nil
 }
 
+// ExpireUnansweredCalls finalizes every call that has been ringing for
+// longer than ringFor without anyone but the caller joining, as missed
+// (FR4.8), and returns their call messages so the caller can broadcast
+// them. Normally the caller's own app ends an unanswered call when its ring
+// timeout fires, but that never happens if the app was closed, lost its
+// connection, or left the call screen some other way. Left alone, such a
+// call would read "Ringing…" forever.
+func (s *Store) ExpireUnansweredCalls(ctx context.Context, ringFor time.Duration) ([]models.Message, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const expire = `
+		UPDATE calls c SET status = 'missed', ended_at = now()
+		WHERE c.status = 'ringing'
+		  AND c.started_at <= now() - make_interval(secs => $1)
+		  AND NOT EXISTS (
+			SELECT 1 FROM call_participants cp
+			WHERE cp.call_id = c.id AND cp.user_id != c.started_by AND cp.joined_at IS NOT NULL
+		  )
+		RETURNING c.id, c.message_id`
+	rows, err := tx.Query(ctx, expire, ringFor.Seconds())
+	if err != nil {
+		return nil, fmt.Errorf("store: expire unanswered calls: %w", err)
+	}
+	var callIDs, messageIDs []string
+	for rows.Next() {
+		var callID string
+		var messageID *string
+		if err := rows.Scan(&callID, &messageID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: scan expired call: %w", err)
+		}
+		callIDs = append(callIDs, callID)
+		if messageID != nil {
+			messageIDs = append(messageIDs, *messageID)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: expire unanswered calls: %w", err)
+	}
+	if len(callIDs) == 0 {
+		return nil, tx.Commit(ctx)
+	}
+
+	// The caller is recorded as having left, same as LeaveCall would.
+	const leave = `UPDATE call_participants SET left_at = COALESCE(left_at, now()) WHERE call_id = ANY($1)`
+	if _, err := tx.Exec(ctx, leave, callIDs); err != nil {
+		return nil, fmt.Errorf("store: close expired call participants: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit: %w", err)
+	}
+
+	messages := make([]models.Message, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		msg, err := s.GetMessage(ctx, id)
+		if errors.Is(err, ErrNotFound) {
+			continue // the call message was deleted meanwhile
+		}
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+	if err := s.AttachCalls(ctx, messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
 // DeclineCall implements FR4.5's decline for a 1:1 call. Callers must check
 // the room isn't a group before calling this (see handleDeclineCall) — a
 // group call's decline never reaches here, since other invitees may still

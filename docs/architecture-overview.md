@@ -113,6 +113,7 @@ Call flow:
 5. The push wakes the app, which triggers CallKit/ConnectionService to show the native incoming-call screen.
 6. On answer, the app connects back over the tailnet to the chat server to fetch the actual LiveKit token, then joins the LiveKit room directly. Answering on the native screen joins straight into the in-app call (no second in-app accept), and the native call's lifecycle stays tied to the in-app one: hanging up either ends both, and the call finishing server-side (caller gave up, answered elsewhere) ends the native ring — see `app/lib/services/native_call.dart`.
 7. Media flows client-to-LiveKit over the tailnet, same as before — push and the chat server are never in the media path.
+8. An unanswered call ends as **missed** (FR4.8). The caller's app normally ends it after its 30-second ring timeout; as a backstop for when it can't (closed, offline, or off the call screen), the chat server itself marks any call still ringing unanswered after 45 seconds as missed and tells the room (`server/internal/api/call_expiry.go`).
 
 This keeps the sensitive part (the LiveKit token) off Apple/Google's servers — push only ever carries a "you're being called, ask the chat server for details" wake-up signal.
 
