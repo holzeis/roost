@@ -21,6 +21,7 @@ import 'fast_scroll_detector.dart';
 import 'forward_sheet.dart';
 import 'link_preview_card.dart';
 import 'media_caption_screen.dart';
+import 'media_send.dart';
 import 'location_message.dart';
 import 'media_message.dart';
 import 'message_action_overlay.dart';
@@ -1729,20 +1730,11 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
 
     setState(() => _sending = true);
     try {
-      for (var i = 0; i < files.length; i++) {
-        final (file: file, isVideo: isVideo) = files[i];
-        final bytes = await file.readAsBytes();
-        final contentType =
-            file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg';
-        final isLast = i == files.length - 1;
-        await ref.read(messagesProvider(widget.roomId).notifier).sendMedia(
-              bytes: bytes,
-              filename: file.name,
-              contentType: contentType,
-              kind: isVideo ? 'video' : 'image',
-              caption: (isLast && caption.isNotEmpty) ? caption : null,
-            );
-      }
+      await sendPendingMedia(
+        ref.read(messagesProvider(widget.roomId).notifier),
+        [for (final f in files) PendingMedia(file: f.file, isVideo: f.isVideo)],
+        caption,
+      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
