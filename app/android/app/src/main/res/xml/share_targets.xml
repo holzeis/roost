@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Direct share targets: the chats Roost reports via recordSentMessage
+     (see lib/services/share_suggestions.dart) show up in the share sheet
+     for photos and videos. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <share-target android:targetClass="me.holzeis.roost.roost.MainActivity">
+        <data android:mimeType="image/*" />
+        <data android:mimeType="video/*" />
+        <category android:name="me.holzeis.roost.roost.dynamic_share_target" />
+    </share-target>
+</shortcuts>

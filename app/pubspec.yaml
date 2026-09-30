@@ -68,6 +68,7 @@ dependencies:
   # calls Helper.setSpeakerphoneOn directly for the in-call speaker toggle,
   # which livekit_client itself doesn't expose a wrapper for.
   flutter_webrtc: 1.6.2+hotfix.3
+  share_handler: ^0.0.25
 
 dev_dependencies:
   flutter_test:

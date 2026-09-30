@@ -32,6 +32,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR2.4 | Shared media persists indefinitely and is not automatically deleted | Must |
 | FR2.5 | Users can manually delete media they've shared | Should |
 | FR2.6 | Users can attach an optional caption to a photo/video when sharing it | Should |
+| FR2.7 | Users can share photos and videos into Roost from other apps via the system share sheet, then pick a chat (most-used first), review, caption and send. The chats a user sends to most also appear directly in the share sheet's row of suggested contacts (iOS conversation suggestions, Android sharing shortcuts), skipping the chat picker | Should |
 
 ## 3. Location sharing
 

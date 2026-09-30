@@ -7,6 +7,7 @@ import '../data/api_client.dart';
 import '../data/api_models.dart';
 import '../data/ws_client.dart';
 import '../demo/demo_mode.dart';
+import '../services/share_suggestions.dart';
 import '../features/location/location_service.dart';
 
 /// The family's real server, or the in-app demo backend in demo mode (App
@@ -247,6 +248,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     // the WebSocket to every room member including the sender, so the
     // listener above is the single source of truth for state updates.
     await ref.read(apiClientProvider).sendTextMessage(roomId, body, replyToMessageId: replyToMessageId);
+    unawaited(ref.read(shareSuggestionsProvider).recordSent(roomId));
   }
 
   /// Uploads an image or video (FR2.1/2.2). Same non-mutating pattern as
@@ -268,6 +270,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
           replyToMessageId: replyToMessageId,
           caption: caption,
         );
+    unawaited(ref.read(shareSuggestionsProvider).recordSent(roomId));
   }
 
   /// Edits one of the caller's own text messages (FR1.13). Like send, this
@@ -283,6 +286,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
   /// room's own MessagesController (if it's alive) picks up the broadcast.
   Future<void> forwardMessage(String messageId, String toRoomId) async {
     await ref.read(apiClientProvider).forwardMessage(messageId, toRoomId);
+    unawaited(ref.read(shareSuggestionsProvider).recordSent(toRoomId));
   }
 
   /// Deletes shared media (FR2.5). The server broadcasts message.deleted,

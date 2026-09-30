@@ -181,6 +181,47 @@ with `Invalid APNs credential` (visible in the chat-server logs) — the
 message-notification push silently never arrives, even though the direct
 APNs path FR5.1's call-wake uses is unaffected (it never goes through FCM).
 
+## Share into Roost (share extension, FR2.7)
+
+Photos and videos shared from other apps reach Roost through a share
+extension (`ios/ShareExtension/`), a second target embedded in the app. The
+extension stores what was shared in an App Group container and opens Roost,
+which shows the "Share to…" chat picker (`lib/services/share_intake.dart`).
+Chats you send to are reported to iOS (`lib/services/share_suggestions.dart`)
+so they appear in the share sheet's row of suggested people.
+
+**One-time Apple Developer portal setup** (Certificates, Identifiers & Profiles):
+
+1. **App Group**: Identifiers → App Groups → register
+   `group.me.holzeis.roost.roost`.
+2. **Main App ID** `me.holzeis.roost.roost`: enable the **App Groups**
+   capability and assign that group.
+3. **Extension App ID**: register `me.holzeis.roost.roost.ShareExtension`
+   with **App Groups** enabled and the same group assigned.
+4. **Profiles**:
+   - Regenerate the existing **"Roost App Store"** distribution profile. It
+     has to include the new App Group entitlement, so the old one no longer
+     signs the app.
+   - Create a new App Store distribution profile named **"Roost Share
+     Extension App Store"** for the extension App ID. The name must match
+     `ios/ExportOptions.plist` and the extension's build settings.
+5. **GitHub secrets**:
+   - Replace `IOS_PROVISIONING_PROFILE_BASE64` with the regenerated main
+     profile.
+   - Add `IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64` with the new one,
+     encoded the same way (`base64 -i profile.mobileprovision | pbcopy`).
+     Set the values yourself; never paste them anywhere else.
+
+Until this is done, release builds that contain the extension fail to sign.
+
+**Local development**: simulator builds need no signing. For a physical
+device, Xcode's automatic signing (Debug) registers the group and extension
+for your development profile, as long as you're signed in to the team.
+
+**Trying it**: run the app on the simulator, open Photos, pick a photo →
+Share → Roost. Conversation suggestions appear after you've sent something
+in a chat; iOS ranks them itself, by how often and how recently you message.
+
 ## App Store review (demo mode)
 
 Reviewers can't join the family tailnet, so release builds can offer an

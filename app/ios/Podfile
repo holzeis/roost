@@ -38,6 +38,13 @@ target 'Runner' do
   target 'RunnerTests' do
     inherit! :search_paths
   end
+
+  # The share extension (ShareExtension/) subclasses share_handler's view
+  # controller, which lives in this separate pod.
+  target 'ShareExtension' do
+    inherit! :search_paths
+    pod 'share_handler_ios_models', :path => '.symlinks/plugins/share_handler_ios/ios/Models'
+  end
 end
 
 post_install do |installer|

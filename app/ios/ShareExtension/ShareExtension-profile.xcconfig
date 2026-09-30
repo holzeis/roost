@@ -1,0 +1,5 @@
+// The share extension's base configuration: its CocoaPods settings plus
+// Flutter's Generated.xcconfig, for FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER
+// (the extension's version must match the app's).
+#include? "../Pods/Target Support Files/Pods-ShareExtension/Pods-ShareExtension.profile.xcconfig"
+#include "../Flutter/Generated.xcconfig"

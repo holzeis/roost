@@ -57,6 +57,25 @@
 	<string>Roost uses your location to share it with people in a chat, for as long as you choose to share it.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Roost uses your location to keep sharing it with people in a chat while the app is in the background, for as long as you choose to share it.</string>
+	<!-- Share into Roost: the share extension opens the app through this
+	     URL scheme once it has stored what was shared (share_handler). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ShareMedia-$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Lets Roost chats appear in the share sheet's row of suggested
+	     conversations (recordSentMessage donates an INSendMessageIntent). -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

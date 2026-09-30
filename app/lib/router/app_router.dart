@@ -12,6 +12,8 @@ import '../features/location/live_location_screen.dart';
 import '../features/new_group/new_group_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/search/search_screen.dart';
+import '../features/share/share_to_chat_screen.dart';
+import '../services/share_intake.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/',
@@ -62,6 +64,11 @@ final appRouter = GoRouter(
         roomId: state.pathParameters['roomId']!,
         messageId: state.uri.queryParameters['messageId']!,
       ),
+    ),
+    // Photos/videos shared into Roost from another app (ShareIntake).
+    GoRoute(
+      path: '/share',
+      builder: (context, state) => ShareToChatScreen(share: state.extra! as PendingShare),
     ),
   ],
 );
