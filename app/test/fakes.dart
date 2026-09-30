@@ -455,6 +455,18 @@ class FakeApiClient extends ApiClient {
   }
 
   @override
+  Future<List<ApiMessage>> listMyLocationShares() async => [
+        for (final list in messagesByRoom.values)
+          for (final m in list)
+            if (m.senderId == me.id &&
+                !m.isDeleted &&
+                m.location != null &&
+                m.location!.endedAt == null &&
+                m.location!.expiresAt.isAfter(DateTime.now()))
+              m,
+      ];
+
+  @override
   Future<ApiMessage> updateLocation(String messageId, {required double lat, required double lng}) async {
     for (final entry in messagesByRoom.entries) {
       final index = entry.value.indexWhere((m) => m.id == messageId);
@@ -646,6 +658,9 @@ class FakeLocationService implements LocationService {
     if (deniedForever) throw const LocationPermissionDeniedException(true);
     if (permissionDenied) throw const LocationPermissionDeniedException(false);
   }
+
+  @override
+  Future<bool> hasPermission() async => !permissionDenied && !deniedForever;
 
   @override
   Future<Position> getCurrentPosition() async => initialPosition;

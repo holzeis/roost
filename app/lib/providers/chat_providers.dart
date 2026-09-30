@@ -421,7 +421,25 @@ class LocationShareController extends FamilyNotifier<String?, String> {
 
   @override
   String? build(String arg) {
+    // Stop tracking the moment the share itself goes away — deleted (by
+    // this user, even from another device), or ended/expired server-side
+    // (e.g. replaced by a newer share). Otherwise the app would keep
+    // posting positions for a share nobody can see anymore.
+    final sub = ref.listen(wsEventsProvider, (previous, next) {
+      final event = next.valueOrNull;
+      final tracked = state;
+      if (event == null || tracked == null) return;
+      switch (event.type) {
+        case 'message.deleted':
+          if (event.payload['messageId'] == tracked) _stopTracking();
+        case 'message.updated':
+          if (event.payload['id'] != tracked) return;
+          final updated = ref.read(wsClientProvider).messageFrom(event);
+          if (updated == null || updated.isDeleted || updated.location?.endedAt != null) _stopTracking();
+      }
+    });
     ref.onDispose(() {
+      sub.close();
       _positionSub?.cancel();
       _ttlTimer?.cancel();
     });
@@ -441,14 +459,58 @@ class LocationShareController extends FamilyNotifier<String?, String> {
     final message = await ref
         .read(apiClientProvider)
         .shareLocation(roomId, lat: initial.latitude, lng: initial.longitude, ttl: ttl);
-    state = message.id;
+    _track(message.id, ttl);
+  }
 
-    _positionSub = service.watchPosition().listen((position) {
-      final messageId = state;
-      if (messageId == null) return;
-      unawaited(ref.read(apiClientProvider).updateLocation(messageId, lat: position.latitude, lng: position.longitude));
+  /// Picks an existing live share of this user's back up — after the app
+  /// was restarted or reinstalled, when nothing was tracking it anymore and
+  /// everyone saw a frozen position. Never prompts: without location access
+  /// the share can't be kept live, so it's ended instead.
+  Future<void> resume(ApiMessage share) async {
+    final location = share.location;
+    if (state != null || location == null) return;
+    final remaining = location.expiresAt.difference(DateTime.now());
+    if (location.endedAt != null || remaining <= Duration.zero) return;
+    if (!await ref.read(locationServiceProvider).hasPermission()) {
+      try {
+        await ref.read(apiClientProvider).endLocationShare(share.id);
+      } catch (_) {
+        // It still expires on its own.
+      }
+      return;
+    }
+    if (state != null) return;
+    _track(share.id, remaining);
+  }
+
+  void _track(String messageId, Duration remaining) {
+    state = messageId;
+    _positionSub = ref.read(locationServiceProvider).watchPosition().listen((position) {
+      final tracked = state;
+      if (tracked == null) return;
+      unawaited(ref
+          .read(apiClientProvider)
+          .updateLocation(tracked, lat: position.latitude, lng: position.longitude)
+          .then<void>((_) {}, onError: (Object error) {
+        // The server refused (the share was deleted, ended or replaced):
+        // stop, rather than keep sending updates nobody receives. Network
+        // hiccups are left alone — the next position retries.
+        if (error is ApiException && error.statusCode >= 400 && error.statusCode < 500 && state == tracked) {
+          _stopTracking();
+        }
+      }));
     });
-    _ttlTimer = Timer(ttl, end);
+    _ttlTimer = Timer(remaining, end);
+  }
+
+  /// Stops tracking locally without telling the server — for when the
+  /// share is already gone there.
+  void _stopTracking() {
+    state = null;
+    _positionSub?.cancel();
+    _positionSub = null;
+    _ttlTimer?.cancel();
+    _ttlTimer = null;
   }
 
   /// Ends the active share, whether that's FR3.4's TTL timer firing or
@@ -457,14 +519,32 @@ class LocationShareController extends FamilyNotifier<String?, String> {
   Future<void> end() async {
     final messageId = state;
     if (messageId == null) return;
-    state = null;
-    await _positionSub?.cancel();
-    _positionSub = null;
-    _ttlTimer?.cancel();
-    _ttlTimer = null;
+    _stopTracking();
     await ref.read(apiClientProvider).endLocationShare(messageId);
   }
 }
+
+/// Resumes tracking this user's live location shares when the app starts,
+/// and again whenever the WebSocket (re)connects (the first attempt may run
+/// before the server is reachable). Tracking only lives in the running app,
+/// so without this a restart — or a reinstall — silently froze every live
+/// share until it expired. Read once, from RoostApp.
+final locationShareResumerProvider = Provider<void>((ref) {
+  Future<void> resumeAll() async {
+    try {
+      for (final share in await ref.read(apiClientProvider).listMyLocationShares()) {
+        await ref.read(locationShareProvider(share.roomId).notifier).resume(share);
+      }
+    } catch (_) {
+      // Best-effort; retried on the next (re)connect.
+    }
+  }
+
+  ref.listen(wsEventsProvider, (previous, next) {
+    if (next.valueOrNull?.type == WsClient.connectedEvent) unawaited(resumeAll());
+  });
+  unawaited(resumeAll());
+});
 
 /// A call ringing right now that the current user hasn't answered or
 /// declined yet, or null. Deliberately global (not `.family` by room) —

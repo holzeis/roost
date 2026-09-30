@@ -502,6 +502,18 @@ class DemoApiClient extends ApiClient {
         location: ApiLocationShare(lat: lat, lng: lng, expiresAt: DateTime.now().add(ttl)),
       ));
 
+  @override
+  Future<List<ApiMessage>> listMyLocationShares() async => [
+        for (final list in _b.messages.values)
+          for (final m in list)
+            if (m.senderId == _b.me.id &&
+                !m.isDeleted &&
+                m.location != null &&
+                m.location!.endedAt == null &&
+                m.location!.expiresAt.isAfter(DateTime.now()))
+              _b.view(m),
+      ];
+
   ApiMessage _updateLocation(String messageId, ApiLocationShare Function(ApiLocationShare) change) {
     final existing = _require(messageId);
     final share = existing.location;

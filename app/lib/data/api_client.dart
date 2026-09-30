@@ -255,6 +255,14 @@ class ApiClient {
     return ApiMessage.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// The caller's own live location shares across all rooms — what the app
+  /// resumes tracking after a restart (tracking only runs while the app does).
+  Future<List<ApiMessage>> listMyLocationShares() async {
+    final res = await _http.get(_uri('/api/me/location-shares'));
+    _checkOk(res);
+    return _decodeList(res.body).map((e) => ApiMessage.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   /// Posts the sender's latest position for an active share (FR3.3).
   Future<ApiMessage> updateLocation(String messageId, {required double lat, required double lng}) async {
     final res = await _http.patch(

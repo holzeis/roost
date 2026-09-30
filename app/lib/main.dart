@@ -110,6 +110,8 @@ class _RoostAppState extends ConsumerState<RoostApp> {
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onResume: () => ref.read(wsClientProvider).reconnectNow());
+    // FR3.3: keep this user's live location shares live across a restart.
+    ref.read(locationShareResumerProvider);
     // FR5.1: registers this device for push-woken incoming calls and wires
     // up CallKit accept/decline — a one-time app-startup side effect, not
     // tied to any particular screen's lifecycle. Skipped in the demo, which

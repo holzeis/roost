@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:roost/data/api_models.dart';
+import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/location/location_service.dart';
 import 'package:roost/providers/chat_providers.dart';
@@ -186,4 +187,146 @@ void main() {
       expect(api.fetchLocationSnapshotCallCount, 1);
     });
   });
+
+  group('keeping tracking in step with the share', () {
+    late FakeApiClient api;
+    late FakeLocationService location;
+    late ProviderContainer container;
+
+    setUp(() {
+      api = FakeApiClient(FakeWsClient());
+      location = FakeLocationService()..initialPosition = FakeLocationService.testPosition(52.5, 13.4);
+      container = ProviderContainer(overrides: [
+        apiClientProvider.overrideWithValue(api),
+        wsClientProvider.overrideWithValue(api.ws),
+        locationServiceProvider.overrideWithValue(location),
+      ]);
+      addTearDown(container.dispose);
+      addTearDown(location.dispose);
+    });
+
+    Future<String> startSharing() async {
+      await container.read(locationShareProvider('room-1').notifier).start(const Duration(minutes: 15));
+      return container.read(locationShareProvider('room-1'))!;
+    }
+
+    Future<void> settle() async {
+      for (var i = 0; i < 3; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    test('deleting the share stops tracking it', () async {
+      final id = await startSharing();
+
+      await api.deleteMessage(id); // broadcasts message.deleted
+      await settle();
+
+      expect(container.read(locationShareProvider('room-1')), isNull);
+      location.emit(52.6, 13.5);
+      await settle();
+      expect(api.messagesByRoom['room-1']!.any((m) => m.id == id), isFalse, reason: 'nothing recreated');
+    });
+
+    test('the share ending server-side (e.g. replaced by a newer one) stops tracking it', () async {
+      final id = await startSharing();
+
+      await api.endLocationShare(id); // broadcasts message.updated with endedAt
+      await settle();
+
+      expect(container.read(locationShareProvider('room-1')), isNull);
+    });
+
+    test('an update the server refuses (share gone) stops tracking; a network error does not', () async {
+      final id = await startSharing();
+
+      // Gone without this device hearing about it (e.g. deleted while offline).
+      api.messagesByRoom['room-1']!.removeWhere((m) => m.id == id);
+      location.emit(52.6, 13.5);
+      await settle();
+      expect(container.read(locationShareProvider('room-1')), isNull);
+    });
+
+    test('a failed update for a network reason keeps tracking', () async {
+      final flaky = _FlakyLocationApiClient();
+      final c = ProviderContainer(overrides: [
+        apiClientProvider.overrideWithValue(flaky),
+        wsClientProvider.overrideWithValue(flaky.ws),
+        locationServiceProvider.overrideWithValue(location),
+      ]);
+      addTearDown(c.dispose);
+      await c.read(locationShareProvider('room-1').notifier).start(const Duration(minutes: 15));
+
+      location.emit(52.6, 13.5);
+      await settle();
+
+      expect(c.read(locationShareProvider('room-1')), isNotNull);
+    });
+
+    ApiMessage liveShare({DateTime? expiresAt, DateTime? endedAt}) => ApiMessage(
+          id: 'loc-live',
+          roomId: 'room-1',
+          senderId: api.me.id,
+          kind: 'location',
+          createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
+          location: ApiLocationShare(
+            lat: 1,
+            lng: 2,
+            expiresAt: expiresAt ?? DateTime.now().add(const Duration(minutes: 10)),
+            endedAt: endedAt,
+          ),
+        );
+
+    test('resume picks an existing live share back up and posts its updates, without prompting', () async {
+      final share = liveShare();
+      api.messagesByRoom['room-1'] = [share];
+
+      await container.read(locationShareProvider('room-1').notifier).resume(share);
+
+      expect(container.read(locationShareProvider('room-1')), share.id);
+      expect(location.requestPermissionCalls, 0);
+      location.emit(52.6, 13.5);
+      await settle();
+      expect(api.messagesByRoom['room-1']!.single.location!.lat, 52.6);
+    });
+
+    test('resume without location access ends the share instead of leaving it frozen', () async {
+      final share = liveShare();
+      api.messagesByRoom['room-1'] = [share];
+      location.permissionDenied = true;
+
+      await container.read(locationShareProvider('room-1').notifier).resume(share);
+
+      expect(container.read(locationShareProvider('room-1')), isNull);
+      expect(api.messagesByRoom['room-1']!.single.location!.endedAt, isNotNull);
+    });
+
+    test('resume ignores a share that already ended or expired', () async {
+      final notifier = container.read(locationShareProvider('room-1').notifier);
+      await notifier.resume(liveShare(endedAt: DateTime.now()));
+      await notifier.resume(liveShare(expiresAt: DateTime.now().subtract(const Duration(seconds: 1))));
+      expect(container.read(locationShareProvider('room-1')), isNull);
+    });
+
+    test('on start and on every reconnect, the app resumes its own live shares', () async {
+      api.messagesByRoom['room-1'] = [liveShare()];
+
+      container.read(locationShareResumerProvider);
+      await settle();
+      expect(container.read(locationShareProvider('room-1')), 'loc-live');
+
+      // A reconnect finds it already tracked: nothing changes.
+      api.ws.emit(const WsEvent(WsClient.connectedEvent, {}));
+      await settle();
+      expect(container.read(locationShareProvider('room-1')), 'loc-live');
+    });
+  });
+}
+
+class _FlakyLocationApiClient extends FakeApiClient {
+  _FlakyLocationApiClient() : super(FakeWsClient());
+
+  @override
+  Future<ApiMessage> updateLocation(String messageId, {required double lat, required double lng}) async =>
+      throw Exception('network unreachable');
 }

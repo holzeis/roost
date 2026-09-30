@@ -55,6 +55,14 @@ class LocationService {
     }
   }
 
+  /// Whether location access is currently granted (at least while in use),
+  /// without prompting — for resuming a share after a restart, where a
+  /// surprise permission dialog would make no sense.
+  Future<bool> hasPermission() async {
+    final permission = await Geolocator.checkPermission();
+    return permission == LocationPermission.whileInUse || permission == LocationPermission.always;
+  }
+
   Future<Position> getCurrentPosition() =>
       Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
 
