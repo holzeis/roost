@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
+import '../../data/api_client.dart';
 import '../../data/api_config.dart';
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
@@ -78,10 +79,36 @@ ApiCall? resolveCallToJoin(String messageId, ApiMessage? initialMessage, List<Ap
   return match.isEmpty ? null : match.first.call;
 }
 
+/// Tells the server this user left a call — exactly once, however the call
+/// screen is left: hanging up, the other side hanging up, the ring timing
+/// out, or leaving the screen any other way (a back swipe, the error
+/// screen's button). Without that last case an unanswered call was never
+/// ended and read "Ringing…" until the server's own expiry caught it.
+class CallLeaver {
+  CallLeaver(this._api);
+
+  final ApiClient _api;
+
+  /// Set once the call being joined is known.
+  String? callId;
+  bool _left = false;
+
+  Future<void> leave() async {
+    final id = callId;
+    if (_left || id == null) return;
+    _left = true;
+    try {
+      await _api.leaveCall(id);
+    } catch (_) {
+      // Best-effort — the server's own expiry ends an unanswered call.
+    }
+  }
+}
+
 class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObserver {
   final _room = lk.Room();
   lk.EventsListener<lk.RoomEvent>? _listener;
-  String? _callId;
+  late final CallLeaver _leaver;
   Timer? _ringTimeout;
   lk.CameraPosition _cameraPosition = lk.CameraPosition.front;
   bool _micOn = true;
@@ -110,6 +137,7 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _nativeCalls = ref.read(nativeCallControllerProvider);
+    _leaver = CallLeaver(ref.read(apiClientProvider));
     // Hung up from the native CallKit UI (lock screen, Dynamic Island).
     _nativeEndedSub = _nativeCalls.endedFromNative.listen((messageId) {
       if (sameCallId(messageId, widget.messageId)) _hangUp();
@@ -141,7 +169,7 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
           : await ref.read(messagesProvider(widget.roomId).future);
       final call = resolveCallToJoin(widget.messageId, widget.initialMessage, messages);
       if (call == null) throw StateError('call not found in room history');
-      _callId = call.id;
+      _leaver.callId = call.id;
 
       final api = ref.read(apiClientProvider);
       final token = await api.mintLiveKitToken(widget.roomId);
@@ -226,14 +254,7 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
     _ringTimeout?.cancel();
     _cameraPendingForeground = false;
     unawaited(_nativeCalls.endCall(widget.messageId));
-    final callId = _callId;
-    if (callId != null) {
-      try {
-        await ref.read(apiClientProvider).leaveCall(callId);
-      } catch (_) {
-        // Best-effort — the call still gets disconnected locally either way.
-      }
-    }
+    await _leaver.leave();
     await _room.disconnect();
     if (mounted) Navigator.of(context).maybePop();
   }
@@ -286,8 +307,10 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_nativeEndedSub?.cancel());
-    // Covers leaving without _hangUp (e.g. the error screen's button).
+    // Covers leaving without _hangUp (e.g. a back swipe, or the error
+    // screen's button): still end the native call and leave server-side.
     unawaited(_nativeCalls.endCall(widget.messageId));
+    unawaited(_leaver.leave());
     _ringTimeout?.cancel();
     _listener?.dispose();
     // dispose(), not just disconnect(): the Room owns timers of its own

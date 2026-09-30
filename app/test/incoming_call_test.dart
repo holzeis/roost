@@ -87,6 +87,29 @@ void main() {
     });
   });
 
+  group('CallLeaver', () {
+    test('leaves the call once, however many exits fire', () async {
+      final api = FakeApiClient(FakeWsClient());
+      final leaver = CallLeaver(api)..callId = 'call-1';
+
+      await leaver.leave(); // hang up
+      await leaver.leave(); // then the screen is disposed
+
+      expect(api.callActions, [('leave', 'call-1')]);
+    });
+
+    test('does nothing before the call is known (it never got that far)', () async {
+      final api = FakeApiClient(FakeWsClient());
+      await CallLeaver(api).leave();
+      expect(api.callActions, isEmpty);
+    });
+
+    test('a failed leave is swallowed (the server expires the call anyway)', () async {
+      final leaver = CallLeaver(_FailingLeaveApiClient())..callId = 'call-1';
+      await expectLater(leaver.leave(), completes);
+    });
+  });
+
   group('ringTimeout', () {
     test('is 30 seconds', () {
       expect(ringTimeout, const Duration(seconds: 30));
@@ -186,4 +209,11 @@ void main() {
       expect(container.read(incomingCallProvider), isNull);
     });
   });
+}
+
+class _FailingLeaveApiClient extends FakeApiClient {
+  _FailingLeaveApiClient() : super(FakeWsClient());
+
+  @override
+  Future<void> leaveCall(String callId) async => throw Exception('offline');
 }
