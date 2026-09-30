@@ -135,17 +135,19 @@ Future<void> _startCall(
     BuildContext context, WidgetRef ref, String roomId, bool isGroup) async {
   if (await showDemoCallNoticeIfDemo(context, ref)) return;
   if (!context.mounted) return;
-  try {
-    final message = await ref.read(apiClientProvider).startCall(roomId);
-    if (context.mounted) {
-      context.push('/call/$roomId?messageId=${message.id}&group=$isGroup', extra: message);
+  await startingCallIn(roomId, () async {
+    try {
+      final message = await ref.read(apiClientProvider).startCall(roomId);
+      if (context.mounted) {
+        context.push('/call/$roomId?messageId=${message.id}&group=$isGroup', extra: message);
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not start call: $error')));
+      }
     }
-  } catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not start call: $error')));
-    }
-  }
+  });
 }
 
 class _ChatTitle extends StatelessWidget {

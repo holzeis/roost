@@ -14,6 +14,22 @@ import '../../providers/chat_providers.dart';
 /// confirmation first via a bottom sheet rather than joining or starting a
 /// call immediately, since that's a heavier action than any other tap in
 /// the chat and shouldn't be one accidental tap away.
+/// Rooms with a call being started right now — starting one waits on the
+/// server before the call screen opens, and a second tap in that window
+/// used to start a second call with a second call screen stacked on the
+/// first, so leaving took two "backs".
+final _startingCalls = <String>{};
+
+/// Runs [start] unless a call in [roomId] is already being started.
+Future<void> startingCallIn(String roomId, Future<void> Function() start) async {
+  if (!_startingCalls.add(roomId)) return;
+  try {
+    await start();
+  } finally {
+    _startingCalls.remove(roomId);
+  }
+}
+
 class CallBubbleContent extends ConsumerWidget {
   const CallBubbleContent({super.key, required this.message, required this.roomId, required this.isGroup, required this.textColor});
 
@@ -76,10 +92,12 @@ class CallBubbleContent extends ConsumerWidget {
           context.push('/call/$roomId?messageId=${message.id}&group=$isGroup', extra: message);
         }
       } else {
-        final started = await ref.read(apiClientProvider).startCall(roomId);
-        if (context.mounted) {
-          context.push('/call/$roomId?messageId=${started.id}&group=$isGroup', extra: started);
-        }
+        await startingCallIn(roomId, () async {
+          final started = await ref.read(apiClientProvider).startCall(roomId);
+          if (context.mounted) {
+            context.push('/call/$roomId?messageId=${started.id}&group=$isGroup', extra: started);
+          }
+        });
       }
     } catch (error) {
       if (context.mounted) {
