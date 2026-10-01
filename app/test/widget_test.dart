@@ -17,6 +17,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/chat/chat_screen.dart';
+import 'package:roost/features/chat/keyboard_height.dart';
 import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/chat/media_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
@@ -641,10 +642,64 @@ void main() {
     expect(find.text('Photos'), findsOneWidget);
 
     await tester.tap(find.byType(TextField).last);
+    // The keyboard comes up; the tray makes way as it does.
+    tester.view.viewInsets = const FakeViewPadding(bottom: KeyboardHeightMemory.fallbackPortrait);
+    addTearDown(tester.view.resetViewInsets);
     await tester.pumpAndSettle();
 
     expect(find.text('Photos'), findsNothing);
     expect(find.byIcon(TablerIcons.plus), findsOneWidget);
+  });
+
+  testWidgets('Switching between the keyboard and the attach tray keeps the message bar still', (tester) async {
+    await _pumpApp(tester, _seededApiClient());
+    // A home indicator, which (as on a real phone) stops counting as padding
+    // while the keyboard covers it.
+    const homeIndicator = 34.0;
+    tester.view.viewPadding = const FakeViewPadding(bottom: homeIndicator);
+    tester.view.padding = const FakeViewPadding(bottom: homeIndicator);
+    addTearDown(tester.view.resetViewPadding);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewInsets);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    final field = find.byType(TextField).last;
+
+    Future<void> keyboardAt(double inset) async {
+      tester.view.viewInsets = FakeViewPadding(bottom: inset);
+      tester.view.padding = FakeViewPadding(bottom: inset >= homeIndicator ? 0 : homeIndicator - inset);
+      await tester.pump();
+    }
+
+    // The keyboard opens fully (a different height than the fallback, as on
+    // a real device) and its height is remembered once it settles.
+    await tester.tap(field);
+    for (final inset in [100.0, 200.0, 291.0]) {
+      await keyboardAt(inset);
+    }
+    await tester.pump(const Duration(milliseconds: 200));
+    final barTop = tester.getTopLeft(field).dy;
+
+    // Keyboard → tray: as the keyboard slides away, the tray fills in.
+    await tester.tap(find.byIcon(TablerIcons.plus));
+    for (final inset in [291.0, 200.0, 100.0, 20.0, 0.0]) {
+      await keyboardAt(inset);
+      expect(tester.getTopLeft(field).dy, closeTo(barTop, 0.5), reason: 'keyboard at $inset');
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('Photos'), findsOneWidget);
+    expect(tester.getTopLeft(field).dy, closeTo(barTop, 0.5));
+
+    // Tray → keyboard: the tray shrinks as the keyboard rises, then goes.
+    await tester.tap(find.byIcon(TablerIcons.keyboard));
+    for (final inset in [0.0, 80.0, 180.0, 291.0]) {
+      await keyboardAt(inset);
+      expect(tester.getTopLeft(field).dy, closeTo(barTop, 0.5), reason: 'keyboard at $inset');
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('Photos'), findsNothing);
+    expect(tester.getTopLeft(field).dy, closeTo(barTop, 0.5));
   });
 
   testWidgets('Tapping the conversation area dismisses the keyboard', (tester) async {

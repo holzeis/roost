@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show FlutterView;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,7 @@ import '../../widgets/avatar.dart';
 import '../../widgets/back_button.dart';
 import 'call_message.dart';
 import 'fast_scroll_detector.dart';
+import 'keyboard_height.dart';
 import 'forward_sheet.dart';
 import 'link_preview_card.dart';
 import 'media_caption_screen.dart';
@@ -1536,7 +1538,7 @@ class _MessageComposer extends ConsumerStatefulWidget {
   ConsumerState<_MessageComposer> createState() => _MessageComposerState();
 }
 
-class _MessageComposerState extends ConsumerState<_MessageComposer> {
+class _MessageComposerState extends ConsumerState<_MessageComposer> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   bool _sending = false;
@@ -1546,6 +1548,18 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   // modal sheet — see _toggleAttachTray.
   bool _showAttachTray = false;
 
+  // Switching from the tray back to the keyboard: the tray stays (shrinking,
+  // see attachTrayHeight) until the keyboard has fully risen, so the message
+  // bar never drops in between.
+  bool _trayYielding = false;
+  Timer? _yieldTimeout;
+
+  // How much of the system keyboard is on screen right now, mid-animation
+  // included. Read from the window, not this widget's MediaQuery: the
+  // Scaffold has already taken the keyboard out of that.
+  double _keyboardInset = 0;
+  Timer? _keyboardSettle;
+
   bool _typingSignaled = false;
   DateTime? _lastTypingPing;
   Timer? _typingAutoStop;
@@ -1553,26 +1567,60 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_onTextChanged);
     // Tapping directly into the field while the tray is open should swap
     // back to the keyboard, the same as tapping the keyboard-toggle icon
     // does — otherwise the tray would just sit there covering the keyboard
     // that focusing the field just brought up underneath it.
     _focusNode.addListener(() {
-      if (_focusNode.hasFocus && _showAttachTray) {
-        setState(() => _showAttachTray = false);
-      }
+      if (_focusNode.hasFocus && _showAttachTray) _yieldTrayToKeyboard();
     });
   }
 
   void _toggleAttachTray() {
     if (_showAttachTray) {
-      setState(() => _showAttachTray = false);
+      _yieldTrayToKeyboard();
       _focusNode.requestFocus();
     } else {
       _focusNode.unfocus();
       setState(() => _showAttachTray = true);
     }
+  }
+
+  void _yieldTrayToKeyboard() {
+    setState(() {
+      _showAttachTray = false;
+      _trayYielding = true;
+    });
+    // In case no keyboard comes up at all (e.g. a hardware keyboard).
+    _yieldTimeout?.cancel();
+    _yieldTimeout = Timer(const Duration(milliseconds: 800), () {
+      if (mounted && _trayYielding) setState(() => _trayYielding = false);
+    });
+  }
+
+  Orientation _orientation(FlutterView view) =>
+      view.physicalSize.width > view.physicalSize.height ? Orientation.landscape : Orientation.portrait;
+
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final view = View.of(context);
+    final inset = view.viewInsets.bottom / view.devicePixelRatio;
+    final memory = ref.read(keyboardHeightProvider);
+    final orientation = _orientation(view);
+    setState(() {
+      _keyboardInset = inset;
+      if (_trayYielding && inset >= memory.heightFor(orientation) - 1) _trayYielding = false;
+    });
+    // Once the keyboard stops moving, remember its full height.
+    _keyboardSettle?.cancel();
+    _keyboardSettle = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted || _keyboardInset <= 0) return;
+      memory.record(orientation, _keyboardInset);
+      if (_trayYielding) setState(() => _trayYielding = false);
+    });
   }
 
   void _onTextChanged() {
@@ -1616,6 +1664,9 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
     // (chat_providers.dart) clears a stale indicator a few seconds after
     // the last ping regardless of whether an explicit stop ever arrives.
     _typingAutoStop?.cancel();
+    _yieldTimeout?.cancel();
+    _keyboardSettle?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focusNode.dispose();
@@ -1824,6 +1875,15 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
       }
     });
 
+    // The attach tray takes exactly the keyboard's place (see
+    // keyboard_height.dart): the safe area below it plus the tray itself add
+    // up to the keyboard's full height. This context sits outside the
+    // composer's own SafeArea, so it still sees that bottom padding.
+    final view = View.of(context);
+    final keyboardHeight = ref.read(keyboardHeightProvider).heightFor(_orientation(view));
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    final trayFullHeight = attachTrayHeight(keyboardHeight: keyboardHeight, keyboardInset: 0, bottomPadding: bottomPadding);
+
     final meId = ref.watch(meProvider).valueOrNull?.id;
     final usersById = ref.watch(usersByIdProvider).valueOrNull ?? const {};
     String nameFor(String userId) => userId == meId
@@ -1964,8 +2024,14 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
             // than a modal sheet over it — see _toggleAttachTray's own doc
             // comment for why this needs a real FocusNode instead of just
             // calling FocusScope.of(context).unfocus() ad hoc.
-            if (_showAttachTray)
+            if (_showAttachTray || _trayYielding)
               _AttachTray(
+                fullHeight: trayFullHeight,
+                height: attachTrayHeight(
+                  keyboardHeight: keyboardHeight,
+                  keyboardInset: _keyboardInset,
+                  bottomPadding: bottomPadding,
+                ),
                 onPhotos: () {
                   setState(() => _showAttachTray = false);
                   _pickAndSendMultipleMedia();
@@ -2003,6 +2069,8 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> {
 /// Camera app offers.
 class _AttachTray extends StatelessWidget {
   const _AttachTray({
+    required this.fullHeight,
+    required this.height,
     required this.onPhotos,
     required this.onCamera,
     required this.onVideo,
@@ -2014,11 +2082,31 @@ class _AttachTray extends StatelessWidget {
   final VoidCallback onVideo;
   final VoidCallback onLocation;
 
+  /// Its size once the keyboard is fully out of the way, and its size right
+  /// now (smaller mid-switch) — the content keeps its full layout and is
+  /// just clipped, rather than squashed, while the tray grows or shrinks.
+  final double fullHeight;
+  final double height;
+
   @override
   Widget build(BuildContext context) {
+    return SizedBox(
+      height: height,
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topCenter,
+          minHeight: fullHeight,
+          maxHeight: fullHeight,
+          child: _content(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: 220,
+      height: fullHeight,
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       decoration: BoxDecoration(
