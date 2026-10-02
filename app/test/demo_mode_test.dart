@@ -84,7 +84,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('On my way to pick up Grandma'), findsOneWidget);
-    expect(find.textContaining('Practice run for Sunday'), findsOneWidget);
+    // The seed's times are relative to now, so how much fits on screen
+    // varies with the time of day: scroll back to the photo if needed.
+    final photoCaption = find.textContaining('Practice run for Sunday');
+    for (var i = 0; i < 6 && photoCaption.evaluate().isEmpty; i++) {
+      await tester.drag(find.textContaining('On my way to pick up Grandma'), const Offset(0, 250));
+      await tester.pumpAndSettle();
+    }
+    expect(photoCaption, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

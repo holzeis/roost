@@ -1,0 +1,4 @@
+// The notification service extension's base configuration: Flutter's
+// Generated.xcconfig, for FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER (the
+// extension's version must match the app's). It uses no pods.
+#include "../Flutter/Generated.xcconfig"

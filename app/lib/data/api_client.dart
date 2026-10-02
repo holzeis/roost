@@ -60,15 +60,24 @@ class ApiClient {
   /// only) or "fcm" (FR5.2, both platforms — the default). Safe to call on
   /// every app start: the server treats re-registering the same token as a
   /// refresh, not an error.
+  /// [pushPublicKey]: this device's X25519 public key (base64) that
+  /// message previews are encrypted to (FR5.2); without it the device gets
+  /// generic notification text.
   Future<void> registerDevice({
     required String platform,
     required String pushToken,
     String tokenType = 'fcm',
+    String? pushPublicKey,
   }) async {
     final res = await _http.post(
       _uri('/api/devices'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'platform': platform, 'pushToken': pushToken, 'tokenType': tokenType}),
+      body: jsonEncode({
+        'platform': platform,
+        'pushToken': pushToken,
+        'tokenType': tokenType,
+        if (pushPublicKey != null) 'pushPublicKey': pushPublicKey,
+      }),
     );
     _checkOk(res);
   }

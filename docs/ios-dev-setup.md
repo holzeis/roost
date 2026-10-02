@@ -181,6 +181,48 @@ with `Invalid APNs credential` (visible in the chat-server logs) — the
 message-notification push silently never arrives, even though the direct
 APNs path FR5.1's call-wake uses is unaffected (it never goes through FCM).
 
+## Message previews in notifications (notification service extension, FR5.2)
+
+Message notifications show the sender and an end-to-end encrypted preview of
+the message. The server encrypts each preview to the receiving device's own
+key; on iOS a notification service extension
+(`ios/NotificationServiceExtension/`) decrypts it before the notification is
+shown. The key pair lives in the keychain, created by the app
+(`ios/Shared/PushKeyStore.swift`) and shared with the extension through the
+App Group `group.me.holzeis.roost.roost`, which doubles as a keychain access
+group. If anything goes wrong, the notification just shows "New message".
+
+**One-time Apple Developer portal setup** (the App Group already exists, from
+the share extension):
+
+1. **Extension App ID**: Identifiers → **+** → App IDs → App → Explicit
+   bundle ID `me.holzeis.roost.roost.NotificationServiceExtension`, with
+   **App Groups** enabled and `group.me.holzeis.roost.roost` selected.
+   The main app's App ID and its "Roost App Store" profile need no change.
+2. **Profile**: Profiles → **+** → App Store Connect → the new App ID and
+   your distribution certificate, named exactly **Roost Notification Service
+   App Store** (it must match `ios/ExportOptions.plist`).
+3. **GitHub secret**: add `IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64`
+   with the downloaded profile, encoded with
+   `base64 -i profile.mobileprovision | pbcopy`. Set it yourself; never paste
+   it anywhere else.
+
+Until this is done, release builds that contain the extension fail to sign.
+
+**Checking it**: `flutter test integration_test/push_keys_test.dart -d
+<device-id>` confirms the app can create and read its key in the shared
+keychain group. The crypto is checked against
+`server/internal/cryptobox/testdata/push_vector.json` by the Go and Dart test
+suites; the Swift side can be checked locally with `swiftc` (see the comment
+in `PushCrypto.swift`).
+
+**Export compliance**: the app now encrypts message content itself (on top
+of HTTPS), so `ITSAppUsesNonExemptEncryption` in `ios/Runner/Info.plist` may
+no longer be accurate. Messaging apps that only protect user content usually
+still qualify for an exemption, but that's a legal self-classification for
+you to confirm before the next App Store submission; the code doesn't
+decide it.
+
 ## Share into Roost (share extension, FR2.7)
 
 Photos and videos shared from other apps reach Roost through a share

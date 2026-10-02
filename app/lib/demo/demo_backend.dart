@@ -307,7 +307,8 @@ class DemoApiClient extends ApiClient {
 
   /// Nothing to register: the demo never receives push notifications.
   @override
-  Future<void> registerDevice({required String platform, required String pushToken, String tokenType = 'fcm'}) async {}
+  Future<void> registerDevice(
+      {required String platform, required String pushToken, String tokenType = 'fcm', String? pushPublicKey}) async {}
 
   @override
   Future<List<ApiContact>> listUsers() async => _b.contacts.values.toList();

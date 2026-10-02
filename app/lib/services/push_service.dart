@@ -5,12 +5,16 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../firebase_options.dart';
 import '../providers/chat_providers.dart';
 import '../router/app_router.dart';
+import 'message_notifications.dart';
 import 'native_call.dart';
+import 'push_crypto.dart';
 
 /// Builds the flutter_callkit_incoming params for showing the native
 /// incoming-call UI from an FR5.1 call-wake payload — shared by the
@@ -65,12 +69,32 @@ class NotificationOpener {
 }
 
 /// Whether an FCM message is FR5.1's call-wake (Android only — iOS's call
-/// wake never goes through FCM, only PushKit) rather than an FR5.2 message
-/// notification: call wake arrives data-only, with no `notification` block
-/// — a message notification always has one, and the OS displays it
-/// natively without any of this app's code needing to run at all.
+/// wake never goes through FCM, only PushKit): data-only, with no
+/// `notification` block, and not marked as a message notification.
 bool isCallWakeMessage(RemoteMessage message) =>
-    message.notification == null && message.data['roomId'] != null;
+    message.notification == null && message.data['type'] != 'message' && message.data['roomId'] != null;
+
+/// Whether an FCM message is an FR5.2 message notification the app has to
+/// show itself: Android's are data-only, so the app can decrypt the preview
+/// first. (iOS's carry a `notification` block the OS shows, after the
+/// notification service extension decrypted it — no Dart involved.)
+bool isAppShownMessageNotification(RemoteMessage message) =>
+    message.notification == null && message.data['type'] == 'message';
+
+/// Shows an Android message notification, decrypting its preview with the
+/// device's stored key. Also runs in firebase_messaging's background
+/// isolate, so it sets up the notifications plugin itself.
+Future<void> _showAppShownMessageNotification(RemoteMessage message) async {
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.initialize(settings: _notificationSettings);
+  await showMessageNotification(
+    plugin,
+    message.data,
+    keyPair: await storedDeviceKeyPair(DevicePushKeys.storage),
+  );
+}
+
+const _notificationSettings = InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher'));
 
 /// Whether [options] are real project credentials rather than the
 /// committed `firebase_options.dart` placeholder. This has to be checked
@@ -89,6 +113,7 @@ bool isFirebaseConfigured(FirebaseOptions options) =>
 /// call-wake path when the app is backgrounded or fully closed.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  if (isAppShownMessageNotification(message)) return _showAppShownMessageNotification(message);
   if (!isCallWakeMessage(message)) return;
   await FlutterCallkitIncoming.showCallkitIncoming(callKitParamsFromPushData(message.data));
 }
@@ -137,7 +162,7 @@ class PushService {
       if (Platform.isIOS) {
         final existingVoip = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
         if (existingVoip != null && existingVoip.isNotEmpty) {
-          unawaited(_registerDevice('ios', existingVoip, 'voip'));
+          unawaited(registerDevice('ios', existingVoip, 'voip'));
         }
       }
 
@@ -146,7 +171,12 @@ class PushService {
 
       await Firebase.initializeApp(options: options);
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      if (Platform.isAndroid) await _initLocalNotifications();
       FirebaseMessaging.onMessage.listen((message) {
+        if (isAppShownMessageNotification(message)) {
+          unawaited(_showAppShownMessageNotification(message));
+          return;
+        }
         if (!isCallWakeMessage(message)) return;
         unawaited(FlutterCallkitIncoming.showCallkitIncoming(callKitParamsFromPushData(message.data)));
       });
@@ -158,10 +188,28 @@ class PushService {
 
       final platform = Platform.isIOS ? 'ios' : 'android';
       final fcmToken = await FirebaseMessaging.instance.getToken();
-      if (fcmToken != null) unawaited(_registerDevice(platform, fcmToken, 'fcm'));
-      FirebaseMessaging.instance.onTokenRefresh.listen((token) => _registerDevice(platform, token, 'fcm'));
+      if (fcmToken != null) unawaited(registerDevice(platform, fcmToken, 'fcm'));
+      FirebaseMessaging.instance.onTokenRefresh.listen((token) => registerDevice(platform, token, 'fcm'));
     } catch (_) {
       // Ignored — see doc comment above.
+    }
+  }
+
+  /// Android: taps on the message notifications the app showed itself
+  /// open their chat, whether the app was running or launched by the tap.
+  Future<void> _initLocalNotifications() async {
+    final plugin = FlutterLocalNotificationsPlugin();
+    await plugin.initialize(
+      settings: _notificationSettings,
+      onDidReceiveNotificationResponse: (response) {
+        final roomId = response.payload;
+        if (roomId != null) _openMessageNotification({'roomId': roomId});
+      },
+    );
+    final launch = await plugin.getNotificationAppLaunchDetails();
+    final roomId = launch?.notificationResponse?.payload;
+    if ((launch?.didNotificationLaunchApp ?? false) && roomId != null) {
+      _openMessageNotification({'roomId': roomId});
     }
   }
 
@@ -188,7 +236,7 @@ class PushService {
 
   Future<void> _refreshIOSVoipToken() async {
     final token = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
-    if (token != null && token.isNotEmpty) await _registerDevice('ios', token, 'voip');
+    if (token != null && token.isNotEmpty) await registerDevice('ios', token, 'voip');
   }
 
   /// Best-effort: a failed registration just means this device won't get
@@ -196,12 +244,19 @@ class PushService {
   /// start, or the next onTokenRefresh/DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP
   /// event) — push is a fallback path, not something the rest of the app
   /// depends on working.
-  Future<void> _registerDevice(String platform, String pushToken, String tokenType) async {
+  @visibleForTesting
+  Future<void> registerDevice(String platform, String pushToken, String tokenType) async {
     try {
       await _ref.read(meProvider.future);
-      await _ref
-          .read(apiClientProvider)
-          .registerDevice(platform: platform, pushToken: pushToken, tokenType: tokenType);
+      // FR5.2: message notifications (the "fcm" token) carry a preview
+      // encrypted to this device's key; call wake ("voip") needs none.
+      final pushPublicKey = tokenType == 'fcm' ? await _ref.read(devicePushKeysProvider).publicKey() : null;
+      await _ref.read(apiClientProvider).registerDevice(
+            platform: platform,
+            pushToken: pushToken,
+            tokenType: tokenType,
+            pushPublicKey: pushPublicKey,
+          );
     } catch (_) {
       // Ignored — see doc comment above.
     }

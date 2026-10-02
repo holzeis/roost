@@ -21,6 +21,21 @@ import flutter_callkit_incoming
     }
     GeneratedPluginRegistrant.register(with: self)
 
+    // FR5.2: hands Dart this device's public key for encrypted notification
+    // previews (see Shared/PushKeyStore.swift). The private key stays in the
+    // keychain, for the notification service extension.
+    if let registrar = registrar(forPlugin: "RoostPushKeys") {
+      FlutterMethodChannel(name: "roost/push_keys", binaryMessenger: registrar.messenger())
+        .setMethodCallHandler { call, result in
+          guard call.method == "publicKey" else { return result(FlutterMethodNotImplemented) }
+          do {
+            result(try PushKeyStore.publicKeyBase64())
+          } catch {
+            result(FlutterError(code: "keychain", message: "\(error)", details: nil))
+          }
+        }
+    }
+
     // FR5.1: PushKit is the only way iOS reliably wakes a backgrounded/
     // killed app for CallKit — a plain remote notification can't do it.
     // flutter_callkit_incoming reads its own token/incoming-push handling

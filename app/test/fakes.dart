@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:file/file.dart' as pkg_file;
 import 'package:file/local.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:roost/data/api_client.dart';
@@ -199,15 +200,16 @@ class FakeApiClient extends ApiClient {
   /// Every {platform, pushToken, tokenType} registerDevice was called with,
   /// in order — lets a test assert the push service actually registered
   /// (or didn't).
-  final List<({String platform, String pushToken, String tokenType})> registeredDevices = [];
+  final List<({String platform, String pushToken, String tokenType, String? pushPublicKey})> registeredDevices = [];
 
   @override
   Future<void> registerDevice({
     required String platform,
     required String pushToken,
     String tokenType = 'fcm',
+    String? pushPublicKey,
   }) async {
-    registeredDevices.add((platform: platform, pushToken: pushToken, tokenType: tokenType));
+    registeredDevices.add((platform: platform, pushToken: pushToken, tokenType: tokenType, pushPublicKey: pushPublicKey));
   }
 
   @override
@@ -674,4 +676,55 @@ class FakeLocationService implements LocationService {
   void emit(double lat, double lng) => _positionController.add(testPosition(lat, lng));
 
   void dispose() => _positionController.close();
+}
+
+/// In-memory FlutterSecureStorage — only what the app uses (read, write,
+/// delete); anything else fails loudly via noSuchMethod.
+class FakeSecureStorage implements FlutterSecureStorage {
+  final Map<String, String> values = {};
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async =>
+      values[key];
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (value == null) {
+      values.remove(key);
+    } else {
+      values[key] = value;
+    }
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async =>
+      values.remove(key);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
