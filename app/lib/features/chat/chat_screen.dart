@@ -350,6 +350,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
   /// only `_entries` that the visible `position.index` values actually
   /// index into.
   void _onPositionsChanged() {
+    _loadOlderIfNearTheTop();
     _seenDebounce?.cancel();
     _seenDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
@@ -391,6 +392,24 @@ class _MessageListState extends ConsumerState<_MessageList> {
     if (positions.isEmpty || _entries.length <= 1) return 0;
     final topIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
     return (topIndex / (_entries.length - 1)).clamp(0.0, 1.0);
+  }
+
+  /// How close (in list items) to the oldest loaded message the user has to
+  /// scroll before the next older page is fetched — early enough that it's
+  /// usually there before they reach the top.
+  static const _loadOlderThreshold = 10;
+
+  /// Lazily loads older history as the user scrolls back: the list is
+  /// reversed, so the highest visible index is the oldest message on
+  /// screen. MessagesController.loadOlder ignores repeat calls while a page
+  /// is loading and once the start of the chat is reached.
+  void _loadOlderIfNearTheTop() {
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty || _entries.isEmpty) return;
+    final oldestVisible = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+    if (oldestVisible >= _entries.length - _loadOlderThreshold) {
+      unawaited(ref.read(messagesProvider(widget.roomId).notifier).loadOlder());
+    }
   }
 
   /// Scrolls back to a message by id, e.g. when a reply quote is tapped
@@ -568,6 +587,22 @@ class _MessageListState extends ConsumerState<_MessageList> {
                   },
                 ),
               ),
+              // While an older page of history loads (see
+              // _loadOlderIfNearTheTop): a small spinner at the top,
+              // drawn above the messages.
+              if (ref.watch(loadingOlderMessagesProvider(widget.roomId)))
+                const Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: SizedBox.square(
+                      key: ValueKey('loading-older-messages'),
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
             ],
           ),
         );

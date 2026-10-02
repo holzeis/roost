@@ -99,9 +99,6 @@ class EditDraft extends ComposerDraft {
 
 final composerDraftProvider = StateProvider.family<ComposerDraft?, String>((ref, roomId) => null);
 
-/// How many of a room's newest messages a catch-up re-fetches.
-const catchUpPageSize = 50;
-
 /// Merges [latest] — a fresh newest-first page of a room's history, from a
 /// catch-up after reconnecting — into [current], the oldest-first list
 /// already on screen. Fetched copies replace their stale versions (edits,
@@ -129,12 +126,29 @@ List<ApiMessage> mergeLatestMessages(List<ApiMessage> current, List<ApiMessage> 
   return merged;
 }
 
+/// How many messages a chat loads at a time: the newest page when it opens,
+/// then one older page at a time as the user scrolls back (see
+/// MessagesController.loadOlder).
+const messagePageSize = 50;
+
+/// Whether a chat is fetching an older page of history right now — for the
+/// small spinner at the top of the message list.
+final loadingOlderMessagesProvider = StateProvider.family<bool, String>((ref, roomId) => false);
+
 final messagesProvider = AsyncNotifierProvider.family<MessagesController, List<ApiMessage>, String>(
   MessagesController.new,
 );
 
 class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
   late final String roomId = arg;
+
+  // History pagination: whether the server may have messages older than the
+  // oldest loaded one (false once a page comes back short), and whether a
+  // page is being fetched right now.
+  bool _hasOlder = true;
+  bool _loadingOlder = false;
+
+  bool get hasOlder => _hasOlder;
 
   @override
   FutureOr<List<ApiMessage>> build(String arg) async {
@@ -182,10 +196,42 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     ref.onDispose(sub.close);
 
     // Server returns newest-first; the chat screen renders oldest-first.
-    final history = await ref.read(apiClientProvider).listMessages(arg);
+    final history = await ref.read(apiClientProvider).listMessages(arg, limit: messagePageSize);
+    _hasOlder = history.length >= messagePageSize;
     final ordered = history.reversed.toList();
     unawaited(_ackDelivered(ordered));
     return ordered;
+  }
+
+  /// Loads the page of history before the oldest loaded message — called as
+  /// the user scrolls back towards it. A no-op while a page is already
+  /// loading, or once the start of the chat has been reached. On failure
+  /// nothing changes, and scrolling there again retries.
+  Future<void> loadOlder() async {
+    final current = state.valueOrNull;
+    if (current == null || current.isEmpty || !_hasOlder || _loadingOlder) return;
+    _loadingOlder = true;
+    ref.read(loadingOlderMessagesProvider(arg).notifier).state = true;
+    try {
+      final page = await ref
+          .read(apiClientProvider)
+          .listMessages(arg, before: current.first.createdAt, limit: messagePageSize);
+      _hasOlder = page.length >= messagePageSize;
+      // Merged into whatever is loaded by now (live messages may have
+      // arrived meanwhile), skipping anything already there.
+      final latest = state.valueOrNull ?? current;
+      final known = {for (final m in latest) m.id};
+      final older = [for (final m in page.reversed) if (!known.contains(m.id)) m];
+      if (older.isNotEmpty) {
+        state = AsyncData([...older, ...latest]);
+        unawaited(_ackDelivered(older));
+      }
+    } catch (_) {
+      // Retried the next time the user scrolls back to the top.
+    } finally {
+      _loadingOlder = false;
+      ref.read(loadingOlderMessagesProvider(arg).notifier).state = false;
+    }
   }
 
   /// Re-fetches the latest history after the WebSocket (re)connects, since
@@ -197,14 +243,14 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     if (state.valueOrNull == null) return;
     final List<ApiMessage> latest;
     try {
-      latest = await ref.read(apiClientProvider).listMessages(arg, limit: catchUpPageSize);
+      latest = await ref.read(apiClientProvider).listMessages(arg, limit: messagePageSize);
     } catch (_) {
       return;
     }
     final current = state.valueOrNull;
     if (current == null) return;
     final known = {for (final m in current) m.id};
-    state = AsyncData(mergeLatestMessages(current, latest, complete: latest.length < catchUpPageSize));
+    state = AsyncData(mergeLatestMessages(current, latest, complete: latest.length < messagePageSize));
     unawaited(_ackDelivered(latest.where((m) => !known.contains(m.id))));
   }
 

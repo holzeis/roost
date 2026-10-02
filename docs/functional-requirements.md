@@ -8,7 +8,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 |---|---|---|
 | FR1.1 | Users can create and join rooms, including 1:1 conversations and group rooms | Must |
 | FR1.2 | Users can send and receive text messages in real time | Must |
-| FR1.3 | Message history is persisted and available when a user reopens the app or joins from a new device | Must |
+| FR1.3 | Message history is persisted and available when a user reopens the app or joins from a new device. A chat opens with its newest messages and loads older ones as the user scrolls back, all the way to the first message | Must |
 | FR1.4 | Users can see who else is in a room and its name/members | Should |
 | FR1.5 | Users can see delivery status (sent/delivered) for their messages | Should |
 | FR1.6 | Users can see read receipts | Could |
