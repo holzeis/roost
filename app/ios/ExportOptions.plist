@@ -14,6 +14,8 @@
 		<string>Roost App Store</string>
 		<key>me.holzeis.roost.roost.ShareExtension</key>
 		<string>Roost Share Extension App Store</string>
+		<key>me.holzeis.roost.roost.NotificationServiceExtension</key>
+		<string>Roost Notification Service App Store</string>
 	</dict>
 	<key>uploadSymbols</key>
 	<true/>

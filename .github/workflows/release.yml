@@ -132,6 +132,17 @@ jobs:
           echo "$IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/roost-share-extension.mobileprovision
 
+      # The notification service extension (ios/NotificationServiceExtension/,
+      # decrypts message previews — FR5.2) is its own App ID with its own
+      # profile, "Roost Notification Service App Store" to match
+      # ExportOptions.plist — see docs/ios-dev-setup.md.
+      - name: Install notification service extension provisioning profile
+        env:
+          IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          echo "$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/roost-notification-service.mobileprovision
+
       # AppDelegate.swift reads GMSApiKey from Info.plist, substituted at
       # build time from Config.xcconfig (gitignored, per-developer — see
       # README's "Google Maps API keys"), which doesn't exist on this
