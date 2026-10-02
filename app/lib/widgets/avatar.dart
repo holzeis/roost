@@ -69,7 +69,7 @@ class InitialAvatar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // A rounded square ("squircle") rather than a full circle — echoes the
-    // corner rounding on the app's own badge mark (assets/logo/roost-logo.svg)
+    // app icon's own shape (assets/logo/roost-logo.svg, masked by the OS)
     // instead of the generic circular-avatar default.
     final radius = BorderRadius.circular(size * 0.34);
     final mediaId = avatarMediaId;

@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="30 30 320 320">
-<rect x="30" y="30" width="320" height="320" rx="68" fill="#4A5C8A"/>
-<path d="M90,256 L90,194 Q90,170 108.74,155 L171.26,105 Q190,90 208.74,105 L271.26,155 Q290,170 290,194 L290,256 Q290,280 266,280 L155,280 L143.69,292.57 Q137,300 130.52,292.38 L120,280 L114,280 Q90,280 90,256 Z" fill="#FBF3E9"/>
-<circle cx="150" cy="225" r="9" fill="#4A5C8A"/>
-<circle cx="190" cy="225" r="9" fill="#4A5C8A"/>
-<circle cx="230" cy="225" r="9" fill="#4A5C8A"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="bg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4DA3FF"/><stop offset="1" stop-color="#0B4FD6"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#bg)"/><path d="M512.00 197.12 A314.88 314.88 0 0 1 826.88 512.00 A314.88 314.88 0 0 1 512.00 826.88 H286.72 Q263.68 826.88 263.68 803.84 V783.36 C263.68 752.64 252.93 710.14 218.11 624.64 A314.88 314.88 0 0 1 512.00 197.12 Z" fill="#FFFFFF"/></svg>

@@ -9,7 +9,7 @@ These are the source of truth. Read them before starting any task in this repo:
 - `docs/architecture-overview.md` — goals, non-functional requirements, architecture principles, high-level architecture, build-vs-reuse choices, and every architecture decision with its rationale
 - `docs/functional-requirements.md` — the full functional requirements list, organized by area, with MoSCoW priorities
 - `docs/mockups/roost-mockups-utility-dense.html` — reference UI mockups for all screens in the chosen design direction (utility dense)
-- `assets/logo/roost-logo.svg` — the app logo (slate blue house-bubble mark)
+- `assets/logo/roost-logo.svg` — the app logo (white speech bubble on a blue gradient)
 
 If any of these paths don't exist yet in the repo, ask where they've been placed rather than guessing or proceeding without them.
 

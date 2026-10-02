@@ -1,14 +1,15 @@
-# Generates native app icons from assets/logo/roost-logo.svg (rasterized to
-# assets/icon/*.png — see that directory's own .svg sources for how).
-# Run after changing the logo: dart run flutter_launcher_icons
+# Generates the iOS app icon set from assets/icon/icon_full.png (the
+# 1024x1024 rendering of assets/logo/roost-logo.svg, full bleed, no alpha —
+# iOS applies its own corner mask). Run after changing the logo:
+#   dart run flutter_launcher_icons
+#
+# Android's icon isn't generated: its adaptive icon is vector drawables
+# drawn from the same SVG (res/drawable/ic_launcher_background.xml, the
+# gradient; ic_launcher_foreground.xml, the bubble, also used as the
+# monochrome layer for themed icons), plus legacy mipmap PNGs for
+# pre-Android 8 — update those by hand with the logo.
 flutter_launcher_icons:
-  android: true
+  android: false
   ios: true
   image_path: "assets/icon/icon_full.png"
-  # Android adaptive icon: solid slate-blue background layer + the house/
-  # speech-bubble mark alone (no background baked in) as the foreground,
-  # padded to a safe zone so OEM icon masks (circle, squircle, ...) don't
-  # clip it.
-  adaptive_icon_background: "#4A5C8A"
-  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
   remove_alpha_ios: true
