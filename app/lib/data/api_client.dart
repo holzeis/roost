@@ -324,8 +324,14 @@ class ApiClient {
 
   /// Leaves/ends a call (FR4.5) — the same action whether hanging up
   /// mid-call or giving up on an unanswered one.
-  Future<void> leaveCall(String callId) async {
-    final res = await _http.post(_uri('/api/calls/$callId/leave'));
+  /// [noAnswer]: the caller's ring timeout gave up, so the server ends the
+  /// call as missed even if someone accepted but never connected.
+  Future<void> leaveCall(String callId, {bool noAnswer = false}) async {
+    final res = await _http.post(
+      _uri('/api/calls/$callId/leave'),
+      headers: noAnswer ? {'Content-Type': 'application/json'} : null,
+      body: noAnswer ? jsonEncode({'noAnswer': true}) : null,
+    );
     _checkOk(res);
   }
 

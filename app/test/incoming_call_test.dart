@@ -1,9 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/call/call_screen.dart';
+import 'package:roost/features/chat/call_message.dart';
 import 'package:roost/providers/chat_providers.dart';
 
 import 'fakes.dart';
@@ -87,7 +89,113 @@ void main() {
     });
   });
 
+  group('call bubble wording', () {
+    final start = DateTime(2026, 10, 2, 8, 9);
+    ApiCall call(String status, {Duration? answeredAfter, Duration? endedAfter}) => ApiCall(
+          id: 'c',
+          status: status,
+          startedAt: start,
+          answeredAt: answeredAfter == null ? null : start.add(answeredAfter),
+          endedAt: endedAfter == null ? null : start.add(endedAfter),
+        );
+
+    test('a talked call shows its talk time on both sides — from the answer, not the ringing', () {
+      final talked = call('completed', answeredAfter: const Duration(seconds: 7), endedAfter: const Duration(seconds: 30));
+      for (final outgoing in [true, false]) {
+        final summary = summarizeCall(talked, outgoing: outgoing);
+        expect(summary.title, 'Video call');
+        expect(summary.subtitle, '23 sec');
+        expect(summary.missed, isFalse);
+      }
+    });
+
+    test('an unanswered call: "No answer" for the caller, "Missed video call" for the person called', () {
+      final missed = call('missed', endedAfter: const Duration(seconds: 30));
+      final caller = summarizeCall(missed, outgoing: true);
+      expect((caller.title, caller.subtitle, caller.missed), ('Video call', 'No answer', false));
+      final callee = summarizeCall(missed, outgoing: false);
+      expect((callee.title, callee.subtitle, callee.missed), ('Missed video call', 'Tap to call back', true));
+      expect(callee.confirmLabel, 'Call back?');
+    });
+
+    test('declined, ringing and in-progress calls', () {
+      expect(summarizeCall(call('declined'), outgoing: true).subtitle, 'Declined');
+      expect(summarizeCall(call('ringing'), outgoing: false).subtitle, 'Ringing…');
+      expect(summarizeCall(call('ringing', answeredAfter: const Duration(seconds: 5)), outgoing: true).subtitle,
+          'In progress');
+    });
+
+    test('durations read like "23 sec", "4 min", "1 hr 5 min"', () {
+      expect(formatCallDuration(const Duration(seconds: 23)), '23 sec');
+      expect(formatCallDuration(const Duration(minutes: 4, seconds: 59)), '4 min');
+      expect(formatCallDuration(const Duration(hours: 1)), '1 hr');
+      expect(formatCallDuration(const Duration(hours: 1, minutes: 5)), '1 hr 5 min');
+    });
+
+    test('a call without an answer time (older data) counts from its start', () {
+      expect(call('completed', endedAfter: const Duration(seconds: 40)).duration, const Duration(seconds: 40));
+    });
+
+    test('callStatusIn finds a call message\'s status', () {
+      final messages = [
+        ApiMessage(id: 'm1', roomId: 'r', senderId: 'a', kind: 'call', createdAt: start, call: call('missed')),
+      ];
+      expect(callStatusIn(messages, 'm1'), 'missed');
+      expect(callStatusIn(messages, 'other'), isNull);
+      expect(callStatusIn(null, 'm1'), isNull);
+    });
+  });
+
+  group('the call bubble', () {
+    Future<void> pumpBubble(WidgetTester tester, ApiCall call, {required bool outgoing}) async {
+      await tester.pumpWidget(ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: CallBubbleContent(
+              message: ApiMessage(
+                  id: 'm1', roomId: 'r', senderId: 'a', kind: 'call', createdAt: call.startedAt, call: call),
+              roomId: 'r',
+              isGroup: false,
+              textColor: Colors.black,
+              outgoing: outgoing,
+              meta: const Text('20:15'),
+            ),
+          ),
+        ),
+      ));
+    }
+
+    testWidgets('a missed incoming call reads "Missed video call · Tap to call back" with a red icon', (tester) async {
+      final missed = ApiCall(id: 'c', status: 'missed', startedAt: DateTime(2026, 10, 2, 20, 15));
+      await pumpBubble(tester, missed, outgoing: false);
+
+      expect(find.text('Missed video call'), findsOneWidget);
+      expect(find.text('Tap to call back'), findsOneWidget);
+      expect(find.text('20:15'), findsOneWidget);
+      final icon = tester.widget<CallDirectionIcon>(find.byType(CallDirectionIcon));
+      expect(icon.outgoing, isFalse);
+      expect(icon.color, Theme.of(tester.element(find.byType(CallDirectionIcon))).colorScheme.error);
+    });
+
+    testWidgets('the caller\'s side of the same call reads "No answer", with the outgoing arrow', (tester) async {
+      final missed = ApiCall(id: 'c', status: 'missed', startedAt: DateTime(2026, 10, 2, 20, 8));
+      await pumpBubble(tester, missed, outgoing: true);
+
+      expect(find.text('Video call'), findsOneWidget);
+      expect(find.text('No answer'), findsOneWidget);
+      final icon = tester.widget<CallDirectionIcon>(find.byType(CallDirectionIcon));
+      expect(icon.outgoing, isTrue);
+      expect(icon.color, Colors.black);
+    });
+  });
+
   group('CallLeaver', () {
+    test('the ring timeout leaves as "no answer"', () async {
+      final api = FakeApiClient(FakeWsClient());
+      await (CallLeaver(api)..callId = 'call-1').leave(noAnswer: true);
+      expect(api.callActions, [('leave-no-answer', 'call-1')]);
+    });
+
     test('leaves the call once, however many exits fire', () async {
       final api = FakeApiClient(FakeWsClient());
       final leaver = CallLeaver(api)..callId = 'call-1';
@@ -215,5 +323,5 @@ class _FailingLeaveApiClient extends FakeApiClient {
   _FailingLeaveApiClient() : super(FakeWsClient());
 
   @override
-  Future<void> leaveCall(String callId) async => throw Exception('offline');
+  Future<void> leaveCall(String callId, {bool noAnswer = false}) async => throw Exception('offline');
 }

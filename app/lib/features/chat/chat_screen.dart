@@ -1075,6 +1075,8 @@ class _MessageRow extends ConsumerWidget {
               roomId: roomId,
               isGroup: isGroup,
               textColor: onBubble,
+              outgoing: fromMe,
+              meta: BubbleMeta(timeLabel: timeLabel, edited: false, color: onBubble),
             )
           else ...[
             if (showSenderLabel)

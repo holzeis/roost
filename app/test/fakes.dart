@@ -568,8 +568,8 @@ class FakeApiClient extends ApiClient {
   }
 
   @override
-  Future<void> leaveCall(String callId) async {
-    callActions.add(('leave', callId));
+  Future<void> leaveCall(String callId, {bool noAnswer = false}) async {
+    callActions.add((noAnswer ? 'leave-no-answer' : 'leave', callId));
     _finalizeCall(callId, 'missed');
   }
 

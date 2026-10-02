@@ -1986,8 +1986,8 @@ void main() {
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Missed call'), findsOneWidget);
-    await tester.tap(find.text('Missed call'));
+    expect(find.text('Missed video call'), findsOneWidget);
+    await tester.tap(find.text('Missed video call'));
     await tester.pumpAndSettle();
 
     // The sheet, not a call screen — tapping a call message must not join
@@ -1995,7 +1995,7 @@ void main() {
     expect(find.text('Call back?'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.text('Call'), findsOneWidget);
-    expect(find.text('Missed call'), findsOneWidget); // still on the chat screen
+    expect(find.text('Missed video call'), findsOneWidget); // still on the chat screen
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();

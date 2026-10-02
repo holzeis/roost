@@ -199,22 +199,29 @@ class ApiMediaInfo {
 /// The FR4.* subtype attached to a `kind == 'call'` message, mirroring
 /// server/internal/models.Call.
 class ApiCall {
-  const ApiCall({required this.id, required this.status, required this.startedAt, this.endedAt});
+  const ApiCall({required this.id, required this.status, required this.startedAt, this.endedAt, this.answeredAt});
 
   factory ApiCall.fromJson(Map<String, dynamic> json) => ApiCall(
         id: json['id'] as String,
         status: json['status'] as String,
         startedAt: DateTime.parse(json['startedAt'] as String),
         endedAt: json['endedAt'] != null ? DateTime.parse(json['endedAt'] as String) : null,
+        answeredAt: json['answeredAt'] != null ? DateTime.parse(json['answeredAt'] as String) : null,
       );
 
   final String id;
-  /// 'ringing' | 'completed' | 'missed' | 'declined'.
+  /// 'ringing' | 'completed' | 'missed' | 'declined'. A call stays 'ringing'
+  /// while it's live, answered or not (see answeredAt).
   final String status;
   final DateTime startedAt;
   final DateTime? endedAt;
 
-  Duration? get duration => endedAt?.difference(startedAt);
+  /// When someone other than the caller first joined; null if nobody did.
+  final DateTime? answeredAt;
+
+  /// Talk time: from the answer (not the start, which includes ringing) to
+  /// the end. Null while the call is live.
+  Duration? get duration => endedAt?.difference(answeredAt ?? startedAt);
 }
 
 /// The FR3.* live-location subtype attached to a `kind == 'location'`

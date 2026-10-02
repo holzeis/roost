@@ -551,7 +551,7 @@ class DemoApiClient extends ApiClient {
   Future<void> declineCall(String callId) async {}
 
   @override
-  Future<void> leaveCall(String callId) async {}
+  Future<void> leaveCall(String callId, {bool noAnswer = false}) async {}
 }
 
 /// [WsClient] for the demo: no socket, just the events [DemoBackend] emits.

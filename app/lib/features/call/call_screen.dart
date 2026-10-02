@@ -93,16 +93,27 @@ class CallLeaver {
   String? callId;
   bool _left = false;
 
-  Future<void> leave() async {
+  /// [noAnswer] when the ring timeout gave up: the server then ends the
+  /// call as missed (it only honors that from the caller).
+  Future<void> leave({bool noAnswer = false}) async {
     final id = callId;
     if (_left || id == null) return;
     _left = true;
     try {
-      await _api.leaveCall(id);
+      await _api.leaveCall(id, noAnswer: noAnswer);
     } catch (_) {
       // Best-effort — the server's own expiry ends an unanswered call.
     }
   }
+}
+
+/// The status of the call in message [messageId], if [messages] has it.
+String? callStatusIn(List<ApiMessage>? messages, String messageId) {
+  if (messages == null) return null;
+  for (final m in messages) {
+    if (m.id == messageId) return m.call?.status;
+  }
+  return null;
 }
 
 class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObserver {
@@ -170,6 +181,13 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
       final call = resolveCallToJoin(widget.messageId, widget.initialMessage, messages);
       if (call == null) throw StateError('call not found in room history');
       _leaver.callId = call.id;
+      // Already over (e.g. answered on the lock screen, but the caller had
+      // given up by the time the phone was unlocked): nothing to join.
+      if (call.status != 'ringing') {
+        _leaving = true;
+        if (mounted) Navigator.of(context).maybePop();
+        return;
+      }
 
       final api = ref.read(apiClientProvider);
       final token = await api.mintLiveKitToken(widget.roomId);
@@ -241,20 +259,20 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
       // rather than ring forever. Cancelled above the moment someone
       // connects.
       _ringTimeout = Timer(ringTimeout, () {
-        if (_room.remoteParticipants.isEmpty) _hangUp();
+        if (_room.remoteParticipants.isEmpty) _hangUp(noAnswer: true);
       });
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     }
   }
 
-  Future<void> _hangUp() async {
+  Future<void> _hangUp({bool noAnswer = false}) async {
     if (_leaving) return;
     _leaving = true;
     _ringTimeout?.cancel();
     _cameraPendingForeground = false;
     unawaited(_nativeCalls.endCall(widget.messageId));
-    await _leaver.leave();
+    await _leaver.leave(noAnswer: noAnswer);
     await _room.disconnect();
     if (mounted) Navigator.of(context).maybePop();
   }
@@ -321,6 +339,16 @@ class _CallScreenState extends ConsumerState<CallScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
+    // The call finished elsewhere — the other side hung up, the caller's
+    // ring timed out, it was declined — so leave this screen too, rather
+    // than sit in an empty room.
+    ref.listen<String?>(
+      messagesProvider(widget.roomId).select((messages) => callStatusIn(messages.valueOrNull, widget.messageId)),
+      (previous, status) {
+        if (status != null && status != 'ringing' && !_leaving) _hangUp();
+      },
+    );
+
     if (_error != null) {
       return Scaffold(
         backgroundColor: CallColors.background,

@@ -45,6 +45,7 @@ Map<String, dynamic> messageToJson(ApiMessage m) => {
               'status': m.call!.status,
               'startedAt': m.call!.startedAt.toIso8601String(),
               'endedAt': m.call!.endedAt?.toIso8601String(),
+              'answeredAt': m.call!.answeredAt?.toIso8601String(),
             },
       'media': m.media == null ? null : {'width': m.media!.width, 'height': m.media!.height},
     };

@@ -58,7 +58,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR4.5 | Users can accept, decline, or end a call | Must |
 | FR4.6 | Users can mute/unmute their microphone and enable/disable their camera during a call | Must |
 | FR4.7 | Users can switch between front/rear camera during a video call | Must |
-| FR4.8 | A missed call is recorded and visible in the chat/room history | Should |
+| FR4.8 | Every call is recorded in the chat/room history with its outcome: the talk time for a call that was answered ("23 sec"), "No answer" on the caller's side and "Missed video call · Tap to call back" on the other side for one that wasn't, or "Declined" | Should |
 
 ## 5. Notifications
 
