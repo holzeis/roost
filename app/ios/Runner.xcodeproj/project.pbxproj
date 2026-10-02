@@ -20,8 +20,11 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		9F6E43865ACC3E44C75B06F6 /* PushKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15756CB6CEB7CD3EEAED99C6 /* PushKeyStore.swift */; };
 		B41BEECEEA1F75ADED623189 /* Pods_ShareExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 150C0C2AB7CA7B9DDFB32C78 /* Pods_ShareExtension.framework */; };
+		BFD31FD30B516CAA43F0454C /* SharedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB522FF35D6CF3D615345950 /* SharedSettings.swift */; };
 		C7721CCD9296BD36CF379E80 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7F86BD473124B62844B98C /* Foundation.framework */; };
 		CC3C9518D96CCB62367A56B9 /* NotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2D8B71CA36005200B8C27D80 /* NotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D1A644F329E23C70075E3E2B /* SenderAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5421412E8FEE4FA29CA680 /* SenderAvatar.swift */; };
+		D2D51E898D1FA2DC9CFE334E /* SharedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB522FF35D6CF3D615345950 /* SharedSettings.swift */; };
 		DFD117EAA0F5A97CC012CDD8 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6E5FEEE1586D794A7D6F4D28 /* Pods_RunnerTests.framework */; };
 		F35A96E4E7AD1FD50EF994C9 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF12205DA9B7D116082774A4 /* NotificationService.swift */; };
 		F3951B06B5157E05FA8B77FD /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 734D246B1B6A26723610FB39 /* Pods_Runner.framework */; };
@@ -106,6 +109,7 @@
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+		7B5421412E8FEE4FA29CA680 /* SenderAvatar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SenderAvatar.swift; sourceTree = "<group>"; };
 		86377223B7A5DEF827861116 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		968ADA9DE2BC9D369386563B /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
@@ -122,6 +126,7 @@
 		CCD9F7C79A273E8680EA6A56 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D3C9B2E4A89823B4490F65D6 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		DF12205DA9B7D116082774A4 /* NotificationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		FB522FF35D6CF3D615345950 /* SharedSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharedSettings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -264,6 +269,7 @@
 				CCD9F7C79A273E8680EA6A56 /* Info.plist */,
 				11A01EE5327FB1E7E4A35917 /* NotificationServiceExtension.entitlements */,
 				4707D702D3FC6933113BCB1E /* NotificationServiceExtension.xcconfig */,
+				7B5421412E8FEE4FA29CA680 /* SenderAvatar.swift */,
 			);
 			name = NotificationServiceExtension;
 			path = NotificationServiceExtension;
@@ -289,6 +295,7 @@
 			isa = PBXGroup;
 			children = (
 				15756CB6CEB7CD3EEAED99C6 /* PushKeyStore.swift */,
+				FB522FF35D6CF3D615345950 /* SharedSettings.swift */,
 			);
 			name = Shared;
 			path = Shared;
@@ -609,6 +616,8 @@
 				F35A96E4E7AD1FD50EF994C9 /* NotificationService.swift in Sources */,
 				F58EB386974FA81BF2DB11FC /* PushCrypto.swift in Sources */,
 				0C6195D1776DC6D9690E2B61 /* PushKeyStore.swift in Sources */,
+				BFD31FD30B516CAA43F0454C /* SharedSettings.swift in Sources */,
+				D1A644F329E23C70075E3E2B /* SenderAvatar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -619,6 +628,7 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				9F6E43865ACC3E44C75B06F6 /* PushKeyStore.swift in Sources */,
+				D2D51E898D1FA2DC9CFE334E /* SharedSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -6,6 +6,10 @@
 	<string>development</string>
 	<!-- Shared with the share extension (ShareExtension/), which hands shared
 	     photos/videos over to the app through this group's container. -->
+	<!-- Communication Notifications: message notifications show the
+	     sender's profile picture (NotificationServiceExtension/SenderAvatar). -->
+	<key>com.apple.developer.usernotifications.communication</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.me.holzeis.roost.roost</string>

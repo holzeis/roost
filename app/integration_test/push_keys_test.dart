@@ -22,4 +22,14 @@ void main() {
     expect(base64Decode(first!), hasLength(32), reason: 'an X25519 public key');
     expect(again, first, reason: 'stored, not regenerated');
   });
+
+  testWidgets('the server address goes along for the extension, without changing the key', (tester) async {
+    const channel = MethodChannel('roost/push_keys');
+    final before = await channel.invokeMethod<String>('publicKey');
+    final after = await channel.invokeMethod<String>('publicKey', {'apiBaseUrl': 'http://roost-chat'});
+    final bad = await channel.invokeMethod<String>('publicKey', {'apiBaseUrl': 'file:///etc'});
+
+    expect(after, before);
+    expect(bad, before, reason: 'an unusable address is ignored, not an error');
+  });
 }

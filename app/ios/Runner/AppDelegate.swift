@@ -28,6 +28,11 @@ import flutter_callkit_incoming
       FlutterMethodChannel(name: "roost/push_keys", binaryMessenger: registrar.messenger())
         .setMethodCallHandler { call, result in
           guard call.method == "publicKey" else { return result(FlutterMethodNotImplemented) }
+          // The server's address comes along, for the notification service
+          // extension to fetch senders' profile pictures (SenderAvatar).
+          if let base = (call.arguments as? [String: Any])?["apiBaseUrl"] as? String {
+            SharedSettings.apiBaseURL = SharedSettings.validURL(base)
+          }
           do {
             result(try PushKeyStore.publicKeyBase64())
           } catch {

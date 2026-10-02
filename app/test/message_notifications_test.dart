@@ -3,8 +3,12 @@ import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'package:roost/providers/chat_providers.dart';
 import 'package:roost/services/message_notifications.dart';
@@ -20,6 +24,26 @@ class _FakePushKeys implements DevicePushKeys {
   @override
   Future<String?> publicKey() async => key;
 }
+
+/// Records what would be shown, instead of showing it.
+class _RecordingPlugin implements FlutterLocalNotificationsPlugin {
+  final shown = <({int id, String? title, String? body, NotificationDetails? details, String? payload})>[];
+
+  @override
+  Future<void> show({
+    required int id,
+    String? title,
+    String? body,
+    NotificationDetails? notificationDetails,
+    String? payload,
+  }) async =>
+      shown.add((id: id, title: title, body: body, details: notificationDetails, payload: payload));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+const _avatarId = '0b7d3c1e-5f2a-4c4e-9d1b-2a3f4e5d6c7b';
 
 void main() {
   // An encrypted message notification as the server sends it to Android,
@@ -73,6 +97,16 @@ void main() {
       expect((await messageNotificationContent(data, keyPair: await X25519().newKeyPair()))!.body, genericMessageBody);
     });
 
+    test('names the sender and their picture, when they have one', () async {
+      final content = (await messageNotificationContent(
+          {...data, 'senderId': 'mom-id', 'senderAvatarMediaId': _avatarId}, keyPair: null))!;
+      expect(content.senderId, 'mom-id');
+      expect(content.senderAvatarMediaId, _avatarId);
+
+      final without = (await messageNotificationContent({...data, 'senderAvatarMediaId': ''}, keyPair: null))!;
+      expect(without.senderAvatarMediaId, isNull);
+    });
+
     test('ignores anything that is not a message notification for a chat', () async {
       expect(await messageNotificationContent({...data, 'type': 'call'}, keyPair: null), isNull);
       expect(await messageNotificationContent({...data}..remove('roomId'), keyPair: null), isNull);
@@ -123,6 +157,80 @@ void main() {
       await container.read(pushServiceProvider).registerDevice('android', 'fcm-token', 'fcm');
 
       expect(api.registeredDevices.single.pushPublicKey, isNull);
+    });
+  });
+
+  group('the sender\'s picture', () {
+    test('is fetched as the small preview from the chat server', () async {
+      final requested = <Uri>[];
+      final client = MockClient((request) async {
+        requested.add(request.url);
+        return http.Response.bytes([1, 2, 3], 200);
+      });
+      expect(await fetchSenderAvatar(_avatarId, client: client, baseUrl: 'http://roost-chat'), [1, 2, 3]);
+      expect(requested.single.toString(), 'http://roost-chat/api/media/$_avatarId?variant=preview');
+    });
+
+    test('is left out when the server can\'t give it, and never throws', () async {
+      final notFound = MockClient((_) async => http.Response('', 404));
+      final empty = MockClient((_) async => http.Response.bytes([], 200));
+      final offline = MockClient((_) async => throw http.ClientException('offline'));
+      for (final client in [notFound, empty, offline]) {
+        expect(await fetchSenderAvatar(_avatarId, client: client), isNull);
+      }
+    });
+
+    test('never asks for anything but a media id', () async {
+      var asked = false;
+      final client = MockClient((_) async {
+        asked = true;
+        return http.Response.bytes([1], 200);
+      });
+      for (final id in ['../users', 'x?variant=original', '']) {
+        expect(await fetchSenderAvatar(id, client: client), isNull);
+      }
+      expect(asked, isFalse);
+    });
+
+    test('is shown on the notification as the sender\'s icon', () async {
+      final plugin = _RecordingPlugin();
+      final loaded = <String>[];
+      await showMessageNotification(
+        plugin,
+        {...data, 'senderId': 'mom-id', 'senderAvatarMediaId': _avatarId},
+        keyPair: await deviceKey(),
+        loadAvatar: (id) async {
+          loaded.add(id);
+          return Uint8List.fromList([9, 9, 9]);
+        },
+      );
+
+      expect(loaded, [_avatarId]);
+      final shown = plugin.shown.single;
+      expect((shown.title, shown.body, shown.payload), ('Mom', v['plaintext'], 'room-1'));
+      final android = shown.details!.android!;
+      expect(android.channelId, messagesChannel.channelId, reason: 'still the messages channel');
+      expect((android.largeIcon! as ByteArrayAndroidBitmap).data, [9, 9, 9]);
+      final style = android.styleInformation! as MessagingStyleInformation;
+      final message = style.messages!.single;
+      expect(message.text, v['plaintext']);
+      expect(message.person!.name, 'Mom');
+      expect(message.person!.key, 'mom-id');
+      expect((message.person!.icon! as ByteArrayAndroidIcon).data, [9, 9, 9]);
+    });
+
+    test('without one, the notification is shown as before', () async {
+      for (final (payload, loader) in <(Map<String, dynamic>, SenderAvatarLoader)>[
+        (data, (_) async => fail('nothing to load')),
+        ({...data, 'senderAvatarMediaId': _avatarId}, (_) async => null),
+      ]) {
+        final plugin = _RecordingPlugin();
+        await showMessageNotification(plugin, payload, keyPair: await deviceKey(), loadAvatar: loader);
+        final android = plugin.shown.single.details!.android!;
+        expect(android.largeIcon, isNull);
+        expect(android.styleInformation, isNull);
+        expect(plugin.shown.single.body, v['plaintext']);
+      }
     });
   });
 }

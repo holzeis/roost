@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../data/api_config.dart';
+
 /// The encryption scheme of message-notification previews (FR5.2) this app
 /// understands — see server/internal/cryptobox, which is the reference: an
 /// X25519 + HKDF-SHA256 + ChaCha20-Poly1305 "sealed box" to this device's
@@ -99,7 +101,9 @@ class DevicePushKeys {
 
   Future<String?> publicKey() async {
     try {
-      if (Platform.isIOS) return await _channel.invokeMethod<String>('publicKey');
+      // The server's address goes along for the notification service
+      // extension, which fetches senders' profile pictures from it.
+      if (Platform.isIOS) return await _channel.invokeMethod<String>('publicKey', {'apiBaseUrl': apiBaseUrl});
       if (Platform.isAndroid) return await publicKeyBase64(await loadOrCreateDeviceKeyPair(storage));
     } catch (_) {
       // No usable key store: generic notification text it is.

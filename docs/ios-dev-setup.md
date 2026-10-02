@@ -216,6 +216,38 @@ keychain group. The crypto is checked against
 suites; the Swift side can be checked locally with `swiftc` (see the comment
 in `PushCrypto.swift`).
 
+## Sender pictures on notifications (Communication Notifications)
+
+Message notifications show the sender's profile picture instead of the app
+icon. The push only names the picture (`senderAvatarMediaId`); the
+notification service extension fetches it from the chat server over the
+tailnet (`ios/NotificationServiceExtension/SenderAvatar.swift`, at the
+address the app stores in the App Group, `ios/Shared/SharedSettings.swift`),
+caches it by id, and turns the notification into an iOS Communication
+Notification. Without a picture, or if it can't be fetched within a few
+seconds, the notification shows as before.
+
+**One-time Apple Developer portal setup:**
+
+1. **Capability**: Identifiers → the main App ID `me.holzeis.roost.roost` →
+   enable **Communication Notifications** → Save.
+2. **Regenerate the profile**: Profiles → **Roost App Store** → Edit → Save
+   (a capability change invalidates it) → Download.
+3. **GitHub secret**: update `IOS_PROVISIONING_PROFILE_BASE64` with the new
+   profile, encoded with `base64 -i profile.mobileprovision | pbcopy`. Set it
+   yourself; never paste it anywhere else.
+
+Until this is done, release builds fail to sign: the app's entitlements
+(`ios/Runner/Runner.entitlements`) ask for
+`com.apple.developer.usernotifications.communication`. For local device builds
+with automatic signing, Xcode picks the capability up from the App ID.
+
+**Checking it**: `flutter test integration_test/notification_avatar_test.dart
+-d <device-id>` checks the fetch against a real HTTP server, and
+`integration_test/push_keys_test.dart` the app handing the server address to
+the extension. The picture itself only shows on a real device: the simulator
+doesn't get remote notifications from Apple.
+
 **Export compliance**: the app now encrypts message content itself (on top
 of HTTPS), so `ITSAppUsesNonExemptEncryption` in `ios/Runner/Info.plist` may
 no longer be accurate. Messaging apps that only protect user content usually

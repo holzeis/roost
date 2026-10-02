@@ -1,15 +1,17 @@
 import UserNotifications
 
-/// Decrypts a message notification's preview before iOS shows it (FR5.2).
-/// The server sends the notification with generic text, "mutable-content",
-/// and the preview encrypted to this device's key (see
-/// server/internal/push's BuildMessageNotification); this swaps the
-/// decrypted text in. If anything goes wrong — no key, an unexpected
-/// payload — the notification simply shows as sent. Kept small: extensions
-/// run under a tight memory limit.
+/// Prepares a message notification before iOS shows it. The server sends
+/// it with generic text, "mutable-content", the preview encrypted to this
+/// device's key, and the sender's avatar id (see server/internal/push's
+/// BuildMessageNotification); this swaps the decrypted text in (FR5.2) and
+/// shows the sender's profile picture instead of the app icon (see
+/// SenderAvatar). If anything goes wrong — no key, an unexpected payload,
+/// an unreachable server — the notification shows with what it has. Kept
+/// small: extensions run under a tight memory limit.
 class NotificationService: UNNotificationServiceExtension {
   private var contentHandler: ((UNNotificationContent) -> Void)?
   private var bestAttempt: UNMutableNotificationContent?
+  private let lock = NSLock()
 
   override func didReceive(
     _ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
@@ -22,8 +24,9 @@ class NotificationService: UNNotificationServiceExtension {
     bestAttempt = content
 
     let info = request.content.userInfo
+    let roomId = info["roomId"] as? String
     // One notification thread per chat.
-    if let roomId = info["roomId"] as? String {
+    if let roomId {
       content.threadIdentifier = roomId
     }
     if let key = PushKeyStore.loadPrivateKey(),
@@ -35,13 +38,36 @@ class NotificationService: UNNotificationServiceExtension {
     {
       content.body = preview
     }
-    contentHandler(content)
+
+    guard let roomId, let senderId = info["senderId"] as? String, !senderId.isEmpty,
+      let mediaId = info["senderAvatarMediaId"] as? String,
+      let base = SharedSettings.apiBaseURL
+    else {
+      return deliver(content)
+    }
+    let senderName = (info["senderName"] as? String) ?? content.title
+    SenderAvatar.load(mediaId: mediaId, base: base, cacheDirectory: SenderAvatar.cacheDirectory()) { image in
+      guard let image else { return self.deliver(content) }
+      self.deliver(
+        SenderAvatar.communicationContent(
+          content, senderId: senderId, senderName: senderName, roomId: roomId, image: image) ?? content)
+    }
   }
 
   /// iOS is about to give up on the extension: show what we have.
   override func serviceExtensionTimeWillExpire() {
-    if let contentHandler, let bestAttempt {
-      contentHandler(bestAttempt)
+    if let bestAttempt {
+      deliver(bestAttempt)
     }
+  }
+
+  /// Hands [content] to iOS — once: the avatar fetch and the timeout can
+  /// race.
+  private func deliver(_ content: UNNotificationContent) {
+    lock.lock()
+    let handler = contentHandler
+    contentHandler = nil
+    lock.unlock()
+    handler?(content)
   }
 }
