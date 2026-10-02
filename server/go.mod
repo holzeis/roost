@@ -13,6 +13,7 @@ require (
 	github.com/livekit/protocol v1.51.0
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/sideshow/apns2 v0.25.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/net v0.58.0
 	google.golang.org/api v0.287.0
 	tailscale.com v1.102.4
@@ -151,7 +152,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
-	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
 	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect

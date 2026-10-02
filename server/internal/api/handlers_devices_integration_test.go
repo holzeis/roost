@@ -87,7 +87,7 @@ func (f *fakePushSender) SendCallWake(_ context.Context, deviceToken, platform s
 	return nil
 }
 
-func (f *fakePushSender) SendMessageNotification(_ context.Context, deviceToken, platform string, payload push.MessagePayload) error {
+func (f *fakePushSender) SendMessageNotification(_ context.Context, deviceToken, platform string, _ *string, payload push.MessagePayload) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.messageCalls = append(f.messageCalls, fakeMessagePushCall{deviceToken, platform, payload})
@@ -256,10 +256,10 @@ func TestHandleStartCall_PushesTheOfflineCalleeButNotAnOnlineOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create online callee: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, offlineCallee.ID, "ios", "voip-offline-callee", "voip"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, offlineCallee.ID, "ios", "voip-offline-callee", "voip", nil); err != nil {
 		t.Fatalf("register offline callee's device: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, onlineCallee.ID, "android", "fcm-online-callee", "fcm"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, onlineCallee.ID, "android", "fcm-online-callee", "fcm", nil); err != nil {
 		t.Fatalf("register online callee's device: %v", err)
 	}
 	// Only onlineCallee has a live WS connection — offlineCallee has none,
@@ -337,7 +337,7 @@ func TestHandleStartCall_PushesEvenWhenRegisteredConnectionIsDead(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create callee: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-dead-conn-callee", "voip"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-dead-conn-callee", "voip", nil); err != nil {
 		t.Fatalf("register callee's device: %v", err)
 	}
 	s.Hub.Register(callee.ID, deadWSConn{})
@@ -385,7 +385,7 @@ func TestHandleStartCall_NoPushWhenEveryoneIsOnline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create callee: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-should-not-be-used", "voip"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, callee.ID, "ios", "voip-should-not-be-used", "voip", nil); err != nil {
 		t.Fatalf("register callee's device: %v", err)
 	}
 	s.Hub.Register(callee.ID, fakeWSConn{})
@@ -496,10 +496,10 @@ func TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly(t 
 	if err != nil {
 		t.Fatalf("create online recipient: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, offline.ID, "android", "fcm-offline-recipient", "fcm"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, offline.ID, "android", "fcm-offline-recipient", "fcm", nil); err != nil {
 		t.Fatalf("register offline recipient's device: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, online.ID, "android", "fcm-online-recipient", "fcm"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, online.ID, "android", "fcm-online-recipient", "fcm", nil); err != nil {
 		t.Fatalf("register online recipient's device: %v", err)
 	}
 	s.Hub.Register(online.ID, fakeWSConn{})
@@ -619,7 +619,7 @@ func TestHandleCreateMessage_SkipsAVoipOnlyDeviceForMessageNotifications(t *test
 	if err != nil {
 		t.Fatalf("create offline recipient: %v", err)
 	}
-	if _, err := s.Store.UpsertDevice(ctx, offline.ID, "ios", "voip-only-token", "voip"); err != nil {
+	if _, err := s.Store.UpsertDevice(ctx, offline.ID, "ios", "voip-only-token", "voip", nil); err != nil {
 		t.Fatalf("register offline recipient's voip-only device: %v", err)
 	}
 
@@ -641,5 +641,53 @@ func TestHandleCreateMessage_SkipsAVoipOnlyDeviceForMessageNotifications(t *test
 	}
 	if calls := pushSender.messageCallsSnapshot(); len(calls) != 0 {
 		t.Fatalf("expected no message-notification push to a voip-only device, got %+v", calls)
+	}
+}
+
+// TestHandleRegisterDevice_PushPublicKey: FR5.2's encrypted previews need
+// each device's public key. It's stored with the device, replaced when the
+// app re-registers (e.g. after a reinstall made a new key), and anything
+// that isn't a 32-byte X25519 key is rejected.
+func TestHandleRegisterDevice_PushPublicKey(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	ctx := context.Background()
+	user, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("pushkey-%d@github", time.Now().UnixNano()), "Keyholder")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	register := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/devices", strings.NewReader(body))
+		req = req.WithContext(session.WithUser(req.Context(), user))
+		rec := httptest.NewRecorder()
+		s.handleRegisterDevice(rec, req)
+		return rec.Code
+	}
+	storedKey := func() *string {
+		devices, err := s.Store.ListDevicesForUser(ctx, user.ID)
+		if err != nil || len(devices) != 1 {
+			t.Fatalf("expected one device, got %v (%v)", devices, err)
+		}
+		return devices[0].PushPublicKey
+	}
+
+	keyA := "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns="
+	keyB := "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw="
+	if code := register(`{"platform":"ios","pushToken":"fcm-key-test","tokenType":"fcm","pushPublicKey":"` + keyA + `"}`); code != http.StatusOK {
+		t.Fatalf("register: %d", code)
+	}
+	if got := storedKey(); got == nil || *got != keyA {
+		t.Fatalf("stored key = %v, want %s", got, keyA)
+	}
+	if code := register(`{"platform":"ios","pushToken":"fcm-key-test","tokenType":"fcm","pushPublicKey":"` + keyB + `"}`); code != http.StatusOK {
+		t.Fatalf("re-register: %d", code)
+	}
+	if got := storedKey(); got == nil || *got != keyB {
+		t.Fatalf("re-registering must replace the key, got %v", got)
+	}
+	for _, bad := range []string{`"short"`, `"` + strings.Repeat("A", 40) + `"`} {
+		if code := register(`{"platform":"ios","pushToken":"fcm-key-test","tokenType":"fcm","pushPublicKey":` + bad + `}`); code != http.StatusBadRequest {
+			t.Fatalf("malformed key %s: expected 400, got %d", bad, code)
+		}
 	}
 }

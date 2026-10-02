@@ -1,0 +1,9 @@
+{
+  "ciphertext": "a+uasZIj49JSjEwc8yHeqS0MImrzmmdxd+hNjKffcqshCQ==",
+  "ephemeralPrivateKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "ephemeralPublicKey": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+  "plaintext": "Dinner's at 7 🍝",
+  "recipientPrivateKey": "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=",
+  "recipientPublicKey": "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns=",
+  "scheme": "v1"
+}

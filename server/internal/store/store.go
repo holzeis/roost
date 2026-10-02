@@ -94,15 +94,18 @@ func scanUser(row pgx.Row) (models.User, error) {
 // UNIQUE(user_id, push_token) constraint. tokenType is "fcm" or "voip" —
 // see models.Device's doc comment for why a single iOS device can have one
 // row of each.
-func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken, tokenType string) (models.Device, error) {
+func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken, tokenType string, pushPublicKey *string) (models.Device, error) {
+	// A client re-sends its key on every app start, so the row stays current
+	// (and a reinstall's new key replaces the old one).
 	const q = `
-		INSERT INTO devices (user_id, platform, push_token, token_type)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id, push_token) DO UPDATE SET last_seen_at = now(), token_type = EXCLUDED.token_type
-		RETURNING id, user_id, platform, push_token, token_type, last_seen_at`
+		INSERT INTO devices (user_id, platform, push_token, token_type, push_public_key)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id, push_token) DO UPDATE SET
+			last_seen_at = now(), token_type = EXCLUDED.token_type, push_public_key = EXCLUDED.push_public_key
+		RETURNING id, user_id, platform, push_token, token_type, last_seen_at, push_public_key`
 	var d models.Device
-	err := s.pool.QueryRow(ctx, q, userID, platform, pushToken, tokenType).
-		Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.TokenType, &d.LastSeenAt)
+	err := s.pool.QueryRow(ctx, q, userID, platform, pushToken, tokenType, pushPublicKey).
+		Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.TokenType, &d.LastSeenAt, &d.PushPublicKey)
 	if err != nil {
 		return models.Device{}, fmt.Errorf("store: upsert device: %w", err)
 	}
@@ -115,7 +118,7 @@ func (s *Store) UpsertDevice(ctx context.Context, userID, platform, pushToken, t
 // and a tablet registered, and on iOS, two rows for the same physical
 // device — see models.Device).
 func (s *Store) ListDevicesForUser(ctx context.Context, userID string) ([]models.Device, error) {
-	const q = `SELECT id, user_id, platform, push_token, token_type, last_seen_at FROM devices WHERE user_id = $1`
+	const q = `SELECT id, user_id, platform, push_token, token_type, last_seen_at, push_public_key FROM devices WHERE user_id = $1`
 	rows, err := s.pool.Query(ctx, q, userID)
 	if err != nil {
 		return nil, fmt.Errorf("store: list devices: %w", err)
@@ -125,7 +128,7 @@ func (s *Store) ListDevicesForUser(ctx context.Context, userID string) ([]models
 	var devices []models.Device
 	for rows.Next() {
 		var d models.Device
-		if err := rows.Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.TokenType, &d.LastSeenAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Platform, &d.PushToken, &d.TokenType, &d.LastSeenAt, &d.PushPublicKey); err != nil {
 			return nil, fmt.Errorf("store: scan device: %w", err)
 		}
 		devices = append(devices, d)

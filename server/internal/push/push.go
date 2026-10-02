@@ -2,13 +2,17 @@
 // in docs/architecture-overview.md: when a callee isn't reachable over the
 // WebSocket, the server pushes just enough data via APNs/FCM to wake the app
 // and let CallKit/ConnectionService show the native incoming-call screen.
-// Payloads deliberately carry no LiveKit token or message content (push
-// transport isn't guaranteed end-to-end encrypted the way tailnet traffic
-// is) — the app calls back over the tailnet to fetch the real token.
+// Payloads deliberately carry no LiveKit token (push transport isn't
+// guaranteed end-to-end encrypted the way tailnet traffic is) — the app
+// calls back over the tailnet to fetch the real token. A message
+// notification's preview is the one piece of content that does travel, and
+// only end-to-end encrypted to the receiving device (internal/cryptobox):
+// Apple and Google see ciphertext.
 package push
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	firebase "firebase.google.com/go/v4"
@@ -16,6 +20,8 @@ import (
 	"github.com/sideshow/apns2"
 	"github.com/sideshow/apns2/token"
 	"google.golang.org/api/option"
+
+	"roost/server/internal/cryptobox"
 )
 
 // CallWakePayload carries what IncomingCallScreen needs to render itself
@@ -34,22 +40,33 @@ type CallWakePayload struct {
 	CallerName string
 }
 
-// MessagePayload backs FR5.2 — a generic "new message" notification.
-// Deliberately carries no message body/preview (see this package's own doc
-// comment on why); SenderName is the one bit of context shown, the same
-// way CallWakePayload.CallerName is display-only for the call-wake case.
+// MessagePayload backs FR5.2 — a "new message" notification. SenderName
+// is its title, sent as is. Preview (the message text, or "Photo" and the
+// like) is never sent as is: it's encrypted to each receiving device's own
+// public key, and a device without one gets generic text instead.
 type MessagePayload struct {
 	RoomID     string
 	MessageID  string
 	SenderName string
+	Preview    string
 }
+
+// maxPreviewRunes caps the encrypted preview, keeping the notification well
+// within APNs' 4 KB payload limit; the notification shows a line or two.
+const maxPreviewRunes = 160
+
+// genericBody is shown when a device can't get an encrypted preview (no
+// key registered, e.g. an older app version).
+const genericBody = "Sent a message in Roost"
 
 // Sender delivers a wake-up push to a single device. Implementations should
 // treat delivery failure as non-fatal to the caller — push is a best-effort
 // fallback, not the primary delivery path (that's the WebSocket).
 type Sender interface {
 	SendCallWake(ctx context.Context, deviceToken, platform string, payload CallWakePayload) error
-	SendMessageNotification(ctx context.Context, deviceToken, platform string, payload MessagePayload) error
+	// pushPublicKey: the device's X25519 key (base64) to encrypt the
+	// preview to, or nil for the generic text.
+	SendMessageNotification(ctx context.Context, deviceToken, platform string, pushPublicKey *string, payload MessagePayload) error
 }
 
 // NoopSender is used until real APNs/FCM credentials are configured; it logs
@@ -61,7 +78,7 @@ func (NoopSender) SendCallWake(ctx context.Context, deviceToken, platform string
 	return nil
 }
 
-func (NoopSender) SendMessageNotification(ctx context.Context, deviceToken, platform string, payload MessagePayload) error {
+func (NoopSender) SendMessageNotification(ctx context.Context, deviceToken, platform string, pushPublicKey *string, payload MessagePayload) error {
 	return nil
 }
 
@@ -95,13 +112,13 @@ func (m MultiSender) SendCallWake(ctx context.Context, deviceToken, platform str
 // an FCM token (obtained via firebase_messaging, not PushKit; see
 // lib/services/push_service.dart), since a plain alert notification
 // doesn't need PushKit/CallKit's special wake guarantees the way a call
-// does. platform is accepted for interface-symmetry with SendCallWake but
-// unused here.
-func (m MultiSender) SendMessageNotification(ctx context.Context, deviceToken, platform string, payload MessagePayload) error {
+// does. platform still matters: it decides how the encrypted preview is
+// delivered (see BuildMessageNotification).
+func (m MultiSender) SendMessageNotification(ctx context.Context, deviceToken, platform string, pushPublicKey *string, payload MessagePayload) error {
 	if m.FCM == nil {
 		return nil
 	}
-	return m.FCM.SendMessageNotification(ctx, deviceToken, payload)
+	return m.FCM.SendMessageNotification(ctx, deviceToken, platform, pushPublicKey, payload)
 }
 
 // APNsSender wakes iOS for CallKit via a PushKit VoIP-type push (Apple's
@@ -214,29 +231,87 @@ func (f *FCMSender) SendCallWake(ctx context.Context, deviceToken string, payloa
 	return nil
 }
 
-// SendMessageNotification (FR5.2) sends a real "notification" message
-// (title/body), not a data-only one — unlike call wake, there's no custom
-// UI to build ourselves here; the OS shows it natively even while the app
-// is backgrounded or fully closed. Body is deliberately generic (see this
-// package's own doc comment) — never the actual message text.
-func (f *FCMSender) SendMessageNotification(ctx context.Context, deviceToken string, payload MessagePayload) error {
+// SendMessageNotification (FR5.2) sends one device its notification for a
+// new message — see BuildMessageNotification for its shape.
+func (f *FCMSender) SendMessageNotification(ctx context.Context, deviceToken, platform string, pushPublicKey *string, payload MessagePayload) error {
+	msg, err := BuildMessageNotification(deviceToken, platform, pushPublicKey, payload)
+	if err != nil {
+		return err
+	}
+	if _, err := f.client.Send(ctx, msg); err != nil {
+		return fmt.Errorf("push: send fcm message notification: %w", err)
+	}
+	return nil
+}
+
+// BuildMessageNotification builds the FCM message for one device:
+//   - Without a usable public key: a plain notification the OS shows by
+//     itself, with generic text — what every device got before previews
+//     existed.
+//   - Android: data-only and high priority, like call wake. The app wakes,
+//     decrypts the preview and shows the notification itself.
+//   - iOS: a real notification with generic text plus "mutable-content",
+//     so the app's notification service extension can decrypt the preview
+//     and put it in place before it's shown; if the extension can't, the
+//     generic text is what appears.
+//
+// The data carries type "message" (call wake has none), the ids for tap
+// routing, the sender's name, and with a key the scheme, the ephemeral
+// public key and the ciphertext.
+func BuildMessageNotification(deviceToken, platform string, pushPublicKey *string, payload MessagePayload) (*messaging.Message, error) {
 	title := payload.SenderName
 	if title == "" {
 		title = "New message"
 	}
-	_, err := f.client.Send(ctx, &messaging.Message{
-		Token: deviceToken,
-		Notification: &messaging.Notification{
-			Title: title,
-			Body:  "Sent a message in Roost",
-		},
-		Data: map[string]string{
-			"roomId":    payload.RoomID,
-			"messageId": payload.MessageID,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("push: send fcm message notification: %w", err)
+	data := map[string]string{
+		"type":       "message",
+		"roomId":     payload.RoomID,
+		"messageId":  payload.MessageID,
+		"senderName": title,
 	}
-	return nil
+
+	var recipient [32]byte
+	encrypt := pushPublicKey != nil
+	if encrypt {
+		key, err := cryptobox.ParsePublicKey(*pushPublicKey)
+		if err != nil {
+			encrypt = false // unusable key: fall back to the generic text
+		}
+		recipient = key
+	}
+	if !encrypt {
+		return &messaging.Message{
+			Token:        deviceToken,
+			Notification: &messaging.Notification{Title: title, Body: genericBody},
+			Data:         data,
+		}, nil
+	}
+
+	ephemeralPub, ciphertext, err := cryptobox.Seal(recipient, []byte(truncateRunes(payload.Preview, maxPreviewRunes)))
+	if err != nil {
+		return nil, fmt.Errorf("push: encrypt preview: %w", err)
+	}
+	data["scheme"] = cryptobox.Scheme
+	data["ephemeralPublicKey"] = base64.StdEncoding.EncodeToString(ephemeralPub[:])
+	data["ciphertext"] = base64.StdEncoding.EncodeToString(ciphertext)
+
+	msg := &messaging.Message{Token: deviceToken, Data: data}
+	if platform == "ios" {
+		msg.Notification = &messaging.Notification{Title: title, Body: "New message"}
+		msg.APNS = &messaging.APNSConfig{
+			Payload: &messaging.APNSPayload{Aps: &messaging.Aps{MutableContent: true}},
+		}
+	} else {
+		msg.Android = &messaging.AndroidConfig{Priority: "high"}
+	}
+	return msg, nil
+}
+
+// truncateRunes shortens s to at most n characters, ending in an ellipsis.
+func truncateRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n-1]) + "…"
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"roost/server/internal/cryptobox"
 	"roost/server/internal/linkpreview"
 	"roost/server/internal/models"
 	"roost/server/internal/push"
@@ -164,10 +165,20 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		// so an older client that doesn't send it yet still registers
 		// something sane.
 		TokenType string `json:"tokenType"`
+		// PushPublicKey: the device's X25519 public key (base64, 32 bytes)
+		// that message-notification previews are encrypted to (FR5.2).
+		// Optional: without it the device gets the generic text.
+		PushPublicKey *string `json:"pushPublicKey"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	if body.PushPublicKey != nil {
+		if _, err := cryptobox.ParsePublicKey(*body.PushPublicKey); err != nil {
+			writeError(w, http.StatusBadRequest, "pushPublicKey must be a base64 32-byte X25519 public key")
+			return
+		}
 	}
 	if body.Platform != "ios" && body.Platform != "android" {
 		writeError(w, http.StatusBadRequest, "platform must be ios or android")
@@ -185,7 +196,7 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device, err := s.Store.UpsertDevice(r.Context(), u.ID, body.Platform, body.PushToken, body.TokenType)
+	device, err := s.Store.UpsertDevice(r.Context(), u.ID, body.Platform, body.PushToken, body.TokenType, body.PushPublicKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not register device")
 		return
@@ -1677,7 +1688,36 @@ func (s *Server) deliverMessageEvent(ctx context.Context, roomID, senderID, send
 			RoomID:     roomID,
 			MessageID:  msg.ID,
 			SenderName: senderName,
+			Preview:    previewForMessage(msg),
 		})
+	}
+}
+
+// previewForMessage is what a new-message notification says about msg —
+// the counterpart of the app's messagePreviewLabel
+// (app/lib/features/chat/reply_preview.dart): the text itself, a
+// photo/video's caption, or a label for other kinds. Only ever sent
+// encrypted (see push.MessagePayload).
+func previewForMessage(msg models.Message) string {
+	body := ""
+	if msg.Body != nil {
+		body = *msg.Body
+	}
+	switch msg.Kind {
+	case models.MessageKindImage:
+		if body != "" {
+			return "📷 " + body
+		}
+		return "📷 Photo"
+	case models.MessageKindVideo:
+		if body != "" {
+			return "🎥 " + body
+		}
+		return "🎥 Video"
+	case models.MessageKindLocation:
+		return "📍 Live location"
+	default:
+		return body
 	}
 }
 
@@ -1718,7 +1758,7 @@ func (s *Server) pushMessageNotification(ctx context.Context, userID string, pay
 		if d.TokenType != "fcm" {
 			continue
 		}
-		if err := s.Push.SendMessageNotification(ctx, d.PushToken, d.Platform, payload); err != nil {
+		if err := s.Push.SendMessageNotification(ctx, d.PushToken, d.Platform, d.PushPublicKey, payload); err != nil {
 			slog.Error("push: message notification failed", "user", userID, "device", d.ID, "platform", d.Platform, "error", err)
 		}
 	}

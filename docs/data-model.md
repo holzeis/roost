@@ -38,6 +38,7 @@ already covers both, so it never has more than one row per registration.
 | `platform` | text | `ios` \| `android` |
 | `push_token` | text | APNs device token (VoIP or regular) or FCM registration token |
 | `token_type` | text | `fcm` (message notifications, both platforms) \| `voip` (call wake, iOS only) — migration 0005 |
+| `push_public_key` | text, nullable | The device's X25519 public key (base64), which message-notification previews are encrypted to (FR5.2). Re-sent on every app start; null for a device that hasn't sent one (it gets generic notification text) and for `voip` rows — migration 0009 |
 | `created_at`, `last_seen_at` | timestamptz | |
 
 ### media_objects

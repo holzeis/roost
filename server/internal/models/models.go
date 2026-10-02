@@ -237,6 +237,11 @@ type Device struct {
 	// single FCM token already covers both, so it's always "fcm" there).
 	TokenType  string    `json:"tokenType"`
 	LastSeenAt time.Time `json:"lastSeenAt"`
+	// PushPublicKey is the device's X25519 public key (base64) that
+	// message-notification previews are encrypted to (FR5.2, see
+	// internal/cryptobox). Nil when the device hasn't sent one: it then
+	// gets the generic notification text.
+	PushPublicKey *string `json:"-"`
 }
 
 type CallStatus string

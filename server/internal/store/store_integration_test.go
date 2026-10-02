@@ -1104,7 +1104,7 @@ func TestStore_UpsertDevice_RegistersAndRefreshes(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	first, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc", "voip")
+	first, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc", "voip", nil)
 	if err != nil {
 		t.Fatalf("upsert device: %v", err)
 	}
@@ -1113,7 +1113,7 @@ func TestStore_UpsertDevice_RegistersAndRefreshes(t *testing.T) {
 		t.Fatalf("unexpected device: %+v", first)
 	}
 
-	again, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc", "voip")
+	again, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token-abc", "voip", nil)
 	if err != nil {
 		t.Fatalf("re-upsert device: %v", err)
 	}
@@ -1142,10 +1142,10 @@ func TestStore_ListDevicesForUser_ReturnsEveryRegisteredDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "phone-token", "fcm"); err != nil {
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "phone-token", "fcm", nil); err != nil {
 		t.Fatalf("upsert phone device: %v", err)
 	}
-	if _, err := s.UpsertDevice(ctx, user.ID, "android", "tablet-token", "fcm"); err != nil {
+	if _, err := s.UpsertDevice(ctx, user.ID, "android", "tablet-token", "fcm", nil); err != nil {
 		t.Fatalf("upsert tablet device: %v", err)
 	}
 
@@ -1196,10 +1196,10 @@ func TestStore_UpsertDevice_OneIOSDeviceCanHaveBothTokenTypes(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token", "voip"); err != nil {
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "voip-token", "voip", nil); err != nil {
 		t.Fatalf("upsert voip token: %v", err)
 	}
-	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "fcm-token", "fcm"); err != nil {
+	if _, err := s.UpsertDevice(ctx, user.ID, "ios", "fcm-token", "fcm", nil); err != nil {
 		t.Fatalf("upsert fcm token: %v", err)
 	}
 

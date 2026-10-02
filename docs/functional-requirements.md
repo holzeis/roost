@@ -65,7 +65,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | ID | Requirement | Priority |
 |---|---|---|
 | FR5.1 | Users receive a push notification for an incoming call when the app is backgrounded or closed | Must |
-| FR5.2 | Users receive a push notification for new messages when the app is backgrounded or closed | Should |
+| FR5.2 | Users receive a push notification for new messages when the app is backgrounded or closed, showing the sender and a preview of the message (the text, or e.g. "📷 Photo"). The preview is end-to-end encrypted to the receiving device | Should |
 | FR5.3 | Users can mute notifications per room | Could |
 
 ## 6. Identity & access
