@@ -411,7 +411,7 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
+	s.deliverMessageEvent(r.Context(), roomID, sender, msg)
 
 	writeJSON(w, http.StatusCreated, msg)
 }
@@ -602,7 +602,7 @@ func (s *Server) handleUploadMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
+	s.deliverMessageEvent(r.Context(), roomID, sender, msg)
 
 	writeJSON(w, http.StatusCreated, msg)
 }
@@ -1272,7 +1272,7 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.deliverMessageEvent(r.Context(), body.RoomID, sender.ID, sender.DisplayName, forwarded)
+	s.deliverMessageEvent(r.Context(), body.RoomID, sender, forwarded)
 	writeJSON(w, http.StatusCreated, forwarded)
 }
 
@@ -1366,7 +1366,7 @@ func (s *Server) handleShareLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.deliverMessageEvent(r.Context(), roomID, sender.ID, sender.DisplayName, msg)
+	s.deliverMessageEvent(r.Context(), roomID, sender, msg)
 	writeJSON(w, http.StatusCreated, msg)
 }
 
@@ -1670,7 +1670,7 @@ func (s *Server) deliverToRoom(
 // title —
 // see push.MessagePayload's own doc comment on why the body never carries
 // the actual message content.
-func (s *Server) deliverMessageEvent(ctx context.Context, roomID, senderID, senderName string, msg models.Message) {
+func (s *Server) deliverMessageEvent(ctx context.Context, roomID string, sender models.User, msg models.Message) {
 	memberIDs, err := s.Store.ListRoomMemberIDs(ctx, roomID)
 	if err != nil {
 		slog.Error("deliver: list room members failed", "room", roomID, "error", err)
@@ -1681,14 +1681,16 @@ func (s *Server) deliverMessageEvent(ctx context.Context, roomID, senderID, send
 		if s.Hub.SendToUser(memberID, ev) {
 			continue
 		}
-		if memberID == senderID {
+		if memberID == sender.ID {
 			continue
 		}
 		s.pushMessageNotification(ctx, memberID, push.MessagePayload{
-			RoomID:     roomID,
-			MessageID:  msg.ID,
-			SenderName: senderName,
-			Preview:    previewForMessage(msg),
+			RoomID:              roomID,
+			MessageID:           msg.ID,
+			SenderID:            sender.ID,
+			SenderName:          sender.DisplayName,
+			SenderAvatarMediaID: sender.AvatarMediaID,
+			Preview:             previewForMessage(msg),
 		})
 	}
 }

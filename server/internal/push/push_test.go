@@ -153,3 +153,33 @@ func TestBuildMessageNotification_TruncatesLongPreviews(t *testing.T) {
 		t.Fatalf("expected %d characters ending in an ellipsis, got %d", maxPreviewRunes, n)
 	}
 }
+
+func TestBuildMessageNotification_CarriesTheSenderForTheAvatar(t *testing.T) {
+	_, pub := testDeviceKeys(t)
+	avatar := "media-42"
+	withAvatar := testPayload
+	withAvatar.SenderID = "user-mom"
+	withAvatar.SenderAvatarMediaID = &avatar
+	for _, platform := range []string{"ios", "android"} {
+		msg, err := BuildMessageNotification("token", platform, &pub, withAvatar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Data["senderId"] != "user-mom" || msg.Data["senderAvatarMediaId"] != "media-42" {
+			t.Fatalf("%s: sender not in the data: %v", platform, msg.Data)
+		}
+	}
+
+	empty := ""
+	for _, id := range []*string{nil, &empty} {
+		noAvatar := testPayload
+		noAvatar.SenderAvatarMediaID = id
+		msg, err := BuildMessageNotification("token", "ios", &pub, noAvatar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := msg.Data["senderAvatarMediaId"]; ok {
+			t.Fatalf("no avatar, no avatar id: %v", msg.Data)
+		}
+	}
+}

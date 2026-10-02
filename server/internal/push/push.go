@@ -47,8 +47,13 @@ type CallWakePayload struct {
 type MessagePayload struct {
 	RoomID     string
 	MessageID  string
+	SenderID   string
 	SenderName string
-	Preview    string
+	// SenderAvatarMediaID lets the device show the sender's profile picture
+	// on the notification in place of the app icon. Only an id: the image
+	// itself is fetched over the tailnet, never sent through push.
+	SenderAvatarMediaID *string
+	Preview             string
 }
 
 // maxPreviewRunes caps the encrypted preview, keeping the notification well
@@ -267,7 +272,11 @@ func BuildMessageNotification(deviceToken, platform string, pushPublicKey *strin
 		"type":       "message",
 		"roomId":     payload.RoomID,
 		"messageId":  payload.MessageID,
+		"senderId":   payload.SenderID,
 		"senderName": title,
+	}
+	if payload.SenderAvatarMediaID != nil && *payload.SenderAvatarMediaID != "" {
+		data["senderAvatarMediaId"] = *payload.SenderAvatarMediaID
 	}
 
 	var recipient [32]byte

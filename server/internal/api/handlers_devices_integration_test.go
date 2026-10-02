@@ -488,6 +488,13 @@ func TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly(t 
 	if err != nil {
 		t.Fatalf("create sender: %v", err)
 	}
+	avatar, err := s.Store.CreateMediaObject(ctx, "roost-media", fmt.Sprintf("avatars/%d.jpg", run), "image/jpeg", 1, sender.ID, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("create avatar: %v", err)
+	}
+	if sender, err = s.Store.UpdateUserProfile(ctx, sender.ID, sender.DisplayName, &avatar.ID); err != nil {
+		t.Fatalf("set avatar: %v", err)
+	}
 	offline, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("msg-offline-%d@github", run), "Offline")
 	if err != nil {
 		t.Fatalf("create offline recipient: %v", err)
@@ -539,6 +546,9 @@ func TestHandleCreateMessage_PushesMessageNotificationToOfflineRecipientsOnly(t 
 	if got.payload.RoomID != room.ID || got.payload.MessageID != created.ID || got.payload.SenderName != sender.DisplayName {
 		t.Fatalf("unexpected push payload: %+v (want room=%s message=%s sender=%s)",
 			got.payload, room.ID, created.ID, sender.DisplayName)
+	}
+	if got.payload.SenderID != sender.ID || got.payload.SenderAvatarMediaID == nil || *got.payload.SenderAvatarMediaID != avatar.ID {
+		t.Fatalf("the push must name the sender and their avatar so the device can show it: %+v", got.payload)
 	}
 }
 
