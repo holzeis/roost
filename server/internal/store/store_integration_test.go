@@ -892,27 +892,74 @@ func TestStore_Call_OneToOne_CompletedWhenCalleeAnswers(t *testing.T) {
 		t.Fatalf("bob joins: %v", err)
 	}
 
-	// Bob leaving alone doesn't end the call — alice is still in it.
-	_, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID)
+	// In a 1:1 call, either side hanging up ends it — here bob does.
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID, false)
 	if err != nil {
 		t.Fatalf("bob leaves: %v", err)
 	}
-	if finalized {
-		t.Fatal("expected the call to still be active with alice remaining")
-	}
-
-	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID)
-	if err != nil {
-		t.Fatalf("alice leaves: %v", err)
-	}
 	if !finalized {
-		t.Fatal("expected the call to finalize once the last participant leaves")
+		t.Fatal("expected a 1:1 call to end when either side leaves")
 	}
 	if updated.Call == nil || updated.Call.Status != models.CallStatusCompleted {
 		t.Fatalf("expected status=completed (bob answered), got %+v", updated.Call)
 	}
-	if updated.Call.EndedAt == nil {
-		t.Fatal("expected EndedAt to be set")
+	if updated.Call.EndedAt == nil || updated.Call.AnsweredAt == nil {
+		t.Fatalf("expected EndedAt and AnsweredAt to be set, got %+v", updated.Call)
+	}
+	if updated.Call.AnsweredAt.Before(updated.Call.StartedAt) || updated.Call.EndedAt.Before(*updated.Call.AnsweredAt) {
+		t.Fatalf("expected started <= answered <= ended, got %+v", updated.Call)
+	}
+
+	// Alice's own hang-up afterwards changes nothing.
+	if _, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID, false); err != nil || finalized {
+		t.Fatalf("a leave after the call ended: finalized=%v err=%v", finalized, err)
+	}
+}
+
+// TestStore_Call_OneToOne_NoAnswerAfterAcceptIsMissed is the call that got
+// stuck on "Ringing…": bob accepted (e.g. on the lock screen) but his media
+// never connected, so alice's ring timeout gave up. That's a missed call,
+// not a completed one, and it must end even though bob counts as joined.
+func TestStore_Call_OneToOne_NoAnswerAfterAcceptIsMissed(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	run := time.Now().UnixNano()
+
+	alice, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alice-callna-%d@github", run), "Alice")
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := s.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("bob-callna-%d@github", run), "Bob")
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+	room, err := s.CreateRoom(ctx, alice.ID, nil, false, []string{bob.ID})
+	if err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	msg, err := s.CreateCall(ctx, room.ID, alice.ID)
+	if err != nil {
+		t.Fatalf("create call: %v", err)
+	}
+	if err := s.JoinCall(ctx, msg.Call.ID, bob.ID); err != nil {
+		t.Fatalf("bob accepts: %v", err)
+	}
+
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID, true)
+	if err != nil {
+		t.Fatalf("alice's ring timeout: %v", err)
+	}
+	if !finalized || updated.Call == nil || updated.Call.Status != models.CallStatusMissed {
+		t.Fatalf("expected the call to end as missed, got finalized=%v call=%+v", finalized, updated.Call)
+	}
+
+	// Bob's app connecting late and then leaving doesn't revive or change it.
+	if _, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID, false); err != nil || finalized {
+		t.Fatalf("bob's late leave: finalized=%v err=%v", finalized, err)
+	}
+	call, err := s.GetCall(ctx, msg.Call.ID)
+	if err != nil || call.Status != models.CallStatusMissed {
+		t.Fatalf("expected the call to stay missed, got %+v err=%v", call, err)
 	}
 }
 
@@ -939,7 +986,7 @@ func TestStore_Call_OneToOne_MissedWhenNobodyAnswers(t *testing.T) {
 	}
 
 	// Alice (the caller) gives up — bob never joined.
-	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID)
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID, false)
 	if err != nil {
 		t.Fatalf("alice leaves: %v", err)
 	}
@@ -982,11 +1029,12 @@ func TestStore_Call_Group_CompletedIfAnyoneAnswered(t *testing.T) {
 	if err := s.JoinCall(ctx, msg.Call.ID, bob.ID); err != nil {
 		t.Fatalf("bob joins: %v", err)
 	}
-	if _, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID); err != nil || finalized {
+	// Unlike 1:1, a group call goes on while anyone is still in it.
+	if _, finalized, err := s.LeaveCall(ctx, msg.Call.ID, bob.ID, false); err != nil || finalized {
 		t.Fatalf("bob leaves (call should stay active, alice remains): finalized=%v err=%v", finalized, err)
 	}
 
-	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID)
+	updated, finalized, err := s.LeaveCall(ctx, msg.Call.ID, alice.ID, false)
 	if err != nil {
 		t.Fatalf("alice leaves: %v", err)
 	}

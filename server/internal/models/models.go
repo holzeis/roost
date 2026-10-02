@@ -256,6 +256,10 @@ type Call struct {
 	Status    CallStatus `json:"status"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// AnsweredAt is when someone other than the caller first joined (nil if
+	// nobody did) — a call's talk time runs from here to EndedAt, not from
+	// StartedAt, which includes the ringing.
+	AnsweredAt *time.Time `json:"answeredAt,omitempty"`
 }
 
 // CallParticipant tracks one user's attendance in a call (FR4.8's "who was

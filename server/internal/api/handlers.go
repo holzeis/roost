@@ -1808,9 +1808,9 @@ func (s *Server) handleDeclineCall(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleLeaveCall implements FR4.5's end/hang-up. Works the same way for
-// the original caller giving up on an unanswered call and for any
-// participant hanging up mid-call.
+// handleLeaveCall implements FR4.5's end/hang-up, for the caller giving up
+// on an unanswered call and for anyone hanging up mid-call alike. When that
+// ends the call (see Store.LeaveCall for when it does), the room is told.
 func (s *Server) handleLeaveCall(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUser(w, r)
 	if !ok {
@@ -1822,7 +1822,20 @@ func (s *Server) handleLeaveCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, finalized, err := s.Store.LeaveCall(r.Context(), callID, userID)
+	// Optional: the caller's app sends noAnswer when its ring timeout gave
+	// up, so the call ends as missed even if someone accepted it but never
+	// connected (see Store.LeaveCall). An empty body is an ordinary hang-up.
+	var body struct {
+		NoAnswer bool `json:"noAnswer"`
+	}
+	if r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+	}
+
+	updated, finalized, err := s.Store.LeaveCall(r.Context(), callID, userID, body.NoAnswer)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not leave call")
 		return

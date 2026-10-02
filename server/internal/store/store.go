@@ -512,10 +512,15 @@ func (s *Store) CreateCall(ctx context.Context, roomID, callerID string) (models
 	return msg, nil
 }
 
+// callAnsweredAt selects a call's AnsweredAt: when someone other than the
+// caller first joined it.
+const callAnsweredAt = `(SELECT min(cp.joined_at) FROM call_participants cp WHERE cp.call_id = c.id AND cp.user_id != c.started_by)`
+
 func (s *Store) GetCall(ctx context.Context, callID string) (models.Call, error) {
-	const q = `SELECT id, room_id, message_id, started_by, status, started_at, ended_at FROM calls WHERE id = $1`
+	q := `SELECT c.id, c.room_id, c.message_id, c.started_by, c.status, c.started_at, c.ended_at, ` + callAnsweredAt + `
+		FROM calls c WHERE c.id = $1`
 	var c models.Call
-	err := s.pool.QueryRow(ctx, q, callID).Scan(&c.ID, &c.RoomID, &c.MessageID, &c.StartedBy, &c.Status, &c.StartedAt, &c.EndedAt)
+	err := s.pool.QueryRow(ctx, q, callID).Scan(&c.ID, &c.RoomID, &c.MessageID, &c.StartedBy, &c.Status, &c.StartedAt, &c.EndedAt, &c.AnsweredAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.Call{}, ErrNotFound
 	}
@@ -539,14 +544,25 @@ func (s *Store) JoinCall(ctx context.Context, callID, userID string) error {
 	return nil
 }
 
-// LeaveCall implements FR4.5's end/hang-up, used uniformly whether the
-// leaver is the original caller giving up on an unanswered call or any
-// participant hanging up mid-call. If this was the last active
-// participant, the call is finalized (models.FinalizeCallStatus) and the
-// returned bool is true — the handler only broadcasts message.updated in
-// that case, since LiveKit's own room events are what every other client
-// actually observes while the call is still live.
-func (s *Store) LeaveCall(ctx context.Context, callID, userID string) (models.Message, bool, error) {
+// LeaveCall implements FR4.5's end/hang-up: records userID leaving and,
+// when that ends the call, finalizes it and returns its message with true
+// (the handler then tells the room; while a call is still live, LiveKit's
+// own room events are what the other participants observe).
+//
+// When a leave ends the call:
+//   - noAnswer from the caller (their ring timeout fired: nobody's media
+//     ever connected) always ends it as missed, even if someone had
+//     accepted. A callee can accept on the lock screen and only connect
+//     once the phone is unlocked, long after the caller gave up; without
+//     this the call was never finalized and read "Ringing…" forever.
+//   - In a 1:1 room, either side leaving ends it: there's nobody left to
+//     talk to.
+//   - In a group, it ends once the last participant has left.
+//
+// It ends completed if someone other than the caller answered, otherwise
+// missed (models.FinalizeCallStatus). A leave after the call already ended
+// changes nothing.
+func (s *Store) LeaveCall(ctx context.Context, callID, userID string, noAnswer bool) (models.Message, bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return models.Message{}, false, fmt.Errorf("store: begin: %w", err)
@@ -558,37 +574,47 @@ func (s *Store) LeaveCall(ctx context.Context, callID, userID string) (models.Me
 		return models.Message{}, false, fmt.Errorf("store: leave call: %w", err)
 	}
 
-	const anyoneStillIn = `
-		SELECT EXISTS(SELECT 1 FROM call_participants WHERE call_id = $1 AND joined_at IS NOT NULL AND left_at IS NULL)`
-	var stillActive bool
-	if err := tx.QueryRow(ctx, anyoneStillIn, callID).Scan(&stillActive); err != nil {
-		return models.Message{}, false, fmt.Errorf("store: check remaining participants: %w", err)
+	const state = `
+		SELECT c.status, c.started_by, r.is_group,
+		       EXISTS(SELECT 1 FROM call_participants WHERE call_id = c.id AND joined_at IS NOT NULL AND left_at IS NULL),
+		       EXISTS(SELECT 1 FROM call_participants WHERE call_id = c.id AND user_id != c.started_by AND joined_at IS NOT NULL)
+		FROM calls c JOIN rooms r ON r.id = c.room_id
+		WHERE c.id = $1`
+	var status, startedBy string
+	var isGroup, stillActive, answered bool
+	if err := tx.QueryRow(ctx, state, callID).Scan(&status, &startedBy, &isGroup, &stillActive, &answered); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Message{}, false, ErrNotFound
+		}
+		return models.Message{}, false, fmt.Errorf("store: check call state: %w", err)
 	}
-	if stillActive {
+
+	var final models.CallStatus
+	switch {
+	case status != string(models.CallStatusRinging):
+		// Already over (declined, expired, or ended by the other side).
+	case noAnswer && userID == startedBy:
+		final = models.CallStatusMissed
+	case !isGroup || !stillActive:
+		final = models.FinalizeCallStatus(answered)
+	}
+	if final == "" {
 		if err := tx.Commit(ctx); err != nil {
 			return models.Message{}, false, fmt.Errorf("store: commit: %w", err)
 		}
 		return models.Message{}, false, nil
 	}
 
-	const otherJoined = `
-		SELECT EXISTS(
-			SELECT 1 FROM call_participants cp
-			JOIN calls c ON c.id = cp.call_id
-			WHERE cp.call_id = $1 AND cp.user_id != c.started_by AND cp.joined_at IS NOT NULL
-		)`
-	var otherParticipantJoined bool
-	if err := tx.QueryRow(ctx, otherJoined, callID).Scan(&otherParticipantJoined); err != nil {
-		return models.Message{}, false, fmt.Errorf("store: check other participants: %w", err)
-	}
-
-	status := models.FinalizeCallStatus(otherParticipantJoined)
 	const finalize = `UPDATE calls SET status = $2, ended_at = now() WHERE id = $1 RETURNING message_id`
 	var messageID *string
-	if err := tx.QueryRow(ctx, finalize, callID, status).Scan(&messageID); err != nil {
+	if err := tx.QueryRow(ctx, finalize, callID, final).Scan(&messageID); err != nil {
 		return models.Message{}, false, fmt.Errorf("store: finalize call: %w", err)
 	}
-
+	// The call is over for everyone, including anyone still connected.
+	const leaveAll = `UPDATE call_participants SET left_at = COALESCE(left_at, now()) WHERE call_id = $1`
+	if _, err := tx.Exec(ctx, leaveAll, callID); err != nil {
+		return models.Message{}, false, fmt.Errorf("store: close call participants: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return models.Message{}, false, fmt.Errorf("store: commit: %w", err)
 	}
@@ -1225,7 +1251,8 @@ func (s *Store) AttachCalls(ctx context.Context, messages []models.Message) erro
 		return nil
 	}
 
-	const q = `SELECT id, room_id, message_id, started_by, status, started_at, ended_at FROM calls WHERE message_id = ANY($1)`
+	q := `SELECT c.id, c.room_id, c.message_id, c.started_by, c.status, c.started_at, c.ended_at, ` + callAnsweredAt + `
+		FROM calls c WHERE c.message_id = ANY($1)`
 	rows, err := s.pool.Query(ctx, q, ids)
 	if err != nil {
 		return fmt.Errorf("store: attach calls: %w", err)
@@ -1234,7 +1261,7 @@ func (s *Store) AttachCalls(ctx context.Context, messages []models.Message) erro
 
 	for rows.Next() {
 		var c models.Call
-		if err := rows.Scan(&c.ID, &c.RoomID, &c.MessageID, &c.StartedBy, &c.Status, &c.StartedAt, &c.EndedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.RoomID, &c.MessageID, &c.StartedBy, &c.Status, &c.StartedAt, &c.EndedAt, &c.AnsweredAt); err != nil {
 			return fmt.Errorf("store: scan call: %w", err)
 		}
 		if c.MessageID == nil {
