@@ -25,6 +25,15 @@
         android:label="roost"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Notifications Android shows itself from FCM (devices without a
+             push key, see server/internal/push) use the logo's bubble too,
+             like the ones the app shows (lib/services/push_service.dart). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
         <!-- Maps SDK for Android key (FR3.7) — value comes from
              android/local.properties' MAPS_API_KEY (gitignored, per-developer;
              see build.gradle and README.md's "Google Maps API keys" section).

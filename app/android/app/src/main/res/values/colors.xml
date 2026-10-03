@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The logo's blue, tinting notification icons. -->
+    <color name="notification_color">#0B4FD6</color>
+</resources>

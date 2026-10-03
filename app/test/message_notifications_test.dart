@@ -210,6 +210,7 @@ void main() {
       expect((shown.title, shown.body, shown.payload), ('Mom', v['plaintext'], 'room-1'));
       final android = shown.details!.android!;
       expect(android.channelId, messagesChannel.channelId, reason: 'still the messages channel');
+      expect(android.icon, notificationIcon, reason: 'the single-colour logo bubble as the small icon');
       expect((android.largeIcon! as ByteArrayAndroidBitmap).data, [9, 9, 9]);
       final style = android.styleInformation! as MessagingStyleInformation;
       final message = style.messages!.single;
@@ -228,6 +229,7 @@ void main() {
         await showMessageNotification(plugin, payload, keyPair: await deviceKey(), loadAvatar: loader);
         final android = plugin.shown.single.details!.android!;
         expect(android.largeIcon, isNull);
+        expect(android.icon, notificationIcon, reason: 'not the full-colour launcher icon');
         expect(android.styleInformation, isNull);
         expect(plugin.shown.single.body, v['plaintext']);
       }

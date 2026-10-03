@@ -94,7 +94,7 @@ Future<void> _showAppShownMessageNotification(RemoteMessage message) async {
   );
 }
 
-const _notificationSettings = InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher'));
+const _notificationSettings = InitializationSettings(android: AndroidInitializationSettings(notificationIcon));
 
 /// Whether [options] are real project credentials rather than the
 /// committed `firebase_options.dart` placeholder. This has to be checked

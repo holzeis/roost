@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/painting.dart' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -103,6 +104,8 @@ NotificationDetails messageNotificationDetails(MessageNotificationContent conten
       channelDescription: messagesChannel.channelDescription,
       importance: messagesChannel.importance,
       priority: messagesChannel.priority,
+      icon: messagesChannel.icon,
+      color: messagesChannel.color,
       category: AndroidNotificationCategory.message,
       largeIcon: ByteArrayAndroidBitmap(avatar),
       styleInformation: MessagingStyleInformation(
@@ -113,6 +116,14 @@ NotificationDetails messageNotificationDetails(MessageNotificationContent conten
   );
 }
 
+/// Android's notification small icon: the logo's bubble, single-colour as
+/// Android requires (android/app/src/main/res/drawable/ic_notification.xml)
+/// — the full-colour launcher icon would show as a blank square.
+const notificationIcon = 'ic_notification';
+
+/// The logo's blue, tinting [notificationIcon].
+const notificationColor = Color(0xFF0B4FD6);
+
 /// Android's notification channel for new messages.
 const messagesChannel = AndroidNotificationDetails(
   'messages',
@@ -120,6 +131,8 @@ const messagesChannel = AndroidNotificationDetails(
   channelDescription: 'New messages in your chats',
   importance: Importance.high,
   priority: Priority.high,
+  icon: notificationIcon,
+  color: notificationColor,
 );
 
 /// Shows (or, for the same chat, updates) the notification for a new
