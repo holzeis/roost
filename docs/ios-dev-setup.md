@@ -262,6 +262,14 @@ it there means filing that declaration with ANSSI and uploading it first.
 This is a legal self-classification by the account holder, decided on
 2026-10-03; recheck it if the app's encryption changes.
 
+The encryption documentation uploaded to App Store Connect is
+`docs/app-store/encryption-documentation.pdf`, generated from the `.html`
+next to it (open the HTML in Chrome → Print → Save as PDF, or headless:
+`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless
+--no-pdf-header-footer --print-to-pdf=encryption-documentation.pdf
+encryption-documentation.html`). Update both when the app's encryption
+changes.
+
 ## Share into Roost (share extension, FR2.7)
 
 Photos and videos shared from other apps reach Roost through a share
