@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/api_config.dart' as config;
+import 'data/api_models.dart';
 import 'demo/demo_banner.dart';
 import 'demo/demo_mode.dart';
 import 'providers/chat_providers.dart';
@@ -121,7 +122,14 @@ class _RoostAppState extends ConsumerState<RoostApp> {
     // has no server to push anything and shouldn't prompt for notification
     // permission.
     if (!ref.read(demoModeProvider).enabled) {
-      unawaited(ref.read(pushServiceProvider).init());
+      final push = ref.read(pushServiceProvider);
+      unawaited(push.init());
+      // Notification permission is only asked for once the server answers
+      // (see PushService.serverReached) — never on the "can't reach the
+      // server" screen, or in a demo entered from it.
+      ref.listenManual<AsyncValue<ApiUser>>(meProvider, (_, me) {
+        if (me.hasValue && !ref.read(demoModeProvider).enabled) push.serverReached();
+      }, fireImmediately: true);
     }
   }
 

@@ -136,6 +136,16 @@ class PushService {
   final Ref _ref;
   StreamSubscription<CallEvent?>? _callKitSub;
   final _notificationOpener = NotificationOpener();
+  final _serverReached = Completer<void>();
+
+  /// The app has reached the family's chat server (outside the demo): only
+  /// then does it ask for notification permission and register for push.
+  /// Asking any earlier would prompt on the "can't reach the server" screen,
+  /// which is also where App Store reviewers start, for push that can't
+  /// work without the server anyway.
+  void serverReached() {
+    if (!_serverReached.isCompleted) _serverReached.complete();
+  }
 
   Future<void> init() async {
     _callKitSub = FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent);
@@ -148,6 +158,10 @@ class PushService {
     // — push is a fallback path, never something the rest of the app
     // depends on succeeding.
     try {
+      // CallKit's events are handled from the start (above); the
+      // permission prompts and push registration wait for the server —
+      // registering a token needs it anyway (see serverReached).
+      await _serverReached.future;
       await FlutterCallkitIncoming.requestNotificationPermission({
         'title': 'Notification permission',
         'rationaleMessagePermission':
