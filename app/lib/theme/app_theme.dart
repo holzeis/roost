@@ -68,6 +68,14 @@ class ChatBubbleStyle {
   static const radius = Radius.circular(15);
   static const tailRadius = Radius.circular(5);
 
+  /// A message's text size — also the call bubble's title, so it reads as
+  /// one of the chat's messages rather than a banner.
+  static const bodyFontSize = 16.5;
+
+  /// The call bubble's padding: tighter than a text bubble's, since its
+  /// round icon already carries its own whitespace.
+  static const callPadding = EdgeInsets.fromLTRB(8, 6, 12, 6);
+
   /// The cap a long text bubble's content sizes against.
   static double maxWidth(BuildContext context) =>
       MediaQuery.of(context).size.width * 0.74;

@@ -6,6 +6,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import '../../data/api_models.dart';
 import '../../demo/demo_call_notice.dart';
 import '../../providers/chat_providers.dart';
+import '../../theme/app_theme.dart';
 
 /// Rooms with a call being started right now — starting one waits on the
 /// server before the call screen opens, and a second tap in that window
@@ -186,41 +187,50 @@ class CallBubbleContent extends ConsumerWidget {
     return InkWell(
       onTap: () => _confirm(context, ref, summary.confirmLabel),
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
+      // The icon and the two lines of text are centered on each other;
+      // the time sits at the bottom, like on every other bubble.
+      child: IntrinsicHeight(
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.08 : 0.55),
+            Center(
+              child: Container(
+                key: const ValueKey('call-icon'),
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.08 : 0.55),
+                ),
+                child: CallDirectionIcon(outgoing: outgoing, color: iconColor, size: 21),
               ),
-              child: CallDirectionIcon(outgoing: outgoing, color: iconColor, size: 26),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             // Flexible: on a narrow phone the text wraps inside the bubble
             // rather than running past its edge.
             Flexible(
               child: Column(
+                key: const ValueKey('call-text'),
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(summary.title,
-                      style: TextStyle(fontSize: 16.5, height: 1.25, fontWeight: FontWeight.w700, color: textColor)),
-                  const SizedBox(height: 2),
+                      style: TextStyle(
+                          fontSize: ChatBubbleStyle.bodyFontSize,
+                          height: 1.25,
+                          fontWeight: FontWeight.w600,
+                          color: textColor)),
                   Text(summary.subtitle,
-                      style: TextStyle(fontSize: 15, height: 1.25, color: textColor.withValues(alpha: 0.62))),
+                      style: TextStyle(fontSize: 14, height: 1.25, color: textColor.withValues(alpha: 0.62))),
                 ],
               ),
             ),
             if (meta != null) ...[
-              const SizedBox(width: 14),
-              Transform.translate(offset: const Offset(0, 4), child: meta),
+              const SizedBox(width: 12),
+              Align(alignment: Alignment.bottomRight, child: meta),
             ],
           ],
         ),

@@ -1027,7 +1027,9 @@ class _MessageRow extends ConsumerWidget {
               : ChatBubbleStyle.maxWidth(context)),
       padding: isFrameless
           ? EdgeInsets.zero
-          : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          : isCall
+              ? ChatBubbleStyle.callPadding
+              : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: fromMe ? sentBubbleColor(context) : scheme.surface,
         borderRadius: borderRadius,

@@ -7,6 +7,7 @@ import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/call/call_screen.dart';
 import 'package:roost/features/chat/call_message.dart';
 import 'package:roost/providers/chat_providers.dart';
+import 'package:roost/theme/app_theme.dart';
 
 import 'fakes.dart';
 
@@ -186,6 +187,23 @@ void main() {
       final icon = tester.widget<CallDirectionIcon>(find.byType(CallDirectionIcon));
       expect(icon.outgoing, isTrue);
       expect(icon.color, Colors.black);
+    });
+
+    testWidgets('reads like a message: the same text size, centered on its icon', (tester) async {
+      final ended = ApiCall(
+          id: 'c',
+          status: 'completed',
+          startedAt: DateTime(2026, 10, 2, 17, 8),
+          answeredAt: DateTime(2026, 10, 2, 17, 8, 10),
+          endedAt: DateTime(2026, 10, 2, 17, 8, 53));
+      await pumpBubble(tester, ended, outgoing: true);
+
+      expect(tester.widget<Text>(find.text('Video call')).style!.fontSize, ChatBubbleStyle.bodyFontSize);
+      final icon = tester.getRect(find.byKey(const ValueKey('call-icon')));
+      final text = tester.getRect(find.byKey(const ValueKey('call-text')));
+      expect(text.center.dy, moreOrLessEquals(icon.center.dy, epsilon: 0.5));
+      final time = tester.getRect(find.text('20:15'));
+      expect(time.bottom, greaterThan(text.center.dy), reason: 'the time stays at the bottom');
     });
   });
 
