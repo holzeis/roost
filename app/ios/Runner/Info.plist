@@ -81,17 +81,18 @@
 	</array>
 	<key>GMSApiKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>
-	<!-- Export compliance: the app uses standard (IETF) encryption, some of
-	     it outside iOS's own libraries, so it doesn't qualify for the
-	     "exempt only" answer: WebRTC's bundled BoringSSL (DTLS-SRTP for
-	     calls) and the Dart cryptography package (X25519, ChaCha20-
-	     Poly1305; only run on Android, but compiled in). On iOS the push
-	     preview crypto itself is CryptoKit. Declared in App Store Connect
-	     as "standard algorithms instead of, or in addition to, Apple's";
-	     the app isn't offered in France, so no French declaration. See
-	     docs/ios-dev-setup.md, "Export compliance". -->
+	<!-- Export compliance: the app uses only standard (IETF) encryption,
+	     some of it outside iOS's own libraries (WebRTC's bundled BoringSSL
+	     for calls; the Dart cryptography package, compiled in for
+	     Android). App Store Connect's encryption questionnaire, answered
+	     "standard algorithms instead of, or in addition to, Apple's" and
+	     "not available in France", concluded that no documentation is
+	     needed and that this key should be NO, so each build doesn't ask
+	     again. YES without an export compliance code fails TestFlight
+	     upload (error 90592). See docs/ios-dev-setup.md, "Export
+	     compliance". -->
 	<key>ITSAppUsesNonExemptEncryption</key>
-	<true/>
+	<false/>
 	<!-- TEMPORARY, remove once flutter/flutter#179482 is fixed upstream
 	     (tracked fix: flutter/flutter PR #186365, unmerged as of writing).
 	     iOS 26's Liquid Glass keyboard is translucent/rounded; Flutter's

@@ -248,21 +248,24 @@ with automatic signing, Xcode picks the capability up from the App ID.
 the extension. The picture itself only shows on a real device: the simulator
 doesn't get remote notifications from Apple.
 
-**Export compliance**: `ITSAppUsesNonExemptEncryption` is `true` in
-`ios/Runner/Info.plist`. Every algorithm is an IETF standard (X25519,
-HKDF-SHA256, ChaCha20-Poly1305, DTLS-SRTP), but some run outside iOS's own
-libraries: WebRTC's bundled BoringSSL for calls, and the Dart
-`cryptography` package (compiled in, only used on Android). The preview
-crypto on iOS itself is CryptoKit. In App Store Connect's encryption
-questionnaire, answer **standard encryption algorithms instead of, or in
-addition to, using or accessing the encryption within Apple's operating
-system**. The app is **not offered in France** (App Store Connect → Pricing
-and Availability), so no French encryption declaration is needed; offering
-it there means filing that declaration with ANSSI and uploading it first.
-This is a legal self-classification by the account holder, decided on
-2026-10-03; recheck it if the app's encryption changes.
+**Export compliance**: `ITSAppUsesNonExemptEncryption` is `false` in
+`ios/Runner/Info.plist`. Every algorithm the app uses is an IETF standard
+(X25519, HKDF-SHA256, ChaCha20-Poly1305, DTLS-SRTP), though some run outside
+iOS's own libraries: WebRTC's bundled BoringSSL for calls, and the Dart
+`cryptography` package (compiled in, only used on Android). App Store
+Connect's encryption questionnaire was answered **standard encryption
+algorithms instead of, or in addition to, using or accessing the encryption
+within Apple's operating system**, with the app **not offered in France**
+(App Store Connect → Pricing and Availability). Apple's result: no
+documentation needed, and set this key to `false` so builds stop asking.
+Setting it to `true` instead makes TestFlight reject uploads that lack an
+export compliance code (error 90592). Offering the app in France would mean
+answering the questionnaire again and filing the French declaration with
+ANSSI. This is a legal self-classification by the account holder, decided
+on 2026-10-03; recheck it if the app's encryption changes.
 
-The encryption documentation uploaded to App Store Connect is
+Apple didn't need it, but a description of the app's encryption, ready to
+upload if it ever asks, is
 `docs/app-store/encryption-documentation.pdf`, generated from the `.html`
 next to it (open the HTML in Chrome → Print → Save as PDF, or headless:
 `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless
