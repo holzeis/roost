@@ -333,6 +333,33 @@ The demo's sample photos (`app/assets/demo/`) are simple illustrations
 generated for the demo, so there are no image rights to worry about; swap
 in your own family-free photos if you prefer.
 
+## App Store listing and screenshots
+
+Store listing as submitted (App Store Connect → the app → the version):
+
+- **Primary category**: Social Networking
+- **Devices**: iPhone only (`TARGETED_DEVICE_FAMILY = 1`), so only iPhone
+  screenshots are needed. iPads run the iPhone version.
+- **Keywords**: `family chat,private messenger,self-hosted,video call,photo sharing,live location,group chat`
+- **Support URL**: `https://github.com/holzeis/roost/issues`
+- **Copyright**: `2026 Richard Holzeis`
+
+**Screenshots** (6.5-inch display, 1242×2688) are in
+`docs/app-store/screenshots/iphone-6.5/`, taken from the in-app demo. To
+retake them after a UI change, from `app/`:
+
+```sh
+udid=$(xcrun simctl create "Roost Store iPhone 6.5" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-11-Pro-Max \
+  com.apple.CoreSimulator.SimRuntime.iOS-18-6)
+tool/store_screenshots.sh "$udid" ../docs/app-store/screenshots/iphone-6.5
+```
+
+The script sets the simulator's status bar to 9:41 with full signal and
+battery, runs `integration_test/store_screenshots_test.dart` (which walks
+the demo and pauses on each screen), and captures the simulator screen at
+each pause. An iPhone 11 Pro Max simulator gives exactly the 6.5-inch size.
+
 ## Talking to a local chat server
 
 The Simulator runs on your Mac's network namespace, so `docker-compose.yml`'s
