@@ -1,6 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../features/profile/avatar_viewer_screen.dart';
 
 import '../providers/chat_providers.dart';
 import '../providers/image_cache_provider.dart';
@@ -42,8 +45,20 @@ class InitialAvatar extends ConsumerWidget {
     this.size = 32,
     this.presenceOnline,
     this.avatarMediaId,
+    this.viewable = false,
+    this.name,
     String? seed,
   }) : _seed = seed ?? initial;
+
+  /// Whether tapping the avatar opens the profile picture full screen
+  /// (AvatarViewerScreen). Only an avatar with a picture opens; one showing
+  /// [initial] leaves the tap to whatever is around it. Off where a tap on
+  /// a person means choosing them (pickers).
+  final bool viewable;
+
+  /// The person's name, the viewer's title — the seed (usually the name)
+  /// when not given.
+  final String? name;
 
   final String initial;
   final double size;
@@ -113,8 +128,16 @@ class InitialAvatar extends ConsumerWidget {
           : _glyph(),
     );
 
-    if (presenceOnline == null) return avatar;
+    final shown = presenceOnline == null ? avatar : _withPresence(context, avatar);
+    if (!viewable || mediaId == null) return shown;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => context.push(avatarViewerRoute(mediaId, name ?? _seed)),
+      child: shown,
+    );
+  }
 
+  Widget _withPresence(BuildContext context, Widget avatar) {
     return Stack(
       clipBehavior: Clip.none,
       children: [

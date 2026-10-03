@@ -165,6 +165,7 @@ class _ContactTile extends ConsumerWidget {
               size: 52,
               presenceOnline: contact.online,
               avatarMediaId: contact.avatarMediaId,
+              viewable: true,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -321,6 +322,7 @@ class _RoomTile extends StatelessWidget {
               seed: name,
               size: 52,
               avatarMediaId: roomAvatarMediaId(room, meId, usersById),
+              viewable: true,
             ),
             const SizedBox(width: 14),
             Expanded(

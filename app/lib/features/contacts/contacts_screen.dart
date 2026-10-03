@@ -86,6 +86,7 @@ class _ContactTile extends ConsumerWidget {
         size: 48,
         presenceOnline: contact.online,
         avatarMediaId: contact.avatarMediaId,
+        viewable: true,
       ),
       title: Text(contact.displayName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
       subtitle: Text(

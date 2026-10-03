@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
@@ -10,6 +11,7 @@ import '../../demo/demo_mode.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
 import '../../theme/theme_controller.dart';
+import 'avatar_viewer_screen.dart';
 import '../../widgets/back_button.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -138,8 +140,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         children: [
           const SizedBox(height: 16),
           Center(
+            // Tapping the picture shows it full screen; the camera badge
+            // (or the avatar itself, while there's no picture) changes it.
             child: GestureDetector(
-              onTap: _uploadingAvatar ? null : _showAvatarOptions,
+              key: const ValueKey('profile-avatar'),
+              onTap: _uploadingAvatar
+                  ? null
+                  : avatarMediaId != null
+                      ? () => context.push(avatarViewerRoute(avatarMediaId, me.value?.displayName ?? ''))
+                      : _showAvatarOptions,
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
@@ -198,13 +207,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               ),
                   ),
                   Positioned(
-                    right: -2,
-                    bottom: -2,
-                    child: CircleAvatar(
-                      radius: 10,
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: const Icon(TablerIcons.camera,
-                          size: 11, color: Colors.white),
+                    right: -8,
+                    bottom: -8,
+                    child: GestureDetector(
+                      key: const ValueKey('change-avatar'),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _uploadingAvatar ? null : _showAvatarOptions,
+                      // A bigger target than the badge itself.
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: CircleAvatar(
+                          radius: 10,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          child: const Icon(TablerIcons.camera,
+                              size: 11, color: Colors.white),
+                        ),
+                      ),
                     ),
                   ),
                 ],

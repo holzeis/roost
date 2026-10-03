@@ -21,6 +21,7 @@ import 'package:roost/features/chat/keyboard_height.dart';
 import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/chat/media_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
+import 'package:roost/features/profile/avatar_viewer_screen.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
 import 'package:roost/providers/image_cache_provider.dart';
@@ -1383,6 +1384,81 @@ void main() {
     // every other avatar/media widget in this suite).
     final avatars = tester.widgetList<InitialAvatar>(find.byType(InitialAvatar));
     expect(avatars.any((a) => a.avatarMediaId == 'avatar-mom'), isTrue);
+  });
+
+  group('Tapping a profile picture', () {
+    FakeApiClient withMomsPicture() => _seededApiClient()
+      ..contacts = const [
+        ApiContact(id: 'user-mom', displayName: 'Mom', online: true, avatarMediaId: 'avatar-mom'),
+        ApiContact(id: 'user-dad', displayName: 'Dad', online: false),
+      ];
+    Finder avatarOf(String? mediaId) =>
+        find.byWidgetPredicate((w) => w is InitialAvatar && w.avatarMediaId == mediaId && w.viewable);
+
+    void expectViewerFor(WidgetTester tester, FakeApiClient api, String mediaId, String name) {
+      final viewer = tester.widget<AvatarViewerScreen>(find.byType(AvatarViewerScreen));
+      expect((viewer.mediaId, viewer.name), (mediaId, name));
+      final photo = find.byType(PhotoView).evaluate().single.widget as PhotoView;
+      expect((photo.imageProvider! as CachedNetworkImageProvider).url, api.mediaUrl(mediaId),
+          reason: 'full screen gets the full-quality original, not the preview');
+    }
+
+    testWidgets('a sender\'s, in a chat, shows it full screen, and back returns to the chat', (tester) async {
+      final api = withMomsPicture();
+      await _pumpApp(tester, api);
+      await tester.tap(find.text('Family'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(avatarOf('avatar-mom').first);
+      await tester.pumpAndSettle();
+      expectViewerFor(tester, api, 'avatar-mom', 'Mom');
+      expect(find.text('Mom'), findsWidgets, reason: 'titled with the person\'s name');
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AvatarViewerScreen), findsNothing);
+      expect(find.byType(ChatScreen), findsOneWidget);
+    });
+
+    testWidgets('in the chat list, shows it rather than opening the chat', (tester) async {
+      final api = withMomsPicture();
+      await _pumpApp(tester, api);
+
+      await tester.tap(avatarOf('avatar-mom').first);
+      await tester.pumpAndSettle();
+      expectViewerFor(tester, api, 'avatar-mom', 'Mom');
+      expect(find.byType(ChatScreen), findsNothing);
+    });
+
+    testWidgets('an avatar without a picture leaves the tap to its row', (tester) async {
+      final api = withMomsPicture();
+      api.contacts = const [ApiContact(id: 'user-mom', displayName: 'Mom', online: true)];
+      await _pumpApp(tester, api);
+
+      final momsRoomAvatar = find.byWidgetPredicate((w) => w is InitialAvatar && w.initial == 'M');
+      await tester.tap(momsRoomAvatar.first);
+      await tester.pumpAndSettle();
+      expect(find.byType(AvatarViewerScreen), findsNothing);
+      expect(find.byType(ChatScreen), findsOneWidget, reason: 'the row opened the chat');
+    });
+
+    testWidgets('your own, on the profile screen, shows it; the camera badge still changes it', (tester) async {
+      final api = _seededApiClient()..me = const ApiUser(id: 'me', displayName: 'Dev User', avatarMediaId: 'avatar-me');
+      await _pumpApp(tester, api);
+      await tester.tap(find.byIcon(TablerIcons.user));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('profile-avatar')));
+      await tester.pumpAndSettle();
+      expectViewerFor(tester, api, 'avatar-me', 'Dev User');
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('change-avatar')));
+      await tester.pumpAndSettle();
+      expect(find.text('Choose from gallery'), findsOneWidget);
+      expect(find.byType(AvatarViewerScreen), findsNothing);
+    });
   });
 
   testWidgets('An avatar requests the smaller preview, not the full-quality original', (tester) async {

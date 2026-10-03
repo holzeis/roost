@@ -205,6 +205,7 @@ class _ChatTitle extends StatelessWidget {
             initial: title.isNotEmpty ? title[0].toUpperCase() : '?',
             seed: title,
             avatarMediaId: avatarMediaId,
+            viewable: true,
             size: 34),
         const SizedBox(width: 10),
         Expanded(
@@ -1152,6 +1153,7 @@ class _MessageRow extends ConsumerWidget {
                 seed: senderName,
                 size: 30,
                 avatarMediaId: usersById[message.senderId]?.avatarMediaId,
+                viewable: true,
               ),
             )
           : null,

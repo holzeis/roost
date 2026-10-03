@@ -115,6 +115,7 @@ class _MemberTile extends StatelessWidget {
         // else comes from the same contacts list the Contacts screen uses.
         presenceOnline: isMe ? true : contact?.online,
         avatarMediaId: isMe ? myAvatarMediaId : contact?.avatarMediaId,
+        viewable: true,
       ),
       title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
       subtitle: isMe

@@ -10,6 +10,7 @@ import '../features/contacts/contacts_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/location/live_location_screen.dart';
 import '../features/new_group/new_group_screen.dart';
+import '../features/profile/avatar_viewer_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/share/share_to_chat_screen.dart';
@@ -46,6 +47,13 @@ final appRouter = GoRouter(
       builder: (context, state) => MediaViewerScreen(
         roomId: state.pathParameters['roomId']!,
         initialMessageId: state.pathParameters['messageId']!,
+      ),
+    ),
+    GoRoute(
+      path: '/avatar/:mediaId',
+      builder: (context, state) => AvatarViewerScreen(
+        mediaId: state.pathParameters['mediaId']!,
+        name: state.uri.queryParameters['name'] ?? '',
       ),
     ),
     GoRoute(

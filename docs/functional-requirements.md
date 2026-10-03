@@ -74,7 +74,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 |---|---|---|
 | FR6.1 | A user's identity is derived from their Tailscale account — no separate signup/password | Must |
 | FR6.2 | Only devices connected to the family's tailnet can use the app | Must |
-| FR6.3 | Users have a display name and profile image visible to others | Must |
+| FR6.3 | Users have a display name and profile image visible to others. Tapping a profile image (in the chat list, a chat, contacts, group info, or one's own on the profile screen) shows it full screen, with pinch to zoom; where tapping a person means choosing them (forward, new group, share pickers) it doesn't | Must |
 | FR6.4 | Users can update their own display name and profile image at any time | Must |
 | FR6.5 | Users can see which of their contacts are currently online | Could |
 | FR6.6 | Anyone who has opened the app at least once shows up as an available contact everywhere a conversation can be started — including the main conversations list, not only a separate contacts directory — even before any conversation with them exists | Must |
