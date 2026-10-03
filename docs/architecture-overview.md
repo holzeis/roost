@@ -22,7 +22,7 @@ Self-hosted chat, media sharing, and video calling for family use, running on a 
 | **Scale** | Sized for a family (single-digit to low tens of users), not general multi-tenant use |
 | **Portability** | Services run in containers, deployable to the user's k3s cluster; the whole stack is expressible as Kubernetes manifests rather than tied to a single host |
 | **Maintainability** | Minimal ongoing ops burden for one part-time maintainer — favor managed/off-the-shelf components over custom infrastructure wherever the requirements allow it |
-| **Client platform support** | Current iOS and Android versions capable of CallKit/ConnectionService and background push (iOS 16.4+) |
+| **Client platform support** | Current iOS and Android versions capable of CallKit/ConnectionService and background push (iOS 16.4+). On iOS the app is iPhone-only (an iPad runs the iPhone version); its layout was never designed for iPad, and a universal build would need iPad screenshots for every store submission |
 
 ## Architecture principles
 
