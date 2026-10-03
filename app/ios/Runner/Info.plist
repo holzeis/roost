@@ -81,17 +81,17 @@
 	</array>
 	<key>GMSApiKey</key>
 	<string>$(GOOGLE_MAPS_API_KEY)</string>
-	<!-- Declares export-compliance status once, up front, instead of
-	     answering Apple's encryption questionnaire on every single
-	     TestFlight build. Roost only uses standard, exempt encryption —
-	     TLS/HTTPS via iOS's own system libraries (APNs, FCM, link
-	     previews) and Tailscale's WireGuard, both publicly available,
-	     standard algorithms — never a custom/proprietary cipher. That
-	     also means the France-specific cryptography declaration Apple
-	     sometimes asks about doesn't apply here: it's only triggered by
-	     non-exempt encryption, which this isn't. -->
+	<!-- Export compliance: the app uses standard (IETF) encryption, some of
+	     it outside iOS's own libraries, so it doesn't qualify for the
+	     "exempt only" answer: WebRTC's bundled BoringSSL (DTLS-SRTP for
+	     calls) and the Dart cryptography package (X25519, ChaCha20-
+	     Poly1305; only run on Android, but compiled in). On iOS the push
+	     preview crypto itself is CryptoKit. Declared in App Store Connect
+	     as "standard algorithms instead of, or in addition to, Apple's";
+	     the app isn't offered in France, so no French declaration. See
+	     docs/ios-dev-setup.md, "Export compliance". -->
 	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
+	<true/>
 	<!-- TEMPORARY, remove once flutter/flutter#179482 is fixed upstream
 	     (tracked fix: flutter/flutter PR #186365, unmerged as of writing).
 	     iOS 26's Liquid Glass keyboard is translucent/rounded; Flutter's
