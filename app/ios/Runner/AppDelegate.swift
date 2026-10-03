@@ -24,6 +24,12 @@ import flutter_callkit_incoming
     // FR5.2: hands Dart this device's public key for encrypted notification
     // previews (see Shared/PushKeyStore.swift). The private key stays in the
     // keychain, for the notification service extension.
+    // Reacting with any emoji opens iOS's own emoji keyboard (see
+    // EmojiKeyboard.swift).
+    if let registrar = registrar(forPlugin: "RoostEmojiKeyboard") {
+      EmojiKeyboard.shared.register(with: registrar)
+    }
+
     if let registrar = registrar(forPlugin: "RoostPushKeys") {
       FlutterMethodChannel(name: "roost/push_keys", binaryMessenger: registrar.messenger())
         .setMethodCallHandler { call, result in

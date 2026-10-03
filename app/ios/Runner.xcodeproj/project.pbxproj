@@ -19,8 +19,10 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		9F6E43865ACC3E44C75B06F6 /* PushKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15756CB6CEB7CD3EEAED99C6 /* PushKeyStore.swift */; };
+		9F7E7C407B56024249F5361D /* EmojiKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14AB2F7D92CF304E6814756 /* EmojiKeyboardTests.swift */; };
 		B41BEECEEA1F75ADED623189 /* Pods_ShareExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 150C0C2AB7CA7B9DDFB32C78 /* Pods_ShareExtension.framework */; };
 		BFD31FD30B516CAA43F0454C /* SharedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB522FF35D6CF3D615345950 /* SharedSettings.swift */; };
+		C1834B82B3CF66AE026E66B1 /* EmojiKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BB4B4191505714E0D41FD6 /* EmojiKeyboard.swift */; };
 		C7721CCD9296BD36CF379E80 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7F86BD473124B62844B98C /* Foundation.framework */; };
 		CC3C9518D96CCB62367A56B9 /* NotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2D8B71CA36005200B8C27D80 /* NotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D1A644F329E23C70075E3E2B /* SenderAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5421412E8FEE4FA29CA680 /* SenderAvatar.swift */; };
@@ -120,12 +122,14 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9C09B3EAEBF110816D4D9635 /* ShareExtension-profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = "ShareExtension-profile.xcconfig"; sourceTree = "<group>"; };
+		A1BB4B4191505714E0D41FD6 /* EmojiKeyboard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmojiKeyboard.swift; sourceTree = "<group>"; };
 		A7D88C757B76A6268D5B493B /* Pods-ShareExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.release.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.release.xcconfig"; sourceTree = "<group>"; };
 		B6E1E0F1345545D1A4FE0D99 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		BE6A901F7DF5676700488F30 /* ShareExtension-debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = "ShareExtension-debug.xcconfig"; sourceTree = "<group>"; };
 		CCD9F7C79A273E8680EA6A56 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D3C9B2E4A89823B4490F65D6 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		DF12205DA9B7D116082774A4 /* NotificationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		E14AB2F7D92CF304E6814756 /* EmojiKeyboardTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmojiKeyboardTests.swift; sourceTree = "<group>"; };
 		FB522FF35D6CF3D615345950 /* SharedSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharedSettings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -171,6 +175,7 @@
 			isa = PBXGroup;
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
+				E14AB2F7D92CF304E6814756 /* EmojiKeyboardTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -235,6 +240,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				A1BB4B4191505714E0D41FD6 /* EmojiKeyboard.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -606,6 +612,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
+				9F7E7C407B56024249F5361D /* EmojiKeyboardTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -629,6 +636,7 @@
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				9F6E43865ACC3E44C75B06F6 /* PushKeyStore.swift in Sources */,
 				D2D51E898D1FA2DC9CFE334E /* SharedSettings.swift in Sources */,
+				C1834B82B3CF66AE026E66B1 /* EmojiKeyboard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -7,6 +7,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../theme/app_theme.dart';
 import 'reaction_frequency.dart';
+import 'system_emoji_keyboard.dart';
 
 /// Layout constants shared with callers that need to reserve enough on-screen
 /// space when deciding where to display a message (chat_screen.dart's
@@ -366,8 +367,12 @@ class ReactionPicker extends ConsumerWidget {
               borderRadius: BorderRadius.circular(999),
               onTap: () {
                 final container = ProviderScope.containerOf(context, listen: false);
+                // The root navigator outlives this picker, which
+                // onRequestDismiss is about to tear down.
+                final navigatorContext = Navigator.of(context, rootNavigator: true).context;
                 onRequestDismiss?.call();
-                pickCustomEmoji(context, (emoji) => _pickCustom(container, emoji));
+                pickCustomEmoji(navigatorContext, container.read(systemEmojiKeyboardProvider),
+                    (emoji) => _pickCustom(container, emoji));
               },
               child: Padding(
                 padding: const EdgeInsets.all(7),
@@ -382,16 +387,23 @@ class ReactionPicker extends ConsumerWidget {
   }
 }
 
-/// Lets the viewer pick any emoji, not just the quick list — a real in-app
-/// emoji picker (categories, search, a "frequently used" tab remembered
-/// across launches), rather than a text field that only gets there via the
-/// system keyboard's own globe/emoji key: a plain [TextField] shows the
-/// *ordinary* keyboard first with emoji entry buried behind a switch the
-/// user has to know to tap, where this opens straight into an emoji-only
-/// picker, matching what the system's own emoji keyboard looks like without
-/// requiring the detour through it.
+/// Lets the viewer pick any emoji, not just the quick list. On iOS that's
+/// the system's own emoji keyboard, the one the user types emoji with
+/// everywhere else ([SystemEmojiKeyboard]); cancelling it picks nothing.
+/// Where that isn't available (Android, or the emoji keyboard turned off),
+/// an in-app emoji picker opens instead: categories, search and a
+/// "frequently used" tab, straight on emoji rather than via a plain text
+/// field's ordinary keyboard and its globe key.
 Future<void> pickCustomEmoji(
-    BuildContext context, void Function(String emoji) onPick) async {
+    BuildContext context, SystemEmojiKeyboard systemKeyboard, void Function(String emoji) onPick) async {
+  try {
+    final emoji = await systemKeyboard.pick();
+    if (emoji != null) onPick(emoji);
+    return;
+  } on SystemEmojiKeyboardUnavailable {
+    // The in-app picker below.
+  }
+  if (!context.mounted) return;
   final scheme = Theme.of(context).colorScheme;
   final emoji = await showModalBottomSheet<String>(
     context: context,

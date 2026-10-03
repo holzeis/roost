@@ -14,7 +14,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR1.6 | Users can see read receipts | Could |
 | FR1.7 | Users can see a "typing…" indicator from other participants | Could |
 | FR1.8 | Users can search for messages within a chat | Must |
-| FR1.9 | Users can add emoji reactions directly on a message | Must |
+| FR1.9 | Users can add emoji reactions directly on a message: from a quick list of frequently used emoji, or any emoji via "+", which on iOS opens the system's own emoji keyboard (an in-app emoji picker on Android, or when the emoji keyboard is turned off) | Must |
 | FR1.10 | Users can reply to a specific message; the reply shows a quoted preview of the original, and tapping the quote scrolls to it | Should |
 | FR1.11 | Users can forward a message to another room; forwarded media is duplicated as an independent copy, not shared by reference | Should |
 | FR1.12 | Users can copy a text message's content to the clipboard | Could |

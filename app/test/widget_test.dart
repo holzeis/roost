@@ -21,6 +21,7 @@ import 'package:roost/features/chat/keyboard_height.dart';
 import 'package:roost/features/chat/location_message.dart';
 import 'package:roost/features/chat/media_message.dart';
 import 'package:roost/features/chat/message_action_overlay.dart';
+import 'package:roost/features/chat/system_emoji_keyboard.dart';
 import 'package:roost/features/profile/avatar_viewer_screen.dart';
 import 'package:roost/main.dart';
 import 'package:roost/providers/chat_providers.dart';
@@ -853,7 +854,48 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets('The "+" in the reaction picker opens an emoji-only picker, not the system keyboard', (tester) async {
+  group('The "+" in the reaction picker, with the system emoji keyboard', () {
+    Future<void> openPlus(WidgetTester tester, _FakeEmojiKeyboard keyboard) async {
+      await _pumpApp(tester, _seededApiClient(),
+          extraOverrides: [systemEmojiKeyboardProvider.overrideWithValue(keyboard)]);
+      await tester.tap(find.text('Family'));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.textContaining("Dinner's at 7"));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(
+          of: find.byType(ReactionPicker), matching: find.byIcon(TablerIcons.plus)));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('reacts with the emoji picked on it, without the in-app picker', (tester) async {
+      final keyboard = _FakeEmojiKeyboard('🎉');
+      await openPlus(tester, keyboard);
+
+      expect(keyboard.opened, 1);
+      expect(find.byType(EmojiPicker), findsNothing);
+      expect(find.text('Reply'), findsNothing, reason: 'the action menu closed first');
+      expect(find.text('🎉'), findsOneWidget);
+    });
+
+    testWidgets('cancelling it reacts with nothing', (tester) async {
+      final keyboard = _FakeEmojiKeyboard(null);
+      await openPlus(tester, keyboard);
+
+      expect(keyboard.opened, 1);
+      expect(find.byType(EmojiPicker), findsNothing);
+      expect(find.text('🎉'), findsNothing);
+      expect(find.text('Reply'), findsNothing);
+    });
+
+    testWidgets('when it is turned off, the in-app picker opens instead', (tester) async {
+      final keyboard = _FakeEmojiKeyboard.unavailable();
+      await openPlus(tester, keyboard);
+
+      expect(find.byType(EmojiPicker), findsOneWidget);
+    });
+  });
+
+  testWidgets('Without the system emoji keyboard, the "+" in the reaction picker opens an in-app emoji picker', (tester) async {
     await _pumpApp(tester, _seededApiClient());
 
     await tester.tap(find.text('Family'));
@@ -2106,4 +2148,23 @@ void main() {
     expect(find.text('Yesterday'), findsWidgets);
     expect(find.text('Today'), findsWidgets);
   });
+}
+
+/// Stands in for iOS's emoji keyboard (ios/Runner/EmojiKeyboard.swift).
+class _FakeEmojiKeyboard implements SystemEmojiKeyboard {
+  _FakeEmojiKeyboard(this.emoji) : available = true;
+  _FakeEmojiKeyboard.unavailable()
+      : emoji = null,
+        available = false;
+
+  final String? emoji;
+  final bool available;
+  int opened = 0;
+
+  @override
+  Future<String?> pick() async {
+    if (!available) throw const SystemEmojiKeyboardUnavailable();
+    opened++;
+    return emoji;
+  }
 }
