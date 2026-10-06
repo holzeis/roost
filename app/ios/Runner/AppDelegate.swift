@@ -26,6 +26,12 @@ import flutter_callkit_incoming
     // keychain, for the notification service extension.
     // Reacting with any emoji opens iOS's own emoji keyboard (see
     // EmojiKeyboard.swift).
+    // Share-sheet suggestions with each chat's picture (see
+    // ShareSuggestionDonor.swift).
+    if let registrar = registrar(forPlugin: "RoostShareSuggestions") {
+      ShareSuggestionDonor.register(with: registrar)
+    }
+
     if let registrar = registrar(forPlugin: "RoostEmojiKeyboard") {
       EmojiKeyboard.shared.register(with: registrar)
     }

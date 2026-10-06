@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +30,9 @@ class FakeShareHandler extends ShareHandlerPlatform {
   final stream = StreamController<SharedMedia>.broadcast();
   final List<({String id, String name})> recorded = [];
 
+  /// The picture handed over with each recorded chat, in the same order.
+  final List<String?> recordedImages = [];
+
   @override
   Future<SharedMedia?> getInitialSharedMedia() async => initial;
 
@@ -47,8 +51,10 @@ class FakeShareHandler extends ShareHandlerPlatform {
     required String conversationName,
     String? conversationImageFilePath,
     String? serviceName,
-  }) async =>
-      recorded.add((id: conversationIdentifier, name: conversationName));
+  }) async {
+    recorded.add((id: conversationIdentifier, name: conversationName));
+    recordedImages.add(conversationImageFilePath);
+  }
 }
 
 FakeApiClient seeded() {
@@ -135,6 +141,7 @@ void main() {
         apiClientProvider.overrideWithValue(api),
         wsClientProvider.overrideWithValue(api.ws),
         shareHandlerProvider.overrideWithValue(handler),
+        imageCacheManagerProvider.overrideWithValue(FakeCacheManager()),
         if (demo) demoModeProvider.overrideWithValue(DemoMode(enabled: true, setEnabled: (_) async {})),
       ]);
       addTearDown(c.dispose);
@@ -146,6 +153,33 @@ void main() {
         await Future<void>.delayed(Duration.zero);
       }
     }
+
+    test('a 1:1 chat is suggested with the other person\'s picture, a group without one', () async {
+      final api = seeded()
+        ..contacts = const [
+          ApiContact(id: 'mom', displayName: 'Mom', online: true, avatarMediaId: 'avatar-mom'),
+          ApiContact(id: 'dad', displayName: 'Dad', online: false),
+        ];
+      api.rooms.add(ApiRoom(
+          id: 'room-family',
+          name: 'Family',
+          isGroup: true,
+          createdBy: 'me',
+          createdAt: DateTime(2026, 9, 1),
+          members: const ['me', 'mom', 'dad']));
+      final handler = FakeShareHandler();
+      final c = container(api, handler);
+
+      await c.read(shareSuggestionsProvider).recordSent('room-mom');
+      await c.read(shareSuggestionsProvider).recordSent('room-dad');
+      await c.read(shareSuggestionsProvider).recordSent('room-family');
+
+      expect(handler.recorded.map((r) => r.id), ['room-mom', 'room-dad', 'room-family']);
+      final momsPicture = handler.recordedImages[0];
+      expect(momsPicture, isNotNull);
+      expect(File(momsPicture!).existsSync(), isTrue, reason: 'a real file the plugin can read');
+      expect(handler.recordedImages.sublist(1), [null, null], reason: 'Dad has no picture; a group has none');
+    });
 
     test('sending to a chat reports it to the OS by name and counts it', () async {
       final api = seeded();
