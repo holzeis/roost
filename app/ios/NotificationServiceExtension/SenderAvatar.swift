@@ -64,7 +64,8 @@ enum SenderAvatar {
   static func communicationContent(
     _ content: UNNotificationContent, senderId: String, senderName: String, roomId: String, image: Data
   ) -> UNNotificationContent? {
-    let avatar = INImage(imageData: image)
+    // Square, or iOS stretches it to fill the notification's circle.
+    let avatar = INImage(imageData: SquareImage.crop(image) ?? image)
     let sender = INPerson(
       personHandle: INPersonHandle(value: senderId, type: .unknown),
       nameComponents: nil,

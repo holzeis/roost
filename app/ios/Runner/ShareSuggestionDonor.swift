@@ -40,7 +40,8 @@ enum ShareSuggestionDonor {
       sender: nil,
       attachments: nil)
     if let imageData, !imageData.isEmpty {
-      intent.setImage(INImage(imageData: imageData), forParameterNamed: \.speakableGroupName)
+      // Square, or the share sheet's circle stretches it.
+      intent.setImage(INImage(imageData: SquareImage.crop(imageData) ?? imageData), forParameterNamed: \.speakableGroupName)
     }
     return intent
   }

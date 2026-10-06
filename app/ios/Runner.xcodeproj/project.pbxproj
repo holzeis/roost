@@ -22,13 +22,16 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		9F6E43865ACC3E44C75B06F6 /* PushKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15756CB6CEB7CD3EEAED99C6 /* PushKeyStore.swift */; };
 		9F7E7C407B56024249F5361D /* EmojiKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14AB2F7D92CF304E6814756 /* EmojiKeyboardTests.swift */; };
+		B064964085C8A4A2D33AA8D9 /* SquareImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6521C1FF720BD078FA67516 /* SquareImageTests.swift */; };
 		B41BEECEEA1F75ADED623189 /* Pods_ShareExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 150C0C2AB7CA7B9DDFB32C78 /* Pods_ShareExtension.framework */; };
 		BFD31FD30B516CAA43F0454C /* SharedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB522FF35D6CF3D615345950 /* SharedSettings.swift */; };
 		C1834B82B3CF66AE026E66B1 /* EmojiKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BB4B4191505714E0D41FD6 /* EmojiKeyboard.swift */; };
 		C7721CCD9296BD36CF379E80 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D7F86BD473124B62844B98C /* Foundation.framework */; };
 		CC3C9518D96CCB62367A56B9 /* NotificationServiceExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2D8B71CA36005200B8C27D80 /* NotificationServiceExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D00520A97B0374A099D16AB5 /* SquareImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98ACC385748BC28311CE609A /* SquareImage.swift */; };
 		D1A644F329E23C70075E3E2B /* SenderAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5421412E8FEE4FA29CA680 /* SenderAvatar.swift */; };
 		D2D51E898D1FA2DC9CFE334E /* SharedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB522FF35D6CF3D615345950 /* SharedSettings.swift */; };
+		D9E0A8B61C353671020218CE /* SquareImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98ACC385748BC28311CE609A /* SquareImage.swift */; };
 		DFD117EAA0F5A97CC012CDD8 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6E5FEEE1586D794A7D6F4D28 /* Pods_RunnerTests.framework */; };
 		F35A96E4E7AD1FD50EF994C9 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF12205DA9B7D116082774A4 /* NotificationService.swift */; };
 		F3951B06B5157E05FA8B77FD /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 734D246B1B6A26723610FB39 /* Pods_Runner.framework */; };
@@ -125,8 +128,10 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		98ACC385748BC28311CE609A /* SquareImage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquareImage.swift; sourceTree = "<group>"; };
 		9C09B3EAEBF110816D4D9635 /* ShareExtension-profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = "ShareExtension-profile.xcconfig"; sourceTree = "<group>"; };
 		A1BB4B4191505714E0D41FD6 /* EmojiKeyboard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmojiKeyboard.swift; sourceTree = "<group>"; };
+		A6521C1FF720BD078FA67516 /* SquareImageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SquareImageTests.swift; sourceTree = "<group>"; };
 		A7D88C757B76A6268D5B493B /* Pods-ShareExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ShareExtension.release.xcconfig"; path = "Target Support Files/Pods-ShareExtension/Pods-ShareExtension.release.xcconfig"; sourceTree = "<group>"; };
 		B6E1E0F1345545D1A4FE0D99 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		BE6A901F7DF5676700488F30 /* ShareExtension-debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = "ShareExtension-debug.xcconfig"; sourceTree = "<group>"; };
@@ -181,6 +186,7 @@
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
 				E14AB2F7D92CF304E6814756 /* EmojiKeyboardTests.swift */,
 				510D428CF9216ADE39916F29 /* ShareSuggestionDonorTests.swift */,
+				A6521C1FF720BD078FA67516 /* SquareImageTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -308,6 +314,7 @@
 			children = (
 				15756CB6CEB7CD3EEAED99C6 /* PushKeyStore.swift */,
 				FB522FF35D6CF3D615345950 /* SharedSettings.swift */,
+				98ACC385748BC28311CE609A /* SquareImage.swift */,
 			);
 			name = Shared;
 			path = Shared;
@@ -620,6 +627,7 @@
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
 				9F7E7C407B56024249F5361D /* EmojiKeyboardTests.swift in Sources */,
 				0EFC11371F33DC8AA0B910E8 /* ShareSuggestionDonorTests.swift in Sources */,
+				B064964085C8A4A2D33AA8D9 /* SquareImageTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -632,6 +640,7 @@
 				0C6195D1776DC6D9690E2B61 /* PushKeyStore.swift in Sources */,
 				BFD31FD30B516CAA43F0454C /* SharedSettings.swift in Sources */,
 				D1A644F329E23C70075E3E2B /* SenderAvatar.swift in Sources */,
+				D00520A97B0374A099D16AB5 /* SquareImage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -645,6 +654,7 @@
 				D2D51E898D1FA2DC9CFE334E /* SharedSettings.swift in Sources */,
 				C1834B82B3CF66AE026E66B1 /* EmojiKeyboard.swift in Sources */,
 				4EE4365A681AD695153C26FE /* ShareSuggestionDonor.swift in Sources */,
+				D9E0A8B61C353671020218CE /* SquareImage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
