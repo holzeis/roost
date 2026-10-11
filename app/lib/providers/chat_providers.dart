@@ -163,6 +163,12 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
         case 'message.created':
           final message = ref.read(wsClientProvider).messageFrom(event);
           if (message == null || message.roomId != arg) return;
+          // The server announces a sent photo here a moment before the
+          // upload's own reply: swap out its "Sending…" placeholder now, in
+          // the same frame, or both show until that reply arrives.
+          if (message.senderId == ref.read(meProvider).valueOrNull?.id) {
+            ref.read(pendingUploadsProvider(arg).notifier).arrived(message);
+          }
           final current = state.valueOrNull ?? const <ApiMessage>[];
           if (current.any((m) => m.id == message.id)) return;
           state = AsyncData([...current, message]);
@@ -358,6 +364,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
           ? await ref.read(imageShrinkerProvider).shrink(Uint8List.fromList(item.bytes),
               contentType: item.contentType, filename: item.filename)
           : (bytes: item.bytes, contentType: item.contentType, filename: item.filename);
+      pending.markUploading(upload.id);
       await ref.read(apiClientProvider).uploadMedia(
             roomId,
             bytes: file.bytes,
@@ -722,7 +729,8 @@ typedef MediaToSend = ({
 /// A photo or video on its way to the server, shown in the chat until the
 /// server confirms it (see [MessagesController.sendMediaBatch]).
 class PendingUpload {
-  const PendingUpload({required this.id, required this.item, required this.createdAt, this.failed = false});
+  const PendingUpload(
+      {required this.id, required this.item, required this.createdAt, this.failed = false, this.uploading = false});
 
   final String id;
   final MediaToSend item;
@@ -731,10 +739,18 @@ class PendingUpload {
   /// The upload failed: shown as not sent, to retry or discard.
   final bool failed;
 
+  /// Its request is on its way to the server right now (one at a time per
+  /// chat — a batch goes in order).
+  final bool uploading;
+
   bool get isVideo => item.kind == 'video';
 
-  PendingUpload copyWith({bool? failed}) =>
-      PendingUpload(id: id, item: item, createdAt: createdAt, failed: failed ?? this.failed);
+  PendingUpload copyWith({bool? failed, bool? uploading}) => PendingUpload(
+      id: id,
+      item: item,
+      createdAt: createdAt,
+      failed: failed ?? this.failed,
+      uploading: uploading ?? this.uploading);
 }
 
 /// A chat's uploads in progress (or failed), oldest first.
@@ -756,10 +772,22 @@ class PendingUploadsController extends FamilyNotifier<List<PendingUpload>, Strin
 
   void remove(String id) => state = [for (final u in state) if (u.id != id) u];
 
-  void markFailed(String id) => _set(id, failed: true);
+  void markUploading(String id) => _set(id, (u) => u.copyWith(uploading: true));
 
-  void markSending(String id) => _set(id, failed: false);
+  void markFailed(String id) => _set(id, (u) => u.copyWith(failed: true, uploading: false));
 
-  void _set(String id, {required bool failed}) =>
-      state = [for (final u in state) u.id == id ? u.copyWith(failed: failed) : u];
+  void markSending(String id) => _set(id, (u) => u.copyWith(failed: false));
+
+  /// The server's message for one of the user's own uploads arrived (over
+  /// the socket, before the upload's own reply): drops the upload it is —
+  /// the one being uploaded, of the same kind and caption.
+  void arrived(ApiMessage message) {
+    final match = state
+        .where((u) => u.uploading && u.item.kind == message.kind && u.item.caption == message.body)
+        .firstOrNull;
+    if (match != null) remove(match.id);
+  }
+
+  void _set(String id, PendingUpload Function(PendingUpload) change) =>
+      state = [for (final u in state) u.id == id ? change(u) : u];
 }

@@ -31,6 +31,10 @@ class _SlowUploadApi extends FakeApiClient {
   }
 
   Completer<void>? gate;
+
+  /// Holds the upload's reply after the server has already announced the
+  /// message over the socket, as happens for real.
+  Completer<void>? replyGate;
   int failures = 0;
   final uploaded = <({String filename, String contentType, int size, String kind, String? caption})>[];
 
@@ -48,13 +52,15 @@ class _SlowUploadApi extends FakeApiClient {
       throw ApiException(503, 'server unavailable');
     }
     uploaded.add((filename: filename, contentType: contentType, size: bytes.length, kind: kind, caption: caption));
-    return super.uploadMedia(roomId,
+    final message = await super.uploadMedia(roomId,
         bytes: bytes,
         filename: filename,
         contentType: contentType,
         kind: kind,
         replyToMessageId: replyToMessageId,
         caption: caption);
+    if (replyGate != null) await replyGate!.future;
+    return message;
   }
 }
 
@@ -225,6 +231,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(PendingUploadRow), findsNothing);
     expect(find.text('For you'), findsOneWidget, reason: 'now the sent message');
+
+    // The server's message arrives before the upload's reply: the photo
+    // is shown once, never twice.
+    api.replyGate = Completer<void>();
+    final announced = controller.sendMedia(
+        bytes: png, filename: 'IMG_4.png', contentType: 'image/png', kind: 'image', caption: 'Just once');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Just once'), findsOneWidget);
+    expect(find.byType(PendingUploadRow), findsNothing, reason: 'replaced by the announced message');
+    api.replyGate!.complete();
+    api.replyGate = null;
+    await announced;
+    await tester.pumpAndSettle();
+    expect(find.text('Just once'), findsOneWidget);
 
     // Failing: not sent, then retried.
     api.gate = null;
