@@ -36,26 +36,52 @@ func testJPEG(t *testing.T, width, height int) []byte {
 	return buf.Bytes()
 }
 
-func TestGenerateImagePreview_SameDimensionsSmallerFile(t *testing.T) {
+func TestGenerateImagePreview_SmallImageKeepsItsSizeButShrinksTheFile(t *testing.T) {
 	original := testJPEG(t, 400, 300)
 
 	preview, width, height, ok := generateImagePreview(original)
 	if !ok {
 		t.Fatal("expected generateImagePreview to succeed on a valid JPEG")
 	}
-	// "Do not reduce the dimensions, just the quality" — the whole point.
 	if width != 400 || height != 300 {
-		t.Fatalf("expected dimensions unchanged at 400x300, got %dx%d", width, height)
+		t.Fatalf("expected the original's dimensions 400x300, got %dx%d", width, height)
 	}
 	if len(preview) >= len(original) {
 		t.Fatalf("expected a smaller preview (faster to load) — original %d bytes, preview %d bytes",
 			len(original), len(preview))
 	}
-
-	// The preview must still actually decode as a valid image, not just be
-	// smaller.
-	if _, _, err := image.Decode(bytes.NewReader(preview)); err != nil {
+	decoded, _, err := image.Decode(bytes.NewReader(preview))
+	if err != nil {
 		t.Fatalf("preview does not decode as a valid image: %v", err)
+	}
+	if b := decoded.Bounds(); b.Dx() != 400 || b.Dy() != 300 {
+		t.Fatalf("a small image isn't scaled, got %dx%d", b.Dx(), b.Dy())
+	}
+}
+
+func TestGenerateImagePreview_ScalesALargePhotoDown(t *testing.T) {
+	for _, tc := range []struct{ w, h, wantW, wantH int }{
+		{4032, 3024, 1024, 768}, // a 12 MP landscape phone photo
+		{3024, 4032, 768, 1024}, // portrait
+	} {
+		original := testJPEG(t, tc.w, tc.h)
+		preview, width, height, ok := generateImagePreview(original)
+		if !ok {
+			t.Fatalf("%dx%d: expected a preview", tc.w, tc.h)
+		}
+		if width != tc.w || height != tc.h {
+			t.Fatalf("reports the original's size for its aspect ratio: want %dx%d, got %dx%d", tc.w, tc.h, width, height)
+		}
+		decoded, _, err := image.Decode(bytes.NewReader(preview))
+		if err != nil {
+			t.Fatalf("preview does not decode: %v", err)
+		}
+		if b := decoded.Bounds(); b.Dx() != tc.wantW || b.Dy() != tc.wantH {
+			t.Fatalf("%dx%d: preview is %dx%d, want %dx%d", tc.w, tc.h, b.Dx(), b.Dy(), tc.wantW, tc.wantH)
+		}
+		if len(preview)*10 > len(original) {
+			t.Fatalf("%dx%d: preview %d bytes is not much smaller than the original %d", tc.w, tc.h, len(preview), len(original))
+		}
 	}
 }
 

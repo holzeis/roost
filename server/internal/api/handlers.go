@@ -441,16 +441,23 @@ func (s *Server) validReplyTarget(w http.ResponseWriter, r *http.Request, roomID
 const maxMediaUploadBytes = 200 << 20 // 200 MiB
 
 // previewJPEGQuality is deliberately aggressive: this is only ever the
-// inline chat-bubble preview, displayed small, with the untouched original
-// a tap away in the full-screen viewer — so a noticeably smaller/faster
-// download matters far more here than looking pixel-perfect at bubble size.
-// Same pixel dimensions as the original either way; only the compression
-// changes.
+// inline chat-bubble preview (and avatars), displayed small, with the
+// untouched original a tap away in the full-screen viewer — so a noticeably
+// smaller/faster download matters far more here than looking pixel-perfect
+// at bubble size.
 const previewJPEGQuality = 55
 
+// previewMaxSide caps the preview's long side. A chat bubble shows a photo
+// at most ~300 points wide, about 900 pixels on a 3x phone screen, so this
+// stays sharp there while a 12 MP camera photo's preview drops from the
+// full 4032x3024 (slow to encode here and to download and decode on every
+// phone) to 1024x768.
+const previewMaxSide = 1024
+
 // generateImagePreview decodes an uploaded image and re-encodes it as a
-// smaller, lower-quality JPEG at the same dimensions (FR2.*) — for the
-// original's pixel size, not a resize. Returns ok=false for anything it
+// smaller, lower-quality JPEG, scaled down to at most previewMaxSide on its
+// long side (FR2.*). width and height are the original's (upright) pixel
+// size, which clients use for its aspect ratio. Returns ok=false for anything it
 // can't decode: an unsupported format (WebP, HEIC/HEIF — Go's standard
 // library only reads JPEG/PNG/GIF), or a corrupt upload. The caller treats
 // that as "no preview" and falls back to serving the original for both
@@ -475,6 +482,9 @@ func generateImagePreview(data []byte) (preview []byte, width, height int, ok bo
 		return nil, 0, 0, false
 	}
 	bounds := img.Bounds()
+	if bounds.Dx() > previewMaxSide || bounds.Dy() > previewMaxSide {
+		img = imaging.Fit(img, previewMaxSide, previewMaxSide, imaging.Linear)
+	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: previewJPEGQuality}); err != nil {
 		return nil, 0, 0, false

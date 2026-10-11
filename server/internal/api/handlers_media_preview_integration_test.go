@@ -18,8 +18,9 @@ import (
 
 // TestHandleUploadMedia_CapturesDimensionsAndGeneratesAPreview covers the
 // whole point of this feature: the chat bubble gets a smaller, faster
-// preview at the same pixel dimensions, and the full-quality original is
-// still there, unchanged, for the full-screen viewer.
+// preview (scaled down only beyond previewMaxSide, which this small test
+// image isn't), and the full-quality original is still there, unchanged,
+// for the full-screen viewer.
 func TestHandleUploadMedia_CapturesDimensionsAndGeneratesAPreview(t *testing.T) {
 	s := newAPITestServer(t)
 	s.Hub = ws.NewHub()
