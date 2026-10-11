@@ -26,7 +26,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR2.1 | Users can share images from their device into a chat | Must |
+| FR2.1 | Users can share images from their device into a chat. A sent photo appears in the chat at once, marked as sending, and stays marked as not sent (to retry or discard) if the upload fails. Photos are scaled down to at most 2048 px on the long side before upload (profile pictures to 1024 px); the original resolution isn't kept | Must |
 | FR2.2 | Users can share videos from their device into a chat | Must |
 | FR2.3 | Shared images and videos can be viewed/played inline and downloaded | Must |
 | FR2.4 | Shared media persists indefinitely and is not automatically deleted | Must |

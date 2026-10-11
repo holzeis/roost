@@ -75,11 +75,13 @@ class ShareSuggestions {
   /// picture. The native side passes the image data itself instead.
   static const _iosChannel = MethodChannel('roost/share_suggestions');
 
+  /// Best-effort throughout, never throws: callers don't wait for it, and
+  /// the chat may be gone (its providers disposed) by the time it runs.
   Future<void> recordSent(String roomId) async {
-    await _ref.read(chatUsageProvider).recordSend(roomId);
-    // Demo chats are made up; they don't belong in the system share sheet.
-    if (_ref.read(demoModeProvider).enabled) return;
     try {
+      await _ref.read(chatUsageProvider).recordSend(roomId);
+      // Demo chats are made up; they don't belong in the system share sheet.
+      if (_ref.read(demoModeProvider).enabled) return;
       final rooms = await _ref.read(roomsProvider.future);
       final matches = rooms.where((r) => r.id == roomId);
       if (matches.isEmpty) return;

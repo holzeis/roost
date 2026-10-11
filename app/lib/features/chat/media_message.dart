@@ -23,6 +23,13 @@ import '../../util/video_source.dart';
 /// matching whichever of the bubble's own corners it's actually adjacent
 /// to, per chat_screen.dart's own computation of `borderRadius` (square on
 /// any edge that has a forwarded/reply/sender-name header above it instead).
+/// How wide a photo/video of [aspectRatio] (width / height) is shown in a
+/// chat: fit into a square of [ChatBubbleStyle.mediaMaxWidth].
+double mediaDisplayWidth(BuildContext context, double aspectRatio) {
+  final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
+  return aspectRatio >= 1 ? maxWidth : maxWidth * aspectRatio;
+}
+
 class MediaBubbleContent extends ConsumerWidget {
   const MediaBubbleContent({
     super.key,
@@ -37,11 +44,8 @@ class MediaBubbleContent extends ConsumerWidget {
   /// [ChatBubbleStyle.mediaMaxWidth] at its own aspect ratio (a video's
   /// thumbnail is square). A caption below it wraps at this width rather
   /// than widening the bubble past the photo.
-  static double displayWidth(BuildContext context, ApiMessage message) {
-    final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
-    final aspectRatio = _aspectRatio(message);
-    return aspectRatio >= 1 ? maxWidth : maxWidth * aspectRatio;
-  }
+  static double displayWidth(BuildContext context, ApiMessage message) =>
+      mediaDisplayWidth(context, _aspectRatio(message));
 
   // FR2.*: the server captures a photo's real pixel dimensions at upload
   // (message.media) — reserving the exact aspect ratio the image will

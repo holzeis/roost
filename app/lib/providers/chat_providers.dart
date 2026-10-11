@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -7,6 +8,7 @@ import '../data/api_client.dart';
 import '../data/api_models.dart';
 import '../data/ws_client.dart';
 import '../demo/demo_mode.dart';
+import '../services/image_shrinker.dart';
 import '../services/share_suggestions.dart';
 import '../features/location/location_service.dart';
 
@@ -297,8 +299,7 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     unawaited(ref.read(shareSuggestionsProvider).recordSent(roomId));
   }
 
-  /// Uploads an image or video (FR2.1/2.2). Same non-mutating pattern as
-  /// send: the server broadcasts the resulting message back over the socket.
+  /// Uploads an image or video (FR2.1/2.2) — see [sendMediaBatch].
   Future<void> sendMedia({
     required List<int> bytes,
     required String filename,
@@ -306,17 +307,72 @@ class MessagesController extends FamilyAsyncNotifier<List<ApiMessage>, String> {
     required String kind,
     String? replyToMessageId,
     String? caption,
-  }) async {
-    await ref.read(apiClientProvider).uploadMedia(
-          roomId,
+  }) =>
+      sendMediaBatch([
+        (
           bytes: bytes,
           filename: filename,
           contentType: contentType,
           kind: kind,
-          replyToMessageId: replyToMessageId,
           caption: caption,
-        );
-    unawaited(ref.read(shareSuggestionsProvider).recordSent(roomId));
+          replyToMessageId: replyToMessageId,
+        ),
+      ]);
+
+  /// Uploads photos/videos in order (FR2.1/2.2). Each shows in the chat at
+  /// once as sending ([pendingUploadsProvider]) — uploading a photo over the
+  /// tailnet takes a moment — and is replaced by the real message when the
+  /// server confirms it, which arrives over the socket like any other
+  /// (same non-mutating pattern as [send]). A failed one stays, marked as
+  /// not sent, to retry or discard; the rest still go. Rethrows the first
+  /// failure once all have been tried.
+  Future<void> sendMediaBatch(List<MediaToSend> items) async {
+    final pending = ref.read(pendingUploadsProvider(roomId).notifier);
+    final uploads = [for (final item in items) pending.add(item)];
+    Object? firstError;
+    for (final upload in uploads) {
+      try {
+        await _upload(upload);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError != null) throw firstError;
+  }
+
+  /// Sends a failed upload again.
+  Future<void> retryUpload(String uploadId) async {
+    final upload = ref.read(pendingUploadsProvider(roomId)).where((u) => u.id == uploadId).firstOrNull;
+    if (upload == null) return;
+    ref.read(pendingUploadsProvider(roomId).notifier).markSending(uploadId);
+    await _upload(upload);
+  }
+
+  Future<void> _upload(PendingUpload upload) async {
+    final pending = ref.read(pendingUploadsProvider(roomId).notifier);
+    try {
+      final item = upload.item;
+      // Photos are shrunk first (ImageShrinker): a camera photo is several
+      // MB, which is most of what made sending one slow.
+      final file = item.kind == 'image'
+          ? await ref.read(imageShrinkerProvider).shrink(Uint8List.fromList(item.bytes),
+              contentType: item.contentType, filename: item.filename)
+          : (bytes: item.bytes, contentType: item.contentType, filename: item.filename);
+      await ref.read(apiClientProvider).uploadMedia(
+            roomId,
+            bytes: file.bytes,
+            filename: file.filename,
+            contentType: file.contentType,
+            kind: item.kind,
+            replyToMessageId: item.replyToMessageId,
+            caption: item.caption,
+          );
+      pending.remove(upload.id);
+      unawaited(ref.read(shareSuggestionsProvider).recordSent(roomId));
+    } catch (_) {
+      pending.markFailed(upload.id);
+      rethrow;
+    }
   }
 
   /// Edits one of the caller's own text messages (FR1.13). Like send, this
@@ -651,4 +707,59 @@ class IncomingCallController extends Notifier<IncomingCallInfo?> {
   /// Explicitly dismisses the incoming call (the user accepted or declined
   /// it locally) without waiting for a message.updated round-trip.
   void dismiss() => state = null;
+}
+
+/// A photo or video to send (FR2.1/2.2).
+typedef MediaToSend = ({
+  List<int> bytes,
+  String filename,
+  String contentType,
+  String kind,
+  String? caption,
+  String? replyToMessageId,
+});
+
+/// A photo or video on its way to the server, shown in the chat until the
+/// server confirms it (see [MessagesController.sendMediaBatch]).
+class PendingUpload {
+  const PendingUpload({required this.id, required this.item, required this.createdAt, this.failed = false});
+
+  final String id;
+  final MediaToSend item;
+  final DateTime createdAt;
+
+  /// The upload failed: shown as not sent, to retry or discard.
+  final bool failed;
+
+  bool get isVideo => item.kind == 'video';
+
+  PendingUpload copyWith({bool? failed}) =>
+      PendingUpload(id: id, item: item, createdAt: createdAt, failed: failed ?? this.failed);
+}
+
+/// A chat's uploads in progress (or failed), oldest first.
+final pendingUploadsProvider = NotifierProvider.family<PendingUploadsController, List<PendingUpload>, String>(
+  PendingUploadsController.new,
+);
+
+class PendingUploadsController extends FamilyNotifier<List<PendingUpload>, String> {
+  static var _nextId = 0;
+
+  @override
+  List<PendingUpload> build(String roomId) => const [];
+
+  PendingUpload add(MediaToSend item) {
+    final upload = PendingUpload(id: 'upload-${_nextId++}', item: item, createdAt: DateTime.now());
+    state = [...state, upload];
+    return upload;
+  }
+
+  void remove(String id) => state = [for (final u in state) if (u.id != id) u];
+
+  void markFailed(String id) => _set(id, failed: true);
+
+  void markSending(String id) => _set(id, failed: false);
+
+  void _set(String id, {required bool failed}) =>
+      state = [for (final u in state) u.id == id ? u.copyWith(failed: failed) : u];
 }

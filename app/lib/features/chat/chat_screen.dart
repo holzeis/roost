@@ -24,6 +24,7 @@ import 'forward_sheet.dart';
 import 'link_preview_card.dart';
 import 'media_caption_screen.dart';
 import 'media_send.dart';
+import 'pending_upload_row.dart';
 import 'location_message.dart';
 import 'media_message.dart';
 import 'message_action_overlay.dart';
@@ -385,6 +386,7 @@ class _MessageListState extends ConsumerState<_MessageList> {
     final day = switch (entry) {
       _DateDividerEntry(:final day) => day,
       _MessageEntry(:final message) => _dayOnly(message.createdAt),
+      _PendingEntry(:final upload) => _dayOnly(upload.createdAt),
     };
     return formatDateDivider(day);
   }
@@ -436,13 +438,14 @@ class _MessageListState extends ConsumerState<_MessageList> {
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(messagesProvider(widget.roomId));
+    final pendingUploads = ref.watch(pendingUploadsProvider(widget.roomId));
 
     return messages.when(
       error: (error, _) =>
           Center(child: Text('Could not load messages.\n$error')),
       loading: () => const Center(child: CircularProgressIndicator()),
       data: (messages) {
-        if (messages.isEmpty) {
+        if (messages.isEmpty && pendingUploads.isEmpty) {
           return Center(
             child: Text(
               'No messages yet. Say hello!',
@@ -465,7 +468,11 @@ class _MessageListState extends ConsumerState<_MessageList> {
         // chronological neighbors and a day divider takes up its own item
         // slot — see _ListEntry's own doc comment for the index contract
         // the scroll-position listeners above depend on.
-        final entries = <_ListEntry>[];
+        final entries = <_ListEntry>[
+          // Photos/videos still on their way to the server: the newest
+          // things in the chat, at the bottom.
+          for (final upload in pendingUploads.reversed) _PendingEntry(upload),
+        ];
         for (var i = 0; i < reversed.length; i++) {
           final message = reversed[i];
           final older =
@@ -508,6 +515,12 @@ class _MessageListState extends ConsumerState<_MessageList> {
                   final entry = entries[index];
                   if (entry is _DateDividerEntry) {
                     return _DateDividerRow(day: entry.day);
+                  }
+                  if (entry is _PendingEntry) {
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: index == 0 ? 28 : 10),
+                      child: PendingUploadRow(upload: entry.upload, roomId: widget.roomId),
+                    );
                   }
                   final message = (entry as _MessageEntry).message;
                   final senderName = message.senderId == widget.meId
@@ -631,6 +644,12 @@ class _MessageEntry extends _ListEntry {
 class _DateDividerEntry extends _ListEntry {
   const _DateDividerEntry(this.day);
   final DateTime day;
+}
+
+/// A photo/video still being sent (see PendingUploadRow).
+class _PendingEntry extends _ListEntry {
+  const _PendingEntry(this.upload);
+  final PendingUpload upload;
 }
 
 DateTime _dayOnly(DateTime dt) {
@@ -1771,7 +1790,7 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> with Widgets
     );
     if (caption == null) return;
 
-    setState(() => _sending = true);
+    // No composer spinner: the photo shows in the chat as sending.
     try {
       final bytes = await file.readAsBytes();
       final contentType = file.mimeType ??
@@ -1789,8 +1808,6 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> with Widgets
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Could not upload: $error')));
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -1824,7 +1841,6 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> with Widgets
     );
     if (caption == null) return;
 
-    setState(() => _sending = true);
     try {
       await sendPendingMedia(
         ref.read(messagesProvider(widget.roomId).notifier),
@@ -1836,8 +1852,6 @@ class _MessageComposerState extends ConsumerState<_MessageComposer> with Widgets
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Could not upload: $error')));
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
     }
   }
 

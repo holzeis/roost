@@ -10,6 +10,7 @@ import '../../data/api_models.dart';
 import '../../demo/demo_mode.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
+import '../../services/image_shrinker.dart';
 import '../../theme/theme_controller.dart';
 import 'avatar_viewer_screen.dart';
 import '../../widgets/back_button.dart';
@@ -108,13 +109,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     setState(() => _uploadingAvatar = true);
     try {
-      final bytes = await file.readAsBytes();
-      final contentType =
-          file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg';
-      await ref.read(apiClientProvider).uploadAvatar(
-            bytes: bytes,
+      // A profile picture is only ever shown small: 1024 px is plenty.
+      final shrunk = await ref.read(imageShrinkerProvider).shrink(
+            await file.readAsBytes(),
+            contentType: file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg',
             filename: file.name,
-            contentType: contentType,
+            maxLongSide: 1024,
+          );
+      await ref.read(apiClientProvider).uploadAvatar(
+            bytes: shrunk.bytes,
+            filename: shrunk.filename,
+            contentType: shrunk.contentType,
           );
       ref.invalidate(meProvider);
     } catch (error) {

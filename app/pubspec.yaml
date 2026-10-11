@@ -72,6 +72,7 @@ dependencies:
   cryptography: ^2.9.0
   flutter_secure_storage: ^10.3.4
   flutter_local_notifications: ^22.3.1
+  flutter_image_compress: ^2.5.1
 
 dev_dependencies:
   flutter_test:
