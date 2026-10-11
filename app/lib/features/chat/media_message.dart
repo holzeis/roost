@@ -33,6 +33,29 @@ class MediaBubbleContent extends ConsumerWidget {
   final ApiMessage message;
   final BorderRadius borderRadius;
 
+  /// The width [message]'s photo/video is shown at: fit into a square of
+  /// [ChatBubbleStyle.mediaMaxWidth] at its own aspect ratio (a video's
+  /// thumbnail is square). A caption below it wraps at this width rather
+  /// than widening the bubble past the photo.
+  static double displayWidth(BuildContext context, ApiMessage message) {
+    final maxWidth = ChatBubbleStyle.mediaMaxWidth(context);
+    final aspectRatio = _aspectRatio(message);
+    return aspectRatio >= 1 ? maxWidth : maxWidth * aspectRatio;
+  }
+
+  // FR2.*: the server captures a photo's real pixel dimensions at upload
+  // (message.media) — reserving the exact aspect ratio the image will
+  // render at *before* it has even started downloading is what actually
+  // fixes the bubble resizing/jumping once it loads, not just a loading
+  // spinner. Falls back to square for a message uploaded before this
+  // existed, or an image format the server couldn't decode (WebP/HEIC), and
+  // for a video, whose thumbnail is always square.
+  static double _aspectRatio(ApiMessage message) {
+    final media = message.media;
+    if (message.kind == 'video' || media == null || media.width <= 0 || media.height <= 0) return 1;
+    return media.width / media.height;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final api = ref.watch(apiClientProvider);
@@ -61,14 +84,7 @@ class MediaBubbleContent extends ConsumerWidget {
       );
     }
 
-    // FR2.*: the server captures a photo's real pixel dimensions at upload
-    // (message.media) — reserving the exact aspect ratio the image will
-    // render at *before* it has even started downloading is what actually
-    // fixes the bubble resizing/jumping once it loads, not just a loading
-    // spinner. Falls back to square for a message uploaded before this
-    // existed, or an image format the server couldn't decode (WebP/HEIC).
-    final media = message.media;
-    final aspectRatio = media != null ? media.width / media.height : 1.0;
+    final aspectRatio = _aspectRatio(message);
 
     return GestureDetector(
       onTap: openViewer,

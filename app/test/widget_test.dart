@@ -581,6 +581,32 @@ void main() {
     );
   });
 
+  testWidgets('A caption longer than its photo is wide wraps instead of widening the bubble', (tester) async {
+    const caption = 'Sunset at the lake yesterday, the whole family was there and we stayed until it got dark';
+    final api = _seededApiClient();
+    api.messagesByRoom['room-family']!.add(ApiMessage(
+      id: 'portrait',
+      roomId: 'room-family',
+      senderId: 'user-mom',
+      kind: 'image',
+      mediaId: 'media-portrait',
+      body: caption,
+      media: const ApiMediaInfo(width: 600, height: 1200),
+      createdAt: DateTime.now(),
+    ));
+    await _pumpApp(tester, api);
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    final photo = tester.getRect(find.byWidgetPredicate((w) => w is MediaBubbleContent && w.message.id == 'portrait'));
+    final captionBox = tester.getRect(find.byKey(const ValueKey('media-caption')));
+    expect(captionBox.width, moreOrLessEquals(photo.width, epsilon: 0.5), reason: 'no wider than the photo');
+    expect(photo.width, lessThan(ChatBubbleStyle.mediaMaxWidth(tester.element(find.byType(ChatScreen))) * 0.6),
+        reason: 'a portrait photo is narrower than the widest a bubble gets');
+    final text = tester.getRect(find.text(caption));
+    expect(text.height, greaterThan(15 * 1.3 * 2), reason: 'wrapped onto several lines');
+  });
+
   testWidgets('Typing a caption on the review screen attaches it to the sent photo (FR2.6)', (tester) async {
     final originalPlatform = ImagePickerPlatform.instance;
     ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));

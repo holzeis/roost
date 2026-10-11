@@ -1093,7 +1093,11 @@ class _MessageRow extends ConsumerWidget {
           if (isMedia) ...[
             MediaBubbleContent(message: message, borderRadius: mediaRadius),
             if (hasCaption)
-              Padding(
+              // As wide as the photo, so a long caption wraps onto more
+              // lines instead of stretching the bubble past it.
+              Container(
+                key: const ValueKey('media-caption'),
+                width: MediaBubbleContent.displayWidth(context, message),
                 padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
                 child: Text(
                   message.body!,
