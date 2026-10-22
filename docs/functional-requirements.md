@@ -21,6 +21,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR1.13 | Users can edit their own text messages within 1 minute of sending | Could |
 | FR1.14 | Users see a rich preview (title/description/image) for links shared in a message | Could |
 | FR1.15 | Users can delete their own messages (any kind), with a confirmation prompt before it happens. A message that someone has already seen is replaced by a "Deleted message" placeholder for everyone; one nobody has seen yet disappears entirely | Should |
+| FR1.16 | Any member of a group can set or change the group's picture from its group info screen (take a photo or choose one; scaled down to at most 1024 px like a profile picture). It shows in the chat list, the chat header and group info, and every member sees a change live. A 1:1 chat has no picture of its own — it shows the other person's profile picture | Should |
 
 ## 2. Media sharing (images & video)
 

@@ -197,6 +197,36 @@ class FakeApiClient extends ApiClient {
     return me;
   }
 
+  /// Every picture [uploadRoomAvatar] was given, in order.
+  final List<({String roomId, String filename, String contentType, int size})> roomAvatarUploads = [];
+
+  /// Like the real server: stores the picture on the room and tells every
+  /// member (including the changer) over the socket.
+  @override
+  Future<ApiRoom> uploadRoomAvatar(
+    String roomId, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    roomAvatarUploads.add((roomId: roomId, filename: filename, contentType: contentType, size: bytes.length));
+    final mediaId = 'room-avatar-media-${_nextMediaId++}';
+    mediaBytesById[mediaId] = bytes;
+    final room = rooms.firstWhere((r) => r.id == roomId);
+    final updated = ApiRoom(
+      id: room.id,
+      name: room.name,
+      isGroup: room.isGroup,
+      createdBy: room.createdBy,
+      createdAt: room.createdAt,
+      members: room.members,
+      avatarMediaId: mediaId,
+    );
+    rooms = [for (final r in rooms) if (r.id == roomId) updated else r];
+    ws.emit(WsEvent('room.updated', {'id': roomId, 'avatarMediaId': mediaId}));
+    return updated;
+  }
+
   /// Every {platform, pushToken, tokenType} registerDevice was called with,
   /// in order — lets a test assert the push service actually registered
   /// (or didn't).

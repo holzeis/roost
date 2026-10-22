@@ -266,10 +266,11 @@ String roomDisplayName(ApiRoom room, String meId, Map<String, ApiContact> usersB
   return usersById[otherId]?.displayName ?? 'Direct message';
 }
 
-/// The one person behind a 1:1 room's own avatar — null for a named group,
-/// which has no single user's picture to show instead of its own name's
-/// initial.
+/// A room's own picture: a group's own, if a member set one; for a 1:1 room,
+/// the one person behind it. Null for a group without a picture, which shows
+/// its name's initial instead.
 String? roomAvatarMediaId(ApiRoom room, String meId, Map<String, ApiContact> usersById) {
+  if (room.isGroup) return room.avatarMediaId;
   if (room.name != null && room.name!.isNotEmpty) return null;
   final otherId = room.members.firstWhere((id) => id != meId, orElse: () => '');
   return usersById[otherId]?.avatarMediaId;

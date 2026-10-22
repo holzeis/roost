@@ -46,9 +46,15 @@ final usersByIdProvider = Provider<AsyncValue<Map<String, ApiContact>>>((ref) {
 /// screen is reached without already having an ApiRoom in hand (e.g.
 /// IncomingCallScreen, reached from a global listener rather than by
 /// tapping a room in a list that already had one).
-final roomProvider = FutureProvider.family<ApiRoom, String>(
-  (ref, roomId) => ref.watch(apiClientProvider).getRoom(roomId),
-);
+final roomProvider = FutureProvider.family<ApiRoom, String>((ref, roomId) {
+  // A group's picture can be changed by any member at any time (room.updated).
+  final sub = ref.listen(wsEventsProvider, (previous, next) {
+    final event = next.valueOrNull;
+    if (event?.type == 'room.updated' && event?.payload['id'] == roomId) ref.invalidateSelf();
+  });
+  ref.onDispose(sub.close);
+  return ref.watch(apiClientProvider).getRoom(roomId);
+});
 
 final roomsProvider = AsyncNotifierProvider<RoomsController, List<ApiRoom>>(RoomsController.new);
 

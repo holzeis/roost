@@ -54,6 +54,23 @@ class ApiClient {
     return ApiUser.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Sets a group's picture — any member may (see server/internal/api's
+  /// handleSetRoomAvatar). Everyone in the group is told over the socket
+  /// (`room.updated`); the updated room also comes back here.
+  Future<ApiRoom> uploadRoomAvatar(
+    String roomId, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/api/rooms/$roomId/avatar'))
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(contentType)));
+    final streamed = await _http.send(request);
+    final res = await http.Response.fromStream(streamed);
+    _checkOk(res);
+    return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   /// Registers this device's push token for FR5.1's call-wake fallback or
   /// FR5.2's message-notification fallback — see server/internal/api's
   /// handleRegisterDevice. tokenType is "voip" (FR5.1, iOS's PushKit token

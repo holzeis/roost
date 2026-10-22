@@ -50,7 +50,11 @@ Future<void> showForwardSheet(
                         initial:
                             title.isNotEmpty ? title[0].toUpperCase() : '?',
                         seed: title,
-                        size: 34),
+                        size: 34,
+                        avatarMediaId: room.isGroup
+                            ? room.avatarMediaId
+                            : usersById[room.members.firstWhere((id) => id != meId, orElse: () => '')]
+                                ?.avatarMediaId),
                     title: Text(title),
                     onTap: () => Navigator.of(sheetContext).pop(room.id),
                   );

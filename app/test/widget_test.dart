@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
+import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/chat/chat_screen.dart';
@@ -46,6 +47,15 @@ class _SlowSendApiClient extends FakeApiClient {
     await _release;
     return super.sendTextMessage(roomId, body, replyToMessageId: replyToMessageId);
   }
+}
+
+class _FailingRoomAvatarApi extends FakeApiClient {
+  _FailingRoomAvatarApi() : super(FakeWsClient());
+
+  @override
+  Future<ApiRoom> uploadRoomAvatar(String roomId,
+          {required List<int> bytes, required String filename, required String contentType}) async =>
+      throw ApiException(503, 'server unavailable');
 }
 
 FakeApiClient _seededApiClient() => _seed(FakeApiClient(FakeWsClient()));
@@ -1602,6 +1612,154 @@ void main() {
     expect(find.text('You'), findsOneWidget);
     expect(find.text('Mom'), findsOneWidget);
     expect(find.text('Dad'), findsOneWidget);
+  });
+
+  testWidgets('Any member can change a group picture, and it shows in the chat title and group info',
+      (tester) async {
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    // Someone else created the group, so the changer ("me") is an ordinary
+    // member: no special rights are needed to change the picture.
+    api.rooms = [
+      for (final r in api.rooms)
+        if (r.id == 'room-family')
+          ApiRoom(
+              id: r.id, name: r.name, isGroup: true, createdBy: 'user-mom', createdAt: r.createdAt, members: r.members)
+        else
+          r,
+    ];
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    expect(find.text('Group info'), findsOneWidget);
+
+    // No picture yet: the generic group icon, and nothing to view.
+    expect(find.byType(InitialAvatar), findsNWidgets(3), reason: 'just the three members');
+    await tester.tap(find.byKey(const ValueKey('group-avatar')));
+    await tester.pumpAndSettle();
+    expect(find.text('View photo'), findsNothing);
+    expect(find.text('Take photo'), findsOneWidget);
+
+    await tester.tap(find.text('Choose from gallery'));
+    await tester.pumpAndSettle();
+
+    expect(api.roomAvatarUploads, hasLength(1));
+    expect(api.roomAvatarUploads.single.roomId, 'room-family');
+    expect(api.roomAvatarUploads.single.contentType, 'image/jpeg');
+    expect(api.roomAvatarUploads.single.size, 3);
+    final newId = api.rooms.firstWhere((r) => r.id == 'room-family').avatarMediaId;
+    expect(newId, isNotNull);
+    expect(
+      tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).where((a) => a.size == 72).single.avatarMediaId,
+      newId,
+      reason: 'group info shows the new picture',
+    );
+
+    // A picture exists now, so it can be viewed too.
+    await tester.tap(find.byKey(const ValueKey('group-avatar')));
+    await tester.pumpAndSettle();
+    expect(find.text('View photo'), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10)); // dismiss the sheet
+    await tester.pumpAndSettle();
+
+    // Back in the chat, its title carries the picture.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(
+      tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).where((a) => a.size == 34).first.avatarMediaId,
+      newId,
+    );
+  });
+
+  testWidgets('A picture another member sets shows up live, in group info and in the chat list', (tester) async {
+    final api = _seededApiClient();
+    await _pumpApp(tester, api);
+
+    // In the list first: no picture, so no avatar carries one.
+    expect(tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).every((a) => a.avatarMediaId == null), isTrue);
+
+    api.rooms = [
+      for (final r in api.rooms)
+        if (r.id == 'room-family')
+          ApiRoom(
+              id: r.id,
+              name: r.name,
+              isGroup: true,
+              createdBy: r.createdBy,
+              createdAt: r.createdAt,
+              members: r.members,
+              lastMessageBody: r.lastMessageBody,
+              lastMessageKind: r.lastMessageKind,
+              lastMessageAt: r.lastMessageAt,
+              avatarMediaId: 'their-picture')
+        else
+          r,
+    ];
+    api.ws.emit(const WsEvent('room.updated', {'id': 'room-family', 'avatarMediaId': 'their-picture'}));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).where((a) => a.avatarMediaId == 'their-picture'),
+      hasLength(1),
+      reason: 'the Family entry in the chat list',
+    );
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    expect(find.text('Group info'), findsOneWidget);
+
+    // Someone changes it again while this screen is open.
+    api.rooms = [
+      for (final r in api.rooms)
+        if (r.id == 'room-family')
+          ApiRoom(
+              id: r.id,
+              name: r.name,
+              isGroup: true,
+              createdBy: r.createdBy,
+              createdAt: r.createdAt,
+              members: r.members,
+              avatarMediaId: 'newer-picture')
+        else
+          r,
+    ];
+    api.ws.emit(const WsEvent('room.updated', {'id': 'room-family', 'avatarMediaId': 'newer-picture'}));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).where((a) => a.size == 72).single.avatarMediaId,
+      'newer-picture',
+    );
+  });
+
+  testWidgets('A failed picture upload says so and leaves the group as it was', (tester) async {
+    ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList([1, 2, 3]));
+    final api = _FailingRoomAvatarApi();
+    _seed(api);
+    await _pumpApp(tester, api);
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-avatar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose from gallery'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not change the picture'), findsOneWidget);
+    expect(
+      tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).where((a) => a.size == 72),
+      isEmpty,
+      reason: 'still the generic group icon',
+    );
+    // Not stuck on the spinner: it can be tried again.
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('Tapping a 1:1 chat title does not open a member list', (tester) async {

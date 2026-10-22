@@ -3,15 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:mime/mime.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../demo/demo_mode.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/image_cache_provider.dart';
-import '../../services/image_shrinker.dart';
 import '../../theme/theme_controller.dart';
+import 'avatar_picker.dart';
 import 'avatar_viewer_screen.dart';
 import '../../widgets/back_button.dart';
 
@@ -104,18 +103,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _pickAndUploadAvatar(ImageSource source) async {
-    final file = await ImagePicker().pickImage(source: source);
-    if (file == null) return;
-
     setState(() => _uploadingAvatar = true);
     try {
-      // A profile picture is only ever shown small: 1024 px is plenty.
-      final shrunk = await ref.read(imageShrinkerProvider).shrink(
-            await file.readAsBytes(),
-            contentType: file.mimeType ?? lookupMimeType(file.path) ?? 'image/jpeg',
-            filename: file.name,
-            maxLongSide: 1024,
-          );
+      final shrunk = await pickShrunkAvatar(ref, source);
+      if (shrunk == null) return;
       await ref.read(apiClientProvider).uploadAvatar(
             bytes: shrunk.bytes,
             filename: shrunk.filename,

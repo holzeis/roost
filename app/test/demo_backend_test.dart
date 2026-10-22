@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:roost/data/api_client.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/demo/demo_backend.dart';
@@ -207,6 +208,23 @@ void main() {
       expect(backend.api.mintLiveKitToken(demoMomRoomId), throwsA(isA<DemoUnavailableException>()));
       await backend.api.registerDevice(platform: 'ios', pushToken: 't');
       expect(await backend.api.fetchLinkPreview('https://example.com'), isNull);
+    });
+  });
+
+  group('group picture', () {
+    test('a group takes a picture and tells the room; a 1:1 chat refuses one', () async {
+      final updated = await backend.api.uploadRoomAvatar(demoFamilyRoomId,
+          bytes: [1, 2, 3], filename: 'group.jpg', contentType: 'image/jpeg');
+      expect(updated.avatarMediaId, isNotNull);
+      expect((await backend.api.getRoom(demoFamilyRoomId)).avatarMediaId, updated.avatarMediaId);
+      expect((await backend.api.listRooms()).firstWhere((r) => r.id == demoFamilyRoomId).avatarMediaId,
+          updated.avatarMediaId);
+      expect(events.where((e) => e.type == 'room.updated').map((e) => e.payload['id']), [demoFamilyRoomId]);
+
+      await expectLater(
+        backend.api.uploadRoomAvatar(demoMomRoomId, bytes: [1], filename: 'a.jpg', contentType: 'image/jpeg'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 400)),
+      );
     });
   });
 }

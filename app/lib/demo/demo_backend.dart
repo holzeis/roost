@@ -134,6 +134,7 @@ class DemoBackend {
       createdBy: room.createdBy,
       createdAt: room.createdAt,
       members: room.members,
+      avatarMediaId: room.avatarMediaId,
       lastMessageBody: last?.body,
       lastMessageKind: last == null ? null : (last.isDeleted ? 'deleted' : last.kind),
       lastMessageAt: last?.createdAt,
@@ -303,6 +304,27 @@ class DemoApiClient extends ApiClient {
     final mediaId = _b.newId('media');
     _b.uploadedMedia[mediaId] = Uint8List.fromList(bytes);
     return _b.me = ApiUser(id: _b.me.id, displayName: _b.me.displayName, avatarMediaId: mediaId);
+  }
+
+  @override
+  Future<ApiRoom> uploadRoomAvatar(String roomId,
+      {required List<int> bytes, required String filename, required String contentType}) async {
+    final room = _b.rooms[roomId];
+    if (room == null) throw ApiException(404, 'room not found');
+    if (!room.isGroup) throw ApiException(400, 'only a group has a picture');
+    final mediaId = _b.newId('media');
+    _b.uploadedMedia[mediaId] = Uint8List.fromList(bytes);
+    _b.addRoom(ApiRoom(
+      id: room.id,
+      name: room.name,
+      isGroup: room.isGroup,
+      createdBy: room.createdBy,
+      createdAt: room.createdAt,
+      members: room.members,
+      avatarMediaId: mediaId,
+    ));
+    _b.ws.emit(WsEvent('room.updated', {'id': roomId, 'avatarMediaId': mediaId}));
+    return _b.roomView(_b.rooms[roomId]!);
   }
 
   /// Nothing to register: the demo never receives push notifications.

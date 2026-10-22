@@ -51,7 +51,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final roomId = widget.roomId;
-    final room = widget.room;
+    // The room handed over when navigating here is a snapshot from the chat
+    // list; the list itself stays current (e.g. a group's picture changed by
+    // another member), so prefer it and keep the snapshot as the fallback.
+    final room = ref.watch(roomsProvider).valueOrNull?.where((r) => r.id == roomId).firstOrNull ?? widget.room;
     final me = ref.watch(meProvider);
     final usersById = ref.watch(usersByIdProvider);
     final roomAsync = room != null
@@ -187,9 +190,9 @@ class _ChatTitle extends StatelessWidget {
     if (room == null) return const SizedBox.shrink();
 
     String title = room.name ?? '';
-    // Only a 1:1 room has one specific person's avatar to show — a group's
-    // own title has no single user behind it, so this stays null there.
-    String? avatarMediaId;
+    // A 1:1 room shows the other person's avatar; a group shows its own
+    // picture, if a member set one.
+    String? avatarMediaId = room.isGroup ? room.avatarMediaId : null;
     if (title.isEmpty) {
       final meId = me.valueOrNull?.id;
       final otherId =

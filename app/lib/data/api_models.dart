@@ -43,6 +43,7 @@ class ApiRoom {
     required this.createdBy,
     required this.createdAt,
     this.members = const [],
+    this.avatarMediaId,
     this.lastMessageBody,
     this.lastMessageKind,
     this.lastMessageAt,
@@ -55,6 +56,7 @@ class ApiRoom {
         createdBy: json['createdBy'] as String,
         createdAt: DateTime.parse(json['createdAt'] as String),
         members: (json['members'] as List<dynamic>?)?.cast<String>() ?? const [],
+        avatarMediaId: json['avatarMediaId'] as String?,
         lastMessageBody: json['lastMessageBody'] as String?,
         lastMessageKind: json['lastMessageKind'] as String?,
         lastMessageAt: json['lastMessageAt'] != null ? DateTime.parse(json['lastMessageAt'] as String) : null,
@@ -66,6 +68,11 @@ class ApiRoom {
   final String createdBy;
   final DateTime createdAt;
   final List<String> members;
+
+  /// A group's picture, set by any of its members (null for a 1:1 room,
+  /// which shows the other person's profile picture, and for a group
+  /// without one).
+  final String? avatarMediaId;
   final String? lastMessageBody;
   final String? lastMessageKind;
   final DateTime? lastMessageAt;
