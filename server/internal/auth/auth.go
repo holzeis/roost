@@ -59,6 +59,11 @@ func Middleware(resolver Resolver) func(http.Handler) http.Handler {
 	}
 }
 
+// WithIdentity returns ctx carrying identity, as Middleware would attach it.
+func WithIdentity(ctx context.Context, identity Identity) context.Context {
+	return context.WithValue(ctx, contextKey{}, identity)
+}
+
 // FromContext returns the identity attached by Middleware.
 func FromContext(ctx context.Context) (Identity, bool) {
 	identity, ok := ctx.Value(contextKey{}).(Identity)

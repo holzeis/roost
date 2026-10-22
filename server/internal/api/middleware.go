@@ -23,6 +23,15 @@ func (s *Server) resolveUser(next http.Handler) http.Handler {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		// The alert identity's name is owned by code (auth.AlertDisplayName),
+		// not seeded once like a person's, so a rename reaches the existing row.
+		if identity.Bot && user.DisplayName != identity.DisplayName {
+			user, err = s.Store.UpdateUserProfile(r.Context(), user.ID, identity.DisplayName, user.AvatarMediaID)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+		}
 		ctx := session.WithUser(r.Context(), user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

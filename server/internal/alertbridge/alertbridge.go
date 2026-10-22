@@ -161,24 +161,23 @@ func (s RoostSender) Send(ctx context.Context, text string) error {
 	return nil
 }
 
-// avatarPNG is the alert identity's profile picture (source:
-// assets/alerts/alerts-avatar.svg).
+// avatarJPEG is the alert identity's profile picture.
 //
-//go:embed avatar.png
-var avatarPNG []byte
+//go:embed avatar.jpg
+var avatarJPEG []byte
 
 // EnsureAvatar offers the embedded profile picture to the chat server, which
-// only applies it if the alert identity has none yet.
+// applies it unless it is already the current one.
 func (s RoostSender) EnsureAvatar(ctx context.Context) error {
-	return s.uploadAvatar(ctx, avatarPNG)
+	return s.uploadAvatar(ctx, avatarJPEG)
 }
 
 func (s RoostSender) uploadAvatar(ctx context.Context, image []byte) error {
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
 	header := textproto.MIMEHeader{}
-	header.Set("Content-Disposition", `form-data; name="file"; filename="alerts-avatar.png"`)
-	header.Set("Content-Type", "image/png")
+	header.Set("Content-Disposition", `form-data; name="file"; filename="avatar.jpg"`)
+	header.Set("Content-Type", "image/jpeg")
 	part, err := form.CreatePart(header)
 	if err != nil {
 		return fmt.Errorf("build avatar upload: %w", err)
@@ -203,7 +202,7 @@ func (s RoostSender) uploadAvatar(ctx context.Context, image []byte) error {
 		return fmt.Errorf("post avatar to roost: %w", err)
 	}
 	defer resp.Body.Close()
-	// 200: applied. 204: already has one.
+	// 200: applied. 204: already the current picture.
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 		return errors.New("roost returned " + resp.Status + ": " + strings.TrimSpace(string(detail)))

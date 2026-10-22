@@ -70,7 +70,7 @@ func run() error {
 	}
 }
 
-// offerAvatar sets the alert identity's profile picture. It retries because
+// offerAvatar keeps the alert identity's profile picture up to date. It retries because
 // the chat server may be restarting alongside the bridge, and gives up
 // quietly: a missing picture must never stop alerts from flowing.
 func offerAvatar(ctx context.Context, sender alertbridge.RoostSender) {

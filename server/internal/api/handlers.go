@@ -11,6 +11,7 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -453,10 +454,10 @@ func (s *Server) handleBotMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
-// handleBotAvatar lets the alert identity set its own profile picture. It is
-// a no-op once one is set, so the bridge can offer its image on every start
-// without piling up a new media object each time; to change the picture,
-// clear users.avatar_media_id for the alert user and restart the bridge.
+// handleBotAvatar lets the alert identity set its own profile picture. The
+// bridge offers its image on every start, so an upload identical to the
+// current picture (same type and size) is a no-op rather than a new media
+// object each restart; a different image replaces it.
 func (s *Server) handleBotAvatar(w http.ResponseWriter, r *http.Request) {
 	bot, ok := session.UserFromContext(r.Context())
 	if !ok {
@@ -464,10 +465,30 @@ func (s *Server) handleBotAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bot.AvatarMediaID != nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
+		r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadBytes)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "upload too large or malformed")
+			return
+		}
+		_, header, err := r.FormFile("file")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "missing file")
+			return
+		}
+		// A lookup failure just falls through to replacing the picture.
+		if current, err := s.Store.GetMediaObject(r.Context(), *bot.AvatarMediaID); err == nil && sameAvatar(current, header) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 	}
 	s.handleUploadAvatar(w, r)
+}
+
+// sameAvatar reports whether an upload is the picture already stored: same
+// content type and byte size, which is how the bridge's fixed image is told
+// apart from a new one without hashing or storing anything extra.
+func sameAvatar(current models.MediaObject, upload *multipart.FileHeader) bool {
+	return current.ContentType == upload.Header.Get("Content-Type") && current.SizeBytes == upload.Size
 }
 
 // validReplyTarget checks that replyToMessageID exists and belongs to

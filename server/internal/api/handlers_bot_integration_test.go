@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"roost/server/internal/auth"
 	"roost/server/internal/models"
 	"roost/server/internal/session"
 	"roost/server/internal/ws"
@@ -121,9 +122,9 @@ func TestEnsureAlertsRoom_ConcurrentFirstAlertsCreateOneRoom(t *testing.T) {
 	}
 }
 
-func postBotAvatar(t *testing.T, s *Server, bot models.User) *httptest.ResponseRecorder {
+func postBotAvatar(t *testing.T, s *Server, bot models.User, content string) *httptest.ResponseRecorder {
 	t.Helper()
-	body, contentType := multipartAvatarBody(t, "alerts-avatar.png", []byte("not a real png, just test bytes"))
+	body, contentType := multipartAvatarBody(t, "avatar.jpg", []byte(content))
 	req := httptest.NewRequest(http.MethodPost, "/bot/avatar", body)
 	req.Header.Set("Content-Type", contentType)
 	req = req.WithContext(session.WithUser(req.Context(), bot))
@@ -132,39 +133,79 @@ func postBotAvatar(t *testing.T, s *Server, bot models.User) *httptest.ResponseR
 	return rec
 }
 
-// TestHandleBotAvatar_SetsOnceThenLeavesItAlone covers the bridge offering
-// its picture on every start: the first upload applies, later ones are a
-// no-op rather than piling up a new media object each restart.
-func TestHandleBotAvatar_SetsOnceThenLeavesItAlone(t *testing.T) {
+// TestHandleBotAvatar_IdenticalUploadIsANoOpButANewImageReplaces covers the
+// bridge offering its picture on every start: the same image must not pile
+// up a media object per restart, while a changed image must take effect.
+func TestHandleBotAvatar_IdenticalUploadIsANoOpButANewImageReplaces(t *testing.T) {
 	s := newAPITestServer(t)
 	ctx := context.Background()
-	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-avatar-%d", time.Now().UnixNano()), "Alerts")
+	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-avatar-%d", time.Now().UnixNano()), "Homelab")
 	if err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
 
-	rec := postBotAvatar(t, s, bot)
+	rec := postBotAvatar(t, s, bot, "first image bytes")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("first upload: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var updated models.User
-	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil || updated.AvatarMediaID == nil {
-		t.Fatalf("expected an avatar to be set, got %+v (%v)", updated, err)
+	var first models.User
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil || first.AvatarMediaID == nil {
+		t.Fatalf("expected an avatar to be set, got %+v (%v)", first, err)
 	}
-	if updated.DisplayName != "Alerts" {
-		t.Fatalf("display name should be untouched, got %q", updated.DisplayName)
+	if first.DisplayName != "Homelab" {
+		t.Fatalf("display name should be untouched, got %q", first.DisplayName)
 	}
 
 	// The next request re-loads the user (resolveUser), now with an avatar.
-	reloaded, err := s.Store.GetUser(ctx, bot.ID)
+	reloaded, _ := s.Store.GetUser(ctx, bot.ID)
+	if rec := postBotAvatar(t, s, reloaded, "first image bytes"); rec.Code != http.StatusNoContent {
+		t.Fatalf("identical upload: expected 204, got %d", rec.Code)
+	}
+	if after, _ := s.Store.GetUser(ctx, bot.ID); after.AvatarMediaID == nil || *after.AvatarMediaID != *first.AvatarMediaID {
+		t.Fatalf("avatar should be unchanged, was %v now %v", first.AvatarMediaID, after.AvatarMediaID)
+	}
+
+	rec = postBotAvatar(t, s, reloaded, "a different, longer image")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("new image: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var second models.User
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil || second.AvatarMediaID == nil || *second.AvatarMediaID == *first.AvatarMediaID {
+		t.Fatalf("expected a replaced avatar, got %+v (%v)", second, err)
+	}
+}
+
+// TestResolveUser_SyncsTheAlertIdentitysName covers renaming: the alert
+// user's row already exists under its old name, and must follow the name
+// the code now gives that identity, keeping its picture.
+func TestResolveUser_SyncsTheAlertIdentitysName(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	login := fmt.Sprintf("tag:test-alerts-rename-%d", time.Now().UnixNano())
+	old, err := s.Store.GetOrCreateUserByTailscaleID(ctx, login, "Alerts")
 	if err != nil {
-		t.Fatalf("reload bot: %v", err)
+		t.Fatalf("create bot: %v", err)
 	}
-	if rec := postBotAvatar(t, s, reloaded); rec.Code != http.StatusNoContent {
-		t.Fatalf("second upload: expected 204, got %d", rec.Code)
+	media, err := s.Store.CreateMediaObject(ctx, s.Media.Bucket(), fmt.Sprintf("avatars/%s.jpg", login), "image/jpeg", 3, old.ID, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("create media: %v", err)
 	}
-	after, _ := s.Store.GetUser(ctx, bot.ID)
-	if after.AvatarMediaID == nil || *after.AvatarMediaID != *updated.AvatarMediaID {
-		t.Fatalf("avatar should be unchanged, was %v now %v", updated.AvatarMediaID, after.AvatarMediaID)
+	if _, err := s.Store.UpdateUserProfile(ctx, old.ID, "Alerts", &media.ID); err != nil {
+		t.Fatalf("set avatar: %v", err)
+	}
+
+	var got models.User
+	handler := s.resolveUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = session.UserFromContext(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/bot/messages", nil)
+	req = req.WithContext(auth.WithIdentity(req.Context(), auth.Identity{LoginName: login, DisplayName: "Homelab", Bot: true}))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if got.DisplayName != "Homelab" {
+		t.Fatalf("expected the user to be renamed to Homelab, got %q", got.DisplayName)
+	}
+	if got.AvatarMediaID == nil || *got.AvatarMediaID != media.ID {
+		t.Fatalf("avatar should be kept across the rename, got %v", got.AvatarMediaID)
 	}
 }

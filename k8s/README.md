@@ -193,10 +193,12 @@ bridge's tailnet ACL tag, so there is no token — set it up once, out-of-band:
    routing the always-firing `Watchdog` alert to `roost-watchdog` with a
    24h `repeat_interval`, and everything else to `roost`.
 
-The bridge also sets the "Alerts" user's profile picture on startup (only if
-it has none). To change it, replace `server/internal/alertbridge/avatar.png`
-(source: `assets/alerts/alerts-avatar.svg`), clear that user's
-`users.avatar_media_id`, and restart the bridge.
+The bridge's identity appears in chat as **Homelab** (`auth.AlertDisplayName`)
+and its profile picture is set from `server/internal/alertbridge/avatar.jpg` on
+every start (skipped when it is already that image). To change either, edit
+the name constant or replace the image, rebuild, and restart chat-server (name)
+or alert-bridge (picture). The group the alerts land in is still called
+"Alerts".
 
 `network-policies.yaml` only lets the `monitoring` namespace reach the bridge;
 change that selector if Alertmanager runs elsewhere. Unlike chat-server, the

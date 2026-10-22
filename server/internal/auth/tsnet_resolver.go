@@ -10,7 +10,7 @@ import (
 )
 
 // AlertDisplayName is the name the alert identity shows up as in chat.
-const AlertDisplayName = "Alerts"
+const AlertDisplayName = "Homelab"
 
 // TsnetResolver resolves identity via the LocalAPI of an in-process tsnet
 // node (see cmd/server, which constructs the tsnet.Server and passes its

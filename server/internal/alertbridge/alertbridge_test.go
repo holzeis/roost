@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"image/png"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +169,7 @@ func TestRoostSender(t *testing.T) {
 	}
 }
 
-func TestEnsureAvatar_UploadsTheEmbeddedPNGAsAMultipartFile(t *testing.T) {
+func TestEnsureAvatar_UploadsTheEmbeddedJPEGAsAMultipartFile(t *testing.T) {
 	var gotPath, gotName, gotType string
 	var gotFile []byte
 	status := http.StatusOK
@@ -192,18 +192,18 @@ func TestEnsureAvatar_UploadsTheEmbeddedPNGAsAMultipartFile(t *testing.T) {
 	if err := sender.EnsureAvatar(context.Background()); err != nil {
 		t.Fatalf("ensure avatar: %v", err)
 	}
-	if gotPath != "/bot/avatar" || gotName != "alerts-avatar.png" || gotType != "image/png" {
+	if gotPath != "/bot/avatar" || gotName != "avatar.jpg" || gotType != "image/jpeg" {
 		t.Fatalf("unexpected upload: path=%q name=%q type=%q", gotPath, gotName, gotType)
 	}
-	img, err := png.Decode(bytes.NewReader(gotFile))
+	img, err := jpeg.Decode(bytes.NewReader(gotFile))
 	if err != nil {
-		t.Fatalf("uploaded bytes are not a valid PNG: %v", err)
+		t.Fatalf("uploaded bytes are not a valid JPEG: %v", err)
 	}
 	if b := img.Bounds(); b.Dx() != b.Dy() {
 		t.Fatalf("avatar should be square, got %dx%d", b.Dx(), b.Dy())
 	}
 
-	status = http.StatusNoContent // already has one
+	status = http.StatusNoContent // already the current picture
 	if err := sender.EnsureAvatar(context.Background()); err != nil {
 		t.Fatalf("204 means already set and must not be an error: %v", err)
 	}
