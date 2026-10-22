@@ -147,9 +147,9 @@ func (s *Store) CreateRoom(ctx context.Context, creatorID string, name *string, 
 	var room models.Room
 	const insertRoom = `
 		INSERT INTO rooms (name, is_group, created_by) VALUES ($1, $2, $3)
-		RETURNING id, name, is_group, created_by, created_at`
+		RETURNING id, name, is_group, created_by, created_at, avatar_media_id`
 	if err := tx.QueryRow(ctx, insertRoom, name, isGroup, creatorID).
-		Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt); err != nil {
+		Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt, &room.AvatarMediaID); err != nil {
 		return models.Room{}, fmt.Errorf("store: insert room: %w", err)
 	}
 
@@ -189,17 +189,17 @@ func (s *Store) EnsureAlertsRoom(ctx context.Context, botID string) (models.Room
 
 	var room models.Room
 	const find = `
-		SELECT id, name, is_group, created_by, created_at FROM rooms
+		SELECT id, name, is_group, created_by, created_at, avatar_media_id FROM rooms
 		WHERE created_by = $1 AND is_group ORDER BY created_at LIMIT 1`
 	err = tx.QueryRow(ctx, find, botID).
-		Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt)
+		Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt, &room.AvatarMediaID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		name := AlertsRoomName
 		const insert = `
 			INSERT INTO rooms (name, is_group, created_by) VALUES ($1, true, $2)
-			RETURNING id, name, is_group, created_by, created_at`
+			RETURNING id, name, is_group, created_by, created_at, avatar_media_id`
 		err = tx.QueryRow(ctx, insert, name, botID).
-			Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt)
+			Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt, &room.AvatarMediaID)
 	}
 	if err != nil {
 		return models.Room{}, fmt.Errorf("store: alerts room: %w", err)
@@ -246,7 +246,7 @@ func (s *Store) FindDirectRoom(ctx context.Context, userA, userB string) (models
 // no `name` of its own) without a second round-trip per room.
 func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.Room, error) {
 	const q = `
-		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at,
+		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at, r.avatar_media_id,
 		       lm.body, CASE WHEN lm.deleted_at IS NOT NULL THEN 'deleted' ELSE lm.kind END, lm.created_at,
 		       members.member_ids
 		FROM rooms r
@@ -273,7 +273,7 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 	for rows.Next() {
 		var r models.Room
 		var lastKind *string
-		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.LastMessageBody, &lastKind, &r.LastMessageAt, &r.Members); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.AvatarMediaID, &r.LastMessageBody, &lastKind, &r.LastMessageAt, &r.Members); err != nil {
 			return nil, fmt.Errorf("store: scan room: %w", err)
 		}
 		if lastKind != nil {
@@ -288,9 +288,9 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 // GetRoom returns a single room with its member IDs populated, for the chat
 // screen header (FR1.4: who else is in this room).
 func (s *Store) GetRoom(ctx context.Context, roomID string) (models.Room, error) {
-	const q = `SELECT id, name, is_group, created_by, created_at FROM rooms WHERE id = $1`
+	const q = `SELECT id, name, is_group, created_by, created_at, avatar_media_id FROM rooms WHERE id = $1`
 	var r models.Room
-	err := s.pool.QueryRow(ctx, q, roomID).Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt)
+	err := s.pool.QueryRow(ctx, q, roomID).Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.AvatarMediaID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.Room{}, ErrNotFound
 	}
@@ -303,6 +303,20 @@ func (s *Store) GetRoom(ctx context.Context, roomID string) (models.Room, error)
 	}
 	r.Members = members
 	return r, nil
+}
+
+// SetRoomAvatar sets a room's picture and returns the updated room (with
+// members). The previous media object is left in place, as with a user's
+// own profile picture.
+func (s *Store) SetRoomAvatar(ctx context.Context, roomID, mediaID string) (models.Room, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE rooms SET avatar_media_id = $2 WHERE id = $1`, roomID, mediaID)
+	if err != nil {
+		return models.Room{}, fmt.Errorf("store: set room avatar: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return models.Room{}, ErrNotFound
+	}
+	return s.GetRoom(ctx, roomID)
 }
 
 func (s *Store) ListRoomMemberIDs(ctx context.Context, roomID string) ([]string, error) {

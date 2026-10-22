@@ -94,17 +94,33 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	mediaObj, ok := s.storeAvatarUpload(w, r, u.ID)
+	if !ok {
+		return
+	}
+	updated, err := s.Store.UpdateUserProfile(r.Context(), u.ID, u.DisplayName, &mediaObj.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not update profile")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
 
+// storeAvatarUpload reads a multipart "file" image from the request, stores
+// it (with the smaller preview) and records it as a media object uploaded by
+// uploaderID — the part a user's profile picture and a group's picture have
+// in common. On failure it has already written the error response.
+func (s *Server) storeAvatarUpload(w http.ResponseWriter, r *http.Request, uploaderID string) (models.MediaObject, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadBytes)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "upload too large or malformed")
-		return
+		return models.MediaObject{}, false
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "missing file")
-		return
+		return models.MediaObject{}, false
 	}
 	defer file.Close()
 
@@ -114,7 +130,7 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(file)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "could not read upload")
-		return
+		return models.MediaObject{}, false
 	}
 
 	contentType := header.Header.Get("Content-Type")
@@ -130,21 +146,51 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 	width, height, previewObjectKey, err := s.storeMediaWithPreview(r.Context(), objectKey, contentType, data)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not store file")
-		return
+		return models.MediaObject{}, false
 	}
 
 	mediaObj, err := s.Store.CreateMediaObject(
-		r.Context(), s.Media.Bucket(), objectKey, contentType, int64(len(data)), u.ID, width, height, previewObjectKey)
+		r.Context(), s.Media.Bucket(), objectKey, contentType, int64(len(data)), uploaderID, width, height, previewObjectKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not record uploaded file")
+		return models.MediaObject{}, false
+	}
+	return mediaObj, true
+}
+
+// handleSetRoomAvatar lets any member of a group set its picture; everyone
+// in the group is told live (room.updated). A 1:1 room has no picture of its
+// own — it shows the other person's.
+func (s *Server) handleSetRoomAvatar(w http.ResponseWriter, r *http.Request) {
+	u, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, u.ID, roomID) {
+		return
+	}
+	room, err := s.Store.GetRoom(r.Context(), roomID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load room")
+		return
+	}
+	if !room.IsGroup {
+		writeError(w, http.StatusBadRequest, "only a group has a picture")
 		return
 	}
 
-	updated, err := s.Store.UpdateUserProfile(r.Context(), u.ID, u.DisplayName, &mediaObj.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not update profile")
+	mediaObj, ok := s.storeAvatarUpload(w, r, u.ID)
+	if !ok {
 		return
 	}
+	updated, err := s.Store.SetRoomAvatar(r.Context(), roomID, mediaObj.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not update room")
+		return
+	}
+	s.Hub.SendToUsers(updated.Members, ws.Event{Type: "room.updated", Payload: updated})
 	writeJSON(w, http.StatusOK, updated)
 }
 

@@ -69,7 +69,8 @@ The "Alerts" group (FR8.1) is an ordinary group room created by the alert identi
 A room is either a 1:1 (`is_group = false`, exactly 2 members, `name` null —
 the client derives a display name from the other member) or a group
 (`is_group = true`, named). `room_members.muted` backs per-room notification
-muting (FR5.3).
+muting (FR5.3). Changing a group's picture (FR1.16) is announced to its members
+over the WebSocket as `room.updated`, carrying the whole room.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -78,6 +79,7 @@ muting (FR5.3).
 | `rooms.is_group` | boolean | |
 | `rooms.created_by` | uuid, FK → `users` | |
 | `rooms.created_at` | timestamptz | |
+| `rooms.avatar_media_id` | uuid, FK → `media_objects`, nullable | A group's picture (FR1.16), set by any member; null for a group without one and always for a 1:1 room. Same pointer style as `users.avatar_media_id`; `ON DELETE SET NULL`. Like a profile picture, the image has no owning message, so it is served to anyone who can reach the server. Changing it leaves the old media object in place — migration 0010 |
 | `room_members.room_id`, `room_members.user_id` | uuid, composite PK | |
 | `room_members.joined_at` | timestamptz | |
 | `room_members.muted` | boolean | |

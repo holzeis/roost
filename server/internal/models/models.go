@@ -13,12 +13,15 @@ type User struct {
 }
 
 type Room struct {
-	ID        string    `json:"id"`
-	Name      *string   `json:"name,omitempty"`
-	IsGroup   bool      `json:"isGroup"`
-	CreatedBy string    `json:"createdBy"`
-	CreatedAt time.Time `json:"createdAt"`
-	Members   []string  `json:"members,omitempty"`
+	ID      string  `json:"id"`
+	Name    *string `json:"name,omitempty"`
+	IsGroup bool    `json:"isGroup"`
+	// AvatarMediaID is a group's picture (nil for a 1:1 room, which shows
+	// the other person's profile picture, and for a group with none).
+	AvatarMediaID *string   `json:"avatarMediaId,omitempty"`
+	CreatedBy     string    `json:"createdBy"`
+	CreatedAt     time.Time `json:"createdAt"`
+	Members       []string  `json:"members,omitempty"`
 
 	// Populated by ListRoomsForUser for the room list UI; absent (all nil)
 	// for a room with no messages yet.
