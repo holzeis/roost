@@ -123,7 +123,9 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -o /dev/null ./cmd/server
+        run: |
+          go build -o /dev/null ./cmd/server
+          go build -o /dev/null ./cmd/alert-bridge
 
   server-image:
     name: server / container image (amd64+arm64)
@@ -187,6 +189,51 @@ jobs:
           # already warm here rather than rebuilt a second time.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  alert-bridge-image:
+    name: alert-bridge / container image (amd64+arm64)
+    runs-on: ubuntu-latest
+    needs: [changes, server-test, server-build-matrix]
+    if: needs.changes.outputs.server == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # Same scan-before-push shape as server-image (report-only for now).
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: server
+          file: server/Dockerfile.alert-bridge
+          load: true
+          tags: roost-alert-bridge:scan
+          cache-from: type=gha,scope=alert-bridge
+          cache-to: type=gha,mode=max,scope=alert-bridge
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: roost-alert-bridge:scan
+          format: table
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: server
+          file: server/Dockerfile.alert-bridge
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository }}-alert-bridge:${{ github.sha }}
+            ghcr.io/${{ github.repository }}-alert-bridge:latest
+          cache-from: type=gha,scope=alert-bridge
+          cache-to: type=gha,mode=max,scope=alert-bridge
 
   image-watcher-image:
     name: image-watcher / container image (amd64+arm64)

@@ -22,6 +22,7 @@ pre-assembled copy.
 | Key | Used by |
 |---|---|
 | `chat-server-authkey` | chat-server's `tsnet` node, at first registration only |
+| `alert-bridge-authkey` | the alert bridge's `tsnet` node, at first registration only. Must be created **with the tag** `tag:roost-alerts` (see "Alert bridge" below) |
 | `livekit-authkey` | LiveKit's Tailscale sidecar, at first registration only |
 | `postgres-password` | the postgres pod, and chat-server (which interpolates it into `DATABASE_URL`) |
 | `s3-access-key`, `s3-secret-key` | the seaweedfs pod (as `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`), and chat-server's S3 client |
@@ -128,6 +129,7 @@ kubectl apply -f k8s/postgres/
 kubectl apply -f k8s/seaweedfs/
 kubectl apply -f k8s/livekit/
 kubectl apply -f k8s/chat-server/
+kubectl apply -f k8s/alert-bridge/
 kubectl apply -f k8s/network-policies.yaml
 kubectl apply -f k8s/image-watcher.yaml
 ```
@@ -159,6 +161,42 @@ saw — nothing cluster-wide, no access to Secrets or other namespaces.
 `ghcr.io/holzeis/roost-image-watcher` needs to be made public in its GitHub
 package settings (or given an `imagePullSecret`) the first time it's
 published, same as `roost-chat-server` already needed.
+
+## Alert bridge
+
+`k8s/alert-bridge/` forwards Alertmanager webhooks into an "Alerts" group in
+Roost, posted by a dedicated identity (FR8.1; the architecture overview's
+"Infrastructure alerts…" decision has the reasoning). The identity is the
+bridge's tailnet ACL tag, so there is no token — set it up once, out-of-band:
+
+1. In the tailnet policy file, declare the tag and who may create nodes with it:
+   ```json
+   "tagOwners": { "tag:roost-alerts": ["autogroup:admin"] }
+   ```
+   and make sure your ACLs let `tag:roost-alerts` reach the chat server on port 80.
+2. In the Tailscale admin console create an auth key **with `tag:roost-alerts`**
+   and store it as the `alert-bridge-authkey` key of `roost-secrets`. (The chat
+   server only trusts the tag named by `ALERT_BOT_TAG`, default
+   `tag:roost-alerts`; a node with any other tag is refused.)
+3. `kubectl apply -f k8s/alert-bridge/`. `ROOST_URL` in the Deployment is the
+   chat server's MagicDNS name (`roost-chat`, its `TSNET_HOSTNAME`).
+4. Point Alertmanager at the Service, e.g.:
+   ```yaml
+   receivers:
+     - name: roost
+       webhook_configs:
+         - url: http://alert-bridge.roost.svc.cluster.local/alerts
+     - name: roost-watchdog
+       webhook_configs:
+         - url: http://alert-bridge.roost.svc.cluster.local/watchdog
+   ```
+   routing the always-firing `Watchdog` alert to `roost-watchdog` with a
+   24h `repeat_interval`, and everything else to `roost`.
+
+`network-policies.yaml` only lets the `monitoring` namespace reach the bridge;
+change that selector if Alertmanager runs elsewhere. Unlike chat-server, the
+bridge's image is not yet covered by the image-watcher: after a new image is
+published, `kubectl rollout restart deployment/alert-bridge -n roost`.
 
 ## LiveKit's two-phase `node_ip` setup
 

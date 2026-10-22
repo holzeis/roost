@@ -1,0 +1,111 @@
+# Forwards Prometheus Alertmanager webhooks into Roost's Alerts room as a
+# dedicated alert identity. The bridge is its own tailnet node (tsnet), and
+# the chat server recognises it by its ACL tag — there is no token. The
+# tagged auth key and the ACL tag are set up out-of-band; see
+# k8s/README.md's "Alert bridge" section.
+#
+# Only Alertmanager reaches this pod (the Service below, restricted by
+# network-policies.yaml); the pod itself only dials out, to the chat server
+# over the tailnet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-bridge
+  namespace: roost
+  labels:
+    app: alert-bridge
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # avoids two pods briefly fighting over the same ReadWriteOnce tsnet-state PVC during a rollout
+  selector:
+    matchLabels:
+      app: alert-bridge
+  template:
+    metadata:
+      labels:
+        app: alert-bridge
+    spec:
+      automountServiceAccountToken: false # this pod never talks to the k8s API
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # distroless's "nonroot", as in chat-server
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alert-bridge
+          image: ghcr.io/holzeis/roost-alert-bridge:latest # set by CI; see .github/workflows/ci.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true # static binary; writes only to its tsnet-state mount
+          env:
+            - name: TSNET_HOSTNAME
+              value: "roost-alerts"
+            - name: TSNET_STATE_DIR
+              value: "/var/lib/tsnet"
+            # Must be an auth key created WITH the tag the chat server
+            # expects (ALERT_BOT_TAG, default tag:roost-alerts) — that tag
+            # is the bridge's whole identity. Only matters at first
+            # registration; afterwards the node identity persists on the PVC.
+            - name: TSNET_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: roost-secrets
+                  key: alert-bridge-authkey
+            - name: ROOST_URL
+              value: "http://roost-chat" # chat-server's tailnet MagicDNS name (its TSNET_HOSTNAME)
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: tsnet-state
+              mountPath: /var/lib/tsnet
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: tsnet-state
+          persistentVolumeClaim:
+            claimName: alert-bridge-tsnet-state
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-bridge
+  namespace: roost
+spec:
+  selector:
+    app: alert-bridge
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alert-bridge-tsnet-state
+  namespace: roost
+spec:
+  storageClassName: longhorn
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 100Mi

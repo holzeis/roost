@@ -9,6 +9,8 @@
 # 2. Explicit allows carve back exactly what's needed:
 #    - chat-server -> postgres:5432
 #    - chat-server -> seaweedfs:8333
+#    - Alertmanager (in the `monitoring` namespace — adjust if yours differs)
+#      -> alert-bridge:8080
 # chat-server itself gets no explicit allow-ingress rule: nothing in normal
 # cluster networking needs to reach it (it has no Service — see
 # k8s/chat-server/deployment.yaml — and is only reachable via its own
@@ -80,3 +82,21 @@ spec:
   policyTypes: ["Ingress"]
   ingress:
     - {} # allow from anywhere: see this file's header for why
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alert-bridge-allow-alertmanager
+  namespace: roost
+spec:
+  podSelector:
+    matchLabels:
+      app: alert-bridge
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring # the namespace Alertmanager runs in
+      ports:
+        - port: 8080
