@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +19,9 @@ import (
 	"roost/server/internal/alertbridge"
 )
 
+// tailnetUpTimeout bounds the wait for the first tailnet login.
+const tailnetUpTimeout = 2 * time.Minute
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("alert-bridge exited", "error", err)
@@ -29,7 +33,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	client, cleanup, err := roostClient()
+	client, cleanup, err := roostClient(ctx)
 	if err != nil {
 		return err
 	}
@@ -69,7 +73,7 @@ func run() error {
 // identity. DEV_DIRECT=true skips the tailnet for docker-compose, where the
 // chat server runs with ENABLE_DEV_AUTH and recognises the bridge by host
 // instead; never set it outside local development.
-func roostClient() (*http.Client, func(), error) {
+func roostClient(ctx context.Context) (*http.Client, func(), error) {
 	if os.Getenv("DEV_DIRECT") == "true" {
 		slog.Warn("DEV_DIRECT=true: talking to the chat server without the tailnet; do not use this outside local development")
 		return &http.Client{}, func() {}, nil
@@ -80,9 +84,22 @@ func roostClient() (*http.Client, func(), error) {
 		Dir:      os.Getenv("TSNET_STATE_DIR"),
 		AuthKey:  os.Getenv("TSNET_AUTHKEY"),
 	}
-	if err := ts.Start(); err != nil {
-		return nil, nil, fmt.Errorf("join tailnet: %w", err)
+	// TSNET_VERBOSE=true shows tailscale's own logs, which say why a login
+	// is being refused (bad/expired key, tag not permitted, approval pending).
+	if os.Getenv("TSNET_VERBOSE") == "true" {
+		ts.Logf = log.Printf
 	}
+
+	// Wait for the node to actually be on the tailnet. Without this the
+	// bridge serves happily while every send hangs until it times out, and
+	// nothing says why; failing here puts the reason in the pod's logs.
+	upCtx, cancel := context.WithTimeout(ctx, tailnetUpTimeout)
+	defer cancel()
+	if _, err := ts.Up(upCtx); err != nil {
+		ts.Close()
+		return nil, nil, fmt.Errorf("join tailnet (is TSNET_AUTHKEY valid, tagged, and approved? set TSNET_VERBOSE=true for details): %w", err)
+	}
+	slog.Info("joined tailnet", "hostname", ts.Hostname)
 	return ts.HTTPClient(), func() { ts.Close() }, nil
 }
 
