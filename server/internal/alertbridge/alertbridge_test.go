@@ -1,9 +1,11 @@
 package alertbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -163,6 +165,51 @@ func TestRoostSender(t *testing.T) {
 	status = http.StatusForbidden
 	err := sender.Send(context.Background(), "x")
 	if err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("expected a 403 error, got %v", err)
+	}
+}
+
+func TestEnsureAvatar_UploadsTheEmbeddedPNGAsAMultipartFile(t *testing.T) {
+	var gotPath, gotName, gotType string
+	var gotFile []byte
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Errorf("expected a multipart \"file\" field: %v", err)
+			http.Error(w, "bad", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		gotName, gotType = header.Filename, header.Header.Get("Content-Type")
+		gotFile, _ = io.ReadAll(file)
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+
+	sender := RoostSender{BaseURL: srv.URL, Client: srv.Client()}
+	if err := sender.EnsureAvatar(context.Background()); err != nil {
+		t.Fatalf("ensure avatar: %v", err)
+	}
+	if gotPath != "/bot/avatar" || gotName != "alerts-avatar.png" || gotType != "image/png" {
+		t.Fatalf("unexpected upload: path=%q name=%q type=%q", gotPath, gotName, gotType)
+	}
+	img, err := png.Decode(bytes.NewReader(gotFile))
+	if err != nil {
+		t.Fatalf("uploaded bytes are not a valid PNG: %v", err)
+	}
+	if b := img.Bounds(); b.Dx() != b.Dy() {
+		t.Fatalf("avatar should be square, got %dx%d", b.Dx(), b.Dy())
+	}
+
+	status = http.StatusNoContent // already has one
+	if err := sender.EnsureAvatar(context.Background()); err != nil {
+		t.Fatalf("204 means already set and must not be an error: %v", err)
+	}
+
+	status = http.StatusForbidden
+	if err := sender.EnsureAvatar(context.Background()); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("expected a 403 error, got %v", err)
 	}
 }

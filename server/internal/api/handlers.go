@@ -453,6 +453,23 @@ func (s *Server) handleBotMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
+// handleBotAvatar lets the alert identity set its own profile picture. It is
+// a no-op once one is set, so the bridge can offer its image on every start
+// without piling up a new media object each time; to change the picture,
+// clear users.avatar_media_id for the alert user and restart the bridge.
+func (s *Server) handleBotAvatar(w http.ResponseWriter, r *http.Request) {
+	bot, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if bot.AvatarMediaID != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.handleUploadAvatar(w, r)
+}
+
 // validReplyTarget checks that replyToMessageID exists and belongs to
 // roomID — replying across rooms would let a client reference another
 // room's message it may not even be a member of.

@@ -120,3 +120,51 @@ func TestEnsureAlertsRoom_ConcurrentFirstAlertsCreateOneRoom(t *testing.T) {
 		}
 	}
 }
+
+func postBotAvatar(t *testing.T, s *Server, bot models.User) *httptest.ResponseRecorder {
+	t.Helper()
+	body, contentType := multipartAvatarBody(t, "alerts-avatar.png", []byte("not a real png, just test bytes"))
+	req := httptest.NewRequest(http.MethodPost, "/bot/avatar", body)
+	req.Header.Set("Content-Type", contentType)
+	req = req.WithContext(session.WithUser(req.Context(), bot))
+	rec := httptest.NewRecorder()
+	s.handleBotAvatar(rec, req)
+	return rec
+}
+
+// TestHandleBotAvatar_SetsOnceThenLeavesItAlone covers the bridge offering
+// its picture on every start: the first upload applies, later ones are a
+// no-op rather than piling up a new media object each restart.
+func TestHandleBotAvatar_SetsOnceThenLeavesItAlone(t *testing.T) {
+	s := newAPITestServer(t)
+	ctx := context.Background()
+	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-avatar-%d", time.Now().UnixNano()), "Alerts")
+	if err != nil {
+		t.Fatalf("create bot: %v", err)
+	}
+
+	rec := postBotAvatar(t, s, bot)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first upload: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var updated models.User
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil || updated.AvatarMediaID == nil {
+		t.Fatalf("expected an avatar to be set, got %+v (%v)", updated, err)
+	}
+	if updated.DisplayName != "Alerts" {
+		t.Fatalf("display name should be untouched, got %q", updated.DisplayName)
+	}
+
+	// The next request re-loads the user (resolveUser), now with an avatar.
+	reloaded, err := s.Store.GetUser(ctx, bot.ID)
+	if err != nil {
+		t.Fatalf("reload bot: %v", err)
+	}
+	if rec := postBotAvatar(t, s, reloaded); rec.Code != http.StatusNoContent {
+		t.Fatalf("second upload: expected 204, got %d", rec.Code)
+	}
+	after, _ := s.Store.GetUser(ctx, bot.ID)
+	if after.AvatarMediaID == nil || *after.AvatarMediaID != *updated.AvatarMediaID {
+		t.Fatalf("avatar should be unchanged, was %v now %v", updated.AvatarMediaID, after.AvatarMediaID)
+	}
+}

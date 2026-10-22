@@ -7,12 +7,15 @@ package alertbridge
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strings"
 	"time"
 )
@@ -152,6 +155,56 @@ func (s RoostSender) Send(ctx context.Context, text string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return errors.New("roost returned " + resp.Status + ": " + strings.TrimSpace(string(detail)))
+	}
+	return nil
+}
+
+// avatarPNG is the alert identity's profile picture (source:
+// assets/alerts/alerts-avatar.svg).
+//
+//go:embed avatar.png
+var avatarPNG []byte
+
+// EnsureAvatar offers the embedded profile picture to the chat server, which
+// only applies it if the alert identity has none yet.
+func (s RoostSender) EnsureAvatar(ctx context.Context) error {
+	return s.uploadAvatar(ctx, avatarPNG)
+}
+
+func (s RoostSender) uploadAvatar(ctx context.Context, image []byte) error {
+	body := &bytes.Buffer{}
+	form := multipart.NewWriter(body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="alerts-avatar.png"`)
+	header.Set("Content-Type", "image/png")
+	part, err := form.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("build avatar upload: %w", err)
+	}
+	if _, err := part.Write(image); err != nil {
+		return fmt.Errorf("build avatar upload: %w", err)
+	}
+	if err := form.Close(); err != nil {
+		return fmt.Errorf("build avatar upload: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(s.BaseURL, "/")+"/bot/avatar", body)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", form.FormDataContentType())
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("post avatar to roost: %w", err)
+	}
+	defer resp.Body.Close()
+	// 200: applied. 204: already has one.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 		return errors.New("roost returned " + resp.Status + ": " + strings.TrimSpace(string(detail)))
 	}

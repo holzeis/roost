@@ -39,10 +39,12 @@ func run() error {
 	}
 	defer cleanup()
 
-	handler := alertbridge.Handler{Sender: alertbridge.RoostSender{
+	sender := alertbridge.RoostSender{
 		BaseURL: getenvDefault("ROOST_URL", "http://roost-chat"),
 		Client:  client,
-	}}
+	}
+	go offerAvatar(ctx, sender)
+	handler := alertbridge.Handler{Sender: sender}
 	server := &http.Server{
 		Addr:              getenvDefault("LISTEN_ADDR", ":8080"),
 		Handler:           handler.Routes(),
@@ -65,6 +67,25 @@ func run() error {
 			return nil
 		}
 		return err
+	}
+}
+
+// offerAvatar sets the alert identity's profile picture. It retries because
+// the chat server may be restarting alongside the bridge, and gives up
+// quietly: a missing picture must never stop alerts from flowing.
+func offerAvatar(ctx context.Context, sender alertbridge.RoostSender) {
+	const attempts = 10
+	for i := 1; i <= attempts; i++ {
+		err := sender.EnsureAvatar(ctx)
+		if err == nil {
+			return
+		}
+		slog.Warn("could not set alert avatar", "attempt", i, "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
 	}
 }
 

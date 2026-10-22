@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4DA3FF"/>
+      <stop offset="1" stop-color="#0B4FD6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FF3B30" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#FF3B30" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="body" cx="0.4" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#FFE680"/>
+      <stop offset="1" stop-color="#FFC62E"/>
+    </radialGradient>
+    <linearGradient id="dome" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF6B5E"/>
+      <stop offset="1" stop-color="#E02419"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- alarm sound waves -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-width="22" opacity="0.55">
+    <path d="M196 300 Q150 380 196 460"/>
+    <path d="M128 250 Q56 380 128 510"/>
+    <path d="M828 300 Q874 380 828 460"/>
+    <path d="M896 250 Q968 380 896 510"/>
+  </g>
+
+  <!-- beacon glow -->
+  <circle cx="512" cy="330" r="230" fill="url(#glow)"/>
+
+  <!-- wings, flung up in panic -->
+  <ellipse cx="262" cy="610" rx="62" ry="112" transform="rotate(-28 262 610)" fill="#F2B824"/>
+  <ellipse cx="762" cy="610" rx="62" ry="112" transform="rotate(28 762 610)" fill="#F2B824"/>
+
+  <!-- body -->
+  <circle cx="512" cy="610" r="285" fill="url(#body)"/>
+  <ellipse cx="512" cy="760" rx="170" ry="100" fill="#FFF3C2" opacity="0.7"/>
+
+  <!-- feet -->
+  <g fill="#FF9F1C">
+    <path d="M430 880 l-34 40 h38 l16 -12 l16 12 h38 l-34 -40 z"/>
+    <path d="M594 880 l-34 40 h38 l16 -12 l16 12 h38 l-34 -40 z"/>
+  </g>
+
+  <!-- siren beacon hat -->
+  <g>
+    <g stroke="#FFE680" stroke-linecap="round" stroke-width="20">
+      <path d="M512 196 V150"/>
+      <path d="M430 226 L398 190"/>
+      <path d="M594 226 L626 190"/>
+      <path d="M372 296 L326 280"/>
+      <path d="M652 296 L698 280"/>
+    </g>
+    <path d="M432 372 A80 80 0 0 1 592 372 Z" fill="url(#dome)"/>
+    <path d="M458 340 A56 56 0 0 1 500 304" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-width="16" opacity="0.8"/>
+    <rect x="410" y="368" width="204" height="40" rx="16" fill="#8E9AAF"/>
+    <rect x="410" y="368" width="204" height="14" rx="7" fill="#B8C2D4"/>
+  </g>
+
+  <!-- worried brows -->
+  <g stroke="#7A4A12" stroke-linecap="round" stroke-width="18" fill="none">
+    <path d="M388 526 L474 498"/>
+    <path d="M636 526 L550 498"/>
+  </g>
+
+  <!-- eyes: wide and startled -->
+  <circle cx="452" cy="590" r="64" fill="#FFFFFF"/>
+  <circle cx="572" cy="590" r="64" fill="#FFFFFF"/>
+  <circle cx="462" cy="578" r="30" fill="#1B2430"/>
+  <circle cx="582" cy="578" r="30" fill="#1B2430"/>
+  <circle cx="473" cy="566" r="11" fill="#FFFFFF"/>
+  <circle cx="593" cy="566" r="11" fill="#FFFFFF"/>
+
+  <!-- cheeks -->
+  <circle cx="368" cy="668" r="30" fill="#FF8FA3" opacity="0.65"/>
+  <circle cx="656" cy="668" r="30" fill="#FF8FA3" opacity="0.65"/>
+
+  <!-- beak, open in a squawk -->
+  <path d="M470 654 Q512 626 554 654 Q512 690 470 654 Z" fill="#FF9F1C"/>
+  <path d="M482 668 Q512 706 542 668 Q512 716 482 668 Z" fill="#E07B00"/>
+  <ellipse cx="512" cy="684" rx="22" ry="12" fill="#B33A2E"/>
+</svg>

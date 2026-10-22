@@ -44,6 +44,7 @@ func (s *Server) Router() http.Handler {
 
 		// The alert identity (the Alertmanager bridge) may only post here.
 		r.With(auth.RequireBot).Post("/bot/messages", s.handleBotMessage)
+		r.With(auth.RequireBot).Post("/bot/avatar", s.handleBotAvatar)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.DenyBots)
