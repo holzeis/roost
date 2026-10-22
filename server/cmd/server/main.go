@@ -138,7 +138,7 @@ func newListener(ctx context.Context, listenAddr string, resolver *auth.Resolver
 		*resolver = auth.DevResolver{Identity: auth.Identity{
 			LoginName:   getenvDefault("DEV_AUTH_LOGIN", "dev@localhost"),
 			DisplayName: getenvDefault("DEV_AUTH_DISPLAY_NAME", "Dev User"),
-		}}
+		}, BotHost: os.Getenv("DEV_AUTH_BOT_HOST")}
 		l, err := net.Listen("tcp", listenAddr)
 		if err != nil {
 			return nil, nil, err
@@ -159,7 +159,7 @@ func newListener(ctx context.Context, listenAddr string, resolver *auth.Resolver
 		ts.Close()
 		return nil, nil, err
 	}
-	*resolver = auth.TsnetResolver{Local: local}
+	*resolver = auth.TsnetResolver{Local: local, AlertTag: getenvDefault("ALERT_BOT_TAG", "tag:roost-alerts")}
 
 	l, err := ts.Listen("tcp", ":80")
 	if err != nil {

@@ -416,6 +416,43 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
+// maxAlertBytes caps one alert message; the bridge sends a single alert's
+// text, so this is generous.
+const maxAlertBytes = 16 << 10
+
+// handleBotMessage lets the alert identity (auth.Identity.Bot) post a text
+// message into the Alerts group, creating the group on first use. It takes
+// no room ID: the bot can only ever write to its own room.
+func (s *Server) handleBotMessage(w http.ResponseWriter, r *http.Request) {
+	bot, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxAlertBytes)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Body) == "" {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	room, err := s.Store.EnsureAlertsRoom(r.Context(), bot.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not open alerts room")
+		return
+	}
+	msg, err := s.Store.CreateTextMessage(r.Context(), room.ID, bot.ID, body.Body, nil, false)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create message")
+		return
+	}
+	s.deliverMessageEvent(r.Context(), room.ID, bot, msg)
+
+	writeJSON(w, http.StatusCreated, msg)
+}
+
 // validReplyTarget checks that replyToMessageID exists and belongs to
 // roomID — replying across rooms would let a client reference another
 // room's message it may not even be a member of.

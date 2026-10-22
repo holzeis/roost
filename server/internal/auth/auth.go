@@ -24,6 +24,10 @@ type Identity struct {
 	// DisplayName is a human-friendly name, used only to seed a new user's
 	// display name on first contact — the user can rename themselves after.
 	DisplayName string
+	// Bot is true for the dedicated alert identity (a tagged tailnet node,
+	// see TsnetResolver.AlertTag). A bot may only post to the alerts
+	// endpoint, never use the family-facing API.
+	Bot bool
 }
 
 // Resolver maps a connection's remote address to the Tailscale identity that
@@ -59,4 +63,27 @@ func Middleware(resolver Resolver) func(http.Handler) http.Handler {
 func FromContext(ctx context.Context) (Identity, bool) {
 	identity, ok := ctx.Value(contextKey{}).(Identity)
 	return identity, ok
+}
+
+// DenyBots rejects the alert identity on routes meant for family members
+// (the REST API and /ws), so a compromised bridge can't act as a user.
+func DenyBots(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if identity, ok := FromContext(r.Context()); ok && identity.Bot {
+			http.Error(w, "forbidden: not available to the alert identity", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireBot admits only the alert identity, for the alerts endpoint.
+func RequireBot(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if identity, ok := FromContext(r.Context()); !ok || !identity.Bot {
+			http.Error(w, "forbidden: alert identity only", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

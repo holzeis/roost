@@ -23,6 +23,8 @@ on first authenticated request — there's no signup flow (FR6.1).
 | `avatar_media_id` | uuid, FK → `media_objects`, nullable | |
 | `created_at`, `updated_at` | timestamptz | |
 
+The alert bridge's identity (FR8.1) is an ordinary row too, with `tailscale_id` set to its ACL tag (`tag:roost-alerts`) rather than a login, and display name "Alerts". It is told apart from people by that identity at request time (`auth.Identity.Bot`), not by a column, so there is no schema change for it.
+
 ### devices
 
 A user's push-capable devices (FR5.1 call wake, FR5.2 message notifications).
@@ -61,6 +63,8 @@ the message *was* the shared photo/video, so deleting one deletes the other.
 | `preview_object_key` | text, nullable | A second, lower-quality JPEG re-encode of the same image, scaled down to at most 1024 px on its long side (smaller images keep their size), stored alongside the original — the chat bubble fetches this; the full-screen viewer fetches the original. Null whenever `width`/`height` are, since both come from the same decode — migration 0006 |
 
 ### rooms / room_members
+
+The "Alerts" group (FR8.1) is an ordinary group room created by the alert identity on its first alert; it is found by `created_by` being that identity, and every user is added to `room_members` (again on each later alert, to pick up users who joined since).
 
 A room is either a 1:1 (`is_group = false`, exactly 2 members, `name` null —
 the client derives a display name from the other member) or a group

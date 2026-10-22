@@ -89,3 +89,8 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR7.4 | Desktop/web client | Out of scope (deferred) |
 | FR7.5 | An in-app demo mode for app store review, offered on the "can't reach the server" screen: a demo user signed in automatically, sample family chats, and no connection to any server. Calls explain they're unavailable. Can be switched off with a build setting | Must |
 
+## 8. Operations
+
+| ID | Requirement | Priority |
+|---|---|---|
+| FR8.1 | Infrastructure alerts from Prometheus Alertmanager (firing, resolved, and a daily "all systems operational" watchdog) appear as messages in an "Alerts" group that every user is a member of, posted by a dedicated "Alerts" identity that cannot use the rest of the app. Alerts notify like any other message (FR5.2) | Should |
