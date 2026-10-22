@@ -118,8 +118,27 @@ services:
       # docker-compose stack. Never set this in production. See
       # server/internal/auth/dev_resolver.go.
       ENABLE_DEV_AUTH: "true"
+      # Connections from the alert-bridge service get the alert identity
+      # (in production that's the bridge's tailnet ACL tag instead).
+      DEV_AUTH_BOT_HOST: "alert-bridge"
     ports:
       - "127.0.0.1:8080:8080"
+
+  # Forwards Alertmanager webhooks to the Alerts room. Try it locally with:
+  #   curl -X POST localhost:8081/watchdog
+  alert-bridge:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.alert-bridge
+    restart: unless-stopped
+    depends_on:
+      - chat-server
+    environment:
+      ROOST_URL: "http://chat-server:8080"
+      # Local dev only: skip joining a tailnet. See cmd/alert-bridge.
+      DEV_DIRECT: "true"
+    ports:
+      - "127.0.0.1:8081:8080"
 
 volumes:
   postgres-data:

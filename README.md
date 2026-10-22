@@ -11,6 +11,7 @@ for scope.
 | Path | What |
 |---|---|
 | `server/` | The chat server (Go): REST API, WebSocket fan-out, LiveKit token minting, Tailscale identity resolution |
+| `server/cmd/alert-bridge/` | Forwards Alertmanager webhooks to the "Alerts" group as a dedicated tagged-node identity (`docker compose up` runs it on `localhost:8081`) |
 | `app/` | The Flutter mobile app (iOS + Android) |
 | `docker-compose.yml` | Full local stack: Postgres, SeaweedFS, LiveKit, chat server |
 | `k8s/` | Deployment manifests/Helm values for the target k3s cluster |
