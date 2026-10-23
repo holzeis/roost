@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"roost/server/internal/models"
 	"roost/server/internal/session"
 	"roost/server/internal/ws"
@@ -127,9 +129,13 @@ func TestHandleAddRoomMembers(t *testing.T) {
 		t.Fatalf("expected a, b, c as members, got %v", updated.Members)
 	}
 	for who, c := range map[string]*recordingWSConn{"a": f.aConn, "b": f.bConn, "c (the newcomer)": f.cConn} {
-		if ev := eventTypes(c); len(ev) != 1 || ev[0] != "room.updated" {
-			t.Fatalf("%s should get room.updated, got %v", who, ev)
+		if ev := eventTypes(c); fmt.Sprint(ev) != "[room.updated message.created]" {
+			t.Fatalf("%s should get room.updated and the note, got %v", who, ev)
 		}
+	}
+	history, _ := f.s.Store.ListMessages(ctx, f.room.ID, time.Now().Add(time.Minute), 10)
+	if len(history) != 1 || history[0].Kind != models.MessageKindSystem || *history[0].Body != "B added C" || history[0].SenderID != f.b.ID {
+		t.Fatalf("expected one system note 'B added C' by b, got %+v", history)
 	}
 	rooms, _ := f.s.Store.ListRoomsForUser(ctx, f.c.ID)
 	if len(rooms) != 1 || rooms[0].ID != f.room.ID {
@@ -184,8 +190,18 @@ func TestHandleLeaveRoom(t *testing.T) {
 	if ev := eventTypes(f.bConn); fmt.Sprint(ev) != "[message.updated room.removed]" {
 		t.Fatalf("the leaver should hear the share ending and room.removed, got %v", ev)
 	}
-	if ev := eventTypes(f.aConn); fmt.Sprint(ev) != "[message.updated room.updated]" {
-		t.Fatalf("the rest should hear the share ending and room.updated, got %v", ev)
+	if ev := eventTypes(f.aConn); fmt.Sprint(ev) != "[message.updated room.updated message.created]" {
+		t.Fatalf("the rest should hear the share ending, room.updated and the note, got %v", ev)
+	}
+	history, _ := f.s.Store.ListMessages(ctx, f.room.ID, time.Now().Add(time.Minute), 10)
+	var notes []string
+	for _, m := range history {
+		if m.Kind == models.MessageKindSystem {
+			notes = append(notes, *m.Body)
+		}
+	}
+	if fmt.Sprint(notes) != "[B left]" {
+		t.Fatalf("expected the note 'B left', got %v", notes)
 	}
 	if rooms, _ := f.s.Store.ListRoomsForUser(ctx, f.b.ID); len(rooms) != 0 {
 		t.Fatalf("the group should be gone from b's list, got %+v", rooms)
@@ -322,5 +338,80 @@ func TestMutedMemberGetsNoMessagePush(t *testing.T) {
 	calls := pushSender.messageCallsSnapshot()
 	if len(calls) != 1 || calls[0].deviceToken != "fcm-"+f.c.ID {
 		t.Fatalf("only c (mute lapsed) should be pushed, got %+v", calls)
+	}
+}
+
+func TestJoinNames(t *testing.T) {
+	cases := map[string][]string{
+		"":                   nil,
+		"Bob":                {"Bob"},
+		"Bob and Carol":      {"Bob", "Carol"},
+		"Bob, Carol and Dan": {"Bob", "Carol", "Dan"},
+	}
+	for want, in := range cases {
+		if got := joinNames(in); got != want {
+			t.Fatalf("joinNames(%v) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestAddingSeveralNamesThemAllAndSkipsExistingMembers: one note for the
+// newcomers only, and none at all when nobody is new.
+func TestAddRoomMembers_NoteNamesOnlyNewcomers(t *testing.T) {
+	f := newGroupFixture(t)
+	ctx := context.Background()
+	body := fmt.Sprintf(`{"userIds":["%s","%s","%s"]}`, f.b.ID, f.c.ID, f.outsider.ID) // b is already in
+	if rec := roomCall(t, f.s.handleAddRoomMembers, f.a, http.MethodPost, f.room.ID, body); rec.Code != http.StatusOK {
+		t.Fatalf("add: %d", rec.Code)
+	}
+	if rec := roomCall(t, f.s.handleAddRoomMembers, f.a, http.MethodPost, f.room.ID, body); rec.Code != http.StatusOK {
+		t.Fatalf("add again: %d", rec.Code)
+	}
+	history, _ := f.s.Store.ListMessages(ctx, f.room.ID, time.Now().Add(time.Minute), 10)
+	if len(history) != 1 || *history[0].Body != "A added C and Out" {
+		t.Fatalf("expected a single note 'A added C and Out', got %+v", history)
+	}
+}
+
+// TestSystemNotesAreNotInteractive: nobody can react to, reply to, delete,
+// edit or forward a note, and it never causes a push.
+func TestSystemNotesAreNotInteractive(t *testing.T) {
+	f := newGroupFixture(t)
+	ctx := context.Background()
+	pushSender := &fakePushSender{}
+	f.s.Push = pushSender
+	f.s.Hub = ws.NewHub() // everyone offline
+	_, _ = f.s.Store.UpsertDevice(ctx, f.b.ID, "android", "fcm-b", "fcm", nil)
+
+	note, err := f.s.Store.CreateSystemMessage(ctx, f.room.ID, f.a.ID, "A added C")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(h http.HandlerFunc, user models.User, method, body string, params map[string]string) int {
+		req := httptest.NewRequest(method, "/x", strings.NewReader(body))
+		req = req.WithContext(session.WithUser(req.Context(), user))
+		rctx := chi.NewRouteContext()
+		for k, v := range params {
+			rctx.URLParams.Add(k, v)
+		}
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		return rec.Code
+	}
+	if c := call(f.s.handleDeleteMessage, f.a, http.MethodDelete, "", map[string]string{"messageID": note.ID}); c != http.StatusBadRequest {
+		t.Fatalf("delete: %d", c)
+	}
+	if c := call(f.s.handleAddReaction, f.b, http.MethodPut, "", map[string]string{"messageID": note.ID, "emoji": "👍"}); c != http.StatusBadRequest {
+		t.Fatalf("react: %d", c)
+	}
+	if c := call(f.s.handleEditMessage, f.a, http.MethodPatch, `{"body":"x"}`, map[string]string{"messageID": note.ID}); c == http.StatusOK {
+		t.Fatalf("edit must be refused, got %d", c)
+	}
+	if c := call(f.s.handleCreateMessage, f.b, http.MethodPost, fmt.Sprintf(`{"body":"hi","replyToMessageId":"%s"}`, note.ID), map[string]string{"roomID": f.room.ID}); c != http.StatusBadRequest {
+		t.Fatalf("reply: %d", c)
+	}
+	if got := len(pushSender.messageCallsSnapshot()); got != 0 {
+		t.Fatalf("notes must not push, got %d", got)
 	}
 }

@@ -410,11 +410,35 @@ func (s *Server) handleRenameRoom(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// joinNames reads "Bob", "Bob and Carol", "Bob, Carol and Dan".
+func joinNames(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// postSystemMessage records a note about a room (someone was added, left) and
+// tells memberIDs live. Best effort, like other broadcasts: the change it
+// describes has already happened. It never sends a push — the note is not
+// news worth waking anyone for.
+func (s *Server) postSystemMessage(ctx context.Context, roomID, actorID, body string, memberIDs []string) {
+	msg, err := s.Store.CreateSystemMessage(ctx, roomID, actorID, body)
+	if err != nil {
+		slog.Error("system message failed", "room", roomID, "error", err)
+		return
+	}
+	s.Hub.SendToUsers(memberIDs, ws.Event{Type: "message.created", Payload: msg})
+}
+
 // handleAddRoomMembers lets any member add people to a group. Everyone in
 // it, the newcomers included, is told live (room.updated). People who are
 // already in the group are left as they are.
 func (s *Server) handleAddRoomMembers(w http.ResponseWriter, r *http.Request) {
-	_, room, ok := s.groupForMember(w, r)
+	u, room, ok := s.groupForMember(w, r)
 	if !ok {
 		return
 	}
@@ -447,6 +471,23 @@ func (s *Server) handleAddRoomMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Hub.SendToUsers(updated.Members, ws.Event{Type: "room.updated", Payload: updated})
+
+	already := map[string]bool{}
+	for _, id := range room.Members {
+		already[id] = true
+	}
+	var names []string
+	for _, id := range ids {
+		if already[id] {
+			continue
+		}
+		if added, err := s.Store.GetUser(r.Context(), id); err == nil {
+			names = append(names, added.DisplayName)
+		}
+	}
+	if len(names) > 0 {
+		s.postSystemMessage(r.Context(), room.ID, u.ID, u.DisplayName+" added "+joinNames(names), updated.Members)
+	}
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -483,6 +524,7 @@ func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 	if left > 0 {
 		if updated, err := s.Store.GetRoom(r.Context(), room.ID); err == nil {
 			s.Hub.SendToUsers(updated.Members, ws.Event{Type: "room.updated", Payload: updated})
+			s.postSystemMessage(r.Context(), room.ID, u.ID, u.DisplayName+" left", updated.Members)
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -762,6 +804,10 @@ func (s *Server) validReplyTarget(w http.ResponseWriter, r *http.Request, roomID
 	}
 	if original.RoomID != roomID {
 		writeError(w, http.StatusBadRequest, "reply target is not in this room")
+		return false
+	}
+	if original.Kind == models.MessageKindSystem {
+		writeError(w, http.StatusBadRequest, "this message can't be replied to")
 		return false
 	}
 	return true
@@ -1228,6 +1274,10 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent) // already a placeholder
 		return
 	}
+	if message.Kind == models.MessageKindSystem {
+		writeError(w, http.StatusBadRequest, "this message can't be deleted")
+		return
+	}
 	if message.Kind == models.MessageKindImage || message.Kind == models.MessageKindVideo {
 		writeError(w, http.StatusBadRequest, "delete this message's media instead, via DELETE /api/media/:id")
 		return
@@ -1350,6 +1400,10 @@ func (s *Server) messageRoomForReaction(w http.ResponseWriter, r *http.Request, 
 		return "", false
 	}
 	if !s.requireMembership(w, r, userID, message.RoomID) {
+		return "", false
+	}
+	if message.Kind == models.MessageKindSystem {
+		writeError(w, http.StatusBadRequest, "this message can't be reacted to")
 		return "", false
 	}
 	return message.RoomID, true

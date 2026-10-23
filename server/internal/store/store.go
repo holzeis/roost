@@ -492,6 +492,15 @@ func (s *Store) CreateTextMessage(ctx context.Context, roomID, senderID, body st
 	return scanMessage(s.pool.QueryRow(ctx, q, roomID, senderID, body, replyTo, forwarded))
 }
 
+// CreateSystemMessage records a note about the room itself (see
+// models.MessageKindSystem) done by actorID.
+func (s *Store) CreateSystemMessage(ctx context.Context, roomID, actorID, body string) (models.Message, error) {
+	const q = `
+		INSERT INTO messages (room_id, sender_id, kind, body) VALUES ($1, $2, 'system', $3)
+		RETURNING id, room_id, sender_id, kind, body, media_id, created_at, edited_at, reply_to_message_id, forwarded, deleted_at`
+	return scanMessage(s.pool.QueryRow(ctx, q, roomID, actorID, body))
+}
+
 // CreateLocationMessage implements FR3.1/3.2: creates a kind='location'
 // message and its location_shares subtype row in one transaction (same
 // tx.Begin/Rollback/Commit shape as CreateRoom), so there's never a location

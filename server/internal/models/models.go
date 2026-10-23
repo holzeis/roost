@@ -45,6 +45,9 @@ const (
 	MessageKindVideo    MessageKind = "video"
 	MessageKindLocation MessageKind = "location"
 	MessageKindCall     MessageKind = "call"
+	// MessageKindSystem is a note the chat makes about itself — someone was
+	// added to or left a group. Sender is who did it, Body is the text.
+	MessageKindSystem MessageKind = "system"
 	// MessageKindDeleted is never stored — it's what a room's last-message
 	// preview and a reply's quote report for a placeholder-deleted message
 	// (FR1.15, see Message.DeletedAt), so clients can label it.

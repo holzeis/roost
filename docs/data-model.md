@@ -100,6 +100,7 @@ picks which of the type-specific fields/subtype tables apply:
 | `image`, `video` | `media_id` |
 | `location` | the `location_shares` subtype row (see below) |
 | `call` | the `calls` row referencing this message via `calls.message_id` |
+| `system` | `body`: a note the chat makes about itself ("Alice added Bob", "Alice left", FR1.18/FR1.19), `sender_id`: who did it. The names are written into the text when it happens. It can't be replied to, reacted to, edited, deleted or forwarded and never causes a push — migration 0012 |
 
 Full-text search (FR1.8) is a generated `body_tsv` column with a GIN index,
 scoped to text bodies only.
