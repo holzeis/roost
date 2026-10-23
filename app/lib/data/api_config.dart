@@ -18,7 +18,7 @@ const apiBaseUrl = String.fromEnvironment(
 /// the server" screen — for App Store review, where the reviewer can't join
 /// the family's tailnet. Off unless the build sets it:
 ///   flutter build ipa --dart-define=DEMO_AVAILABLE=true
-/// Turning it off again is just a build without it (see release.yml).
+/// Turning it off again is just a build without it (see the release jobs in ci.yml).
 const demoAvailable = bool.fromEnvironment('DEMO_AVAILABLE');
 
 /// The same host, as a ws:// URL, for the /ws endpoint.

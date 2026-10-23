@@ -1,11 +1,26 @@
 name: CI
 
-# Build-and-test only. Kept separate from release.yml (app store shipping)
-# per CLAUDE.md, so a release isn't blocked on this full matrix.
+# Build, test and ship. The app store release jobs (Android internal track,
+# iOS TestFlight) run at the end, after the app's analyze + test job and
+# nothing else: a release isn't held up by the server tests, the multi-arch
+# images or the image scans, which run in parallel. They only run on pushes to
+# main (and manual dispatches), never for pull requests.
+#
+# iOS/TestFlight is wired up — see docs/release-setup.md for the one-time
+# Apple/App Store Connect setup and the repo secrets it needs — so it ships
+# automatically whenever app/ changes land on main. Android still needs its
+# own signing secrets (see that job's TODOs) before it can actually ship
+# anything, so its job stays gated to workflow_dispatch only: an automatic run
+# would either fail outright or silently build-and-not-upload on every app
+# change, neither of which is better than just not running it yet. Un-gate it
+# once ANDROID_KEYSTORE_BASE64/etc. and the Play Console upload step are in
+# place.
 on:
   push:
     branches: [main]
   pull_request:
+  # Manual run: analyze + test the app, then build both release targets.
+  workflow_dispatch:
 
 # Least-privilege default; jobs that need more (server-image, for the GHCR
 # push) grant it explicitly in their own permissions block.
@@ -26,6 +41,7 @@ jobs:
     outputs:
       server: ${{ steps.filter.outputs.server }}
       app: ${{ steps.filter.outputs.app }}
+      app_code: ${{ steps.filter.outputs.app_code }}
       image_watcher: ${{ steps.filter.outputs.image_watcher }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -36,6 +52,15 @@ jobs:
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
+          # A manual run is for releasing the app: test it, whatever changed.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "server=false" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "app_code=true" >> "$GITHUB_OUTPUT"
+            echo "image_watcher=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           base="$BASE_SHA"
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
             base=$(git rev-parse HEAD~1 2>/dev/null || echo "")
@@ -45,6 +70,7 @@ jobs:
             echo "No usable base commit (new branch/history) — running everything."
             echo "server=true" >> "$GITHUB_OUTPUT"
             echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "app_code=true" >> "$GITHUB_OUTPUT"
             echo "image_watcher=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -55,6 +81,7 @@ jobs:
 
           server=false
           app=false
+          app_code=false
           image_watcher=false
           if echo "$changed" | grep -qE '^(server/|\.github/workflows/ci\.yml)'; then
             server=true
@@ -62,11 +89,16 @@ jobs:
           if echo "$changed" | grep -qE '^(app/|\.github/workflows/ci\.yml)'; then
             app=true
           fi
+          # What a release ships: the app itself, not a change to this workflow.
+          if echo "$changed" | grep -qE '^app/'; then
+            app_code=true
+          fi
           if echo "$changed" | grep -qE '^(image-watcher/|\.github/workflows/ci\.yml)'; then
             image_watcher=true
           fi
           echo "server=$server" >> "$GITHUB_OUTPUT"
           echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "app_code=$app_code" >> "$GITHUB_OUTPUT"
           echo "image_watcher=$image_watcher" >> "$GITHUB_OUTPUT"
 
   server-test:
@@ -296,3 +328,167 @@ jobs:
         run: flutter analyze
       - working-directory: app
         run: flutter test
+
+  release-android:
+    name: release / android internal track
+    needs: [changes, app-test]
+    runs-on: ubuntu-latest
+    # Not wired up yet (see the TODOs below and docs/release-setup.md) — only
+    # runs when someone deliberately dispatches it, never on a push, so an
+    # ordinary app change doesn't burn a runner on a build with no signing
+    # that has nowhere to go anyway.
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+      - working-directory: app
+        run: flutter pub get
+
+      # build.gradle reads MAPS_API_KEY from local.properties (gitignored,
+      # per-developer locally — see README's "Google Maps API keys"), which
+      # doesn't exist on this runner at all. Without it, google_maps_flutter
+      # silently gets an empty key and crashes natively the first time a
+      # location-share message renders a map (see the release-ios job's matching
+      # Config.xcconfig step below).
+      - name: Configure Google Maps API key
+        working-directory: app/android
+        run: echo "MAPS_API_KEY=${{ secrets.ANDROID_GOOGLE_MAPS_API_KEY }}" >> local.properties
+
+      # TODO: decode signing key + key.properties from secrets before this
+      # step (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+      # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) once release signing is set
+      # up — see https://docs.flutter.dev/deployment/android#signing-the-app
+      # API_BASE_URL/LIVEKIT_URL default to localhost (see api_config.dart),
+      # which is only right for a local simulator/emulator sharing the dev
+      # machine's network — a real device needs the deployed tailnet
+      # hostnames instead (see k8s/chat-server and k8s/livekit's
+      # TSNET_HOSTNAME/TS_HOSTNAME). Both listen unencrypted (plain
+      # http/ws) since the tailnet's own WireGuard layer already encrypts
+      # this traffic.
+      # DEMO_AVAILABLE offers the in-app demo (app/lib/demo/) on the "can't
+      # reach the server" screen, for App Store review — on only while the
+      # repository variable DEMO_AVAILABLE is "true"; unset or anything else
+      # builds without it. See docs/ios-dev-setup.md's "App Store review".
+      # --build-number overrides pubspec.yaml's static "+1" — App Store
+      # Connect/Play Console both reject a re-upload whose build number
+      # isn't strictly higher than one they've already seen, so pubspec's
+      # own value would only ever work for a single release. github.run_number
+      # increments on every workflow run, so each dispatch gets a fresh one
+      # for free.
+      - name: Build release app bundle
+        working-directory: app
+        run: |
+          flutter build appbundle --release \
+            --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=http://roost-chat \
+            --dart-define=LIVEKIT_URL=ws://roost-livekit:7880 \
+            --dart-define=DEMO_AVAILABLE=${{ vars.DEMO_AVAILABLE == 'true' }}
+
+      # TODO: upload app/build/app/outputs/bundle/release/app-release.aab to
+      # the Play Console internal testing track, e.g. via
+      # r0adkll/upload-google-play with a GOOGLE_PLAY_SERVICE_ACCOUNT secret.
+
+  release-ios:
+    name: release / TestFlight
+    needs: [changes, app-test]
+    runs-on: macos-latest
+    # After app / analyze + test passed (a skipped or failed test job skips
+    # this one). On a push only when app/ itself changed; a manual dispatch
+    # always releases.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && needs.changes.outputs.app_code == 'true')
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+      - working-directory: app
+        run: flutter pub get
+
+      # Imports the Apple Distribution certificate into a throwaway keychain
+      # scoped to this job — see docs/release-setup.md for how to export the
+      # .p12 and base64-encode it into IOS_DIST_CERTIFICATE_BASE64.
+      - name: Import distribution certificate
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7.0.0
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+
+      # xcodebuild finds provisioning profiles here by convention — this
+      # just decodes the secret into place, no action needed. The profile's
+      # own Name must match ios/ExportOptions.plist's provisioningProfiles
+      # entry ("Roost App Store"), not this filename.
+      - name: Install provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/roost.mobileprovision
+
+      # The share extension (ios/ShareExtension/, "share into Roost") is its
+      # own App ID with its own profile, named "Roost Share Extension App
+      # Store" to match ExportOptions.plist — see docs/ios-dev-setup.md.
+      - name: Install share extension provisioning profile
+        env:
+          IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          echo "$IOS_SHARE_EXTENSION_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/roost-share-extension.mobileprovision
+
+      # The notification service extension (ios/NotificationServiceExtension/,
+      # decrypts message previews — FR5.2) is its own App ID with its own
+      # profile, "Roost Notification Service App Store" to match
+      # ExportOptions.plist — see docs/ios-dev-setup.md.
+      - name: Install notification service extension provisioning profile
+        env:
+          IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          echo "$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/roost-notification-service.mobileprovision
+
+      # AppDelegate.swift reads GMSApiKey from Info.plist, substituted at
+      # build time from Config.xcconfig (gitignored, per-developer — see
+      # README's "Google Maps API keys"), which doesn't exist on this
+      # runner. Without it the key ends up empty, AppDelegate's own
+      # empty-check skips calling GMSServices.provideAPIKey, and Maps SDK
+      # then crashes natively (an uncaught NSException, not something Dart
+      # try/catch can reach) the first time a location-share message tries
+      # to render a map.
+      - name: Configure Google Maps API key
+        working-directory: app/ios/Runner
+        run: echo "GOOGLE_MAPS_API_KEY = ${{ secrets.IOS_GOOGLE_MAPS_API_KEY }}" > Config.xcconfig
+
+      # See the release-android job's identical comments above — same reasoning for
+      # both --build-number (App Store Connect rejects a re-upload whose
+      # CFBundleVersion isn't strictly higher than one it's already seen)
+      # and the API_BASE_URL/LIVEKIT_URL defines (reach the real deployed
+      # server, not localhost).
+      - name: Build release IPA
+        working-directory: app
+        run: |
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist \
+            --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=http://roost-chat \
+            --dart-define=LIVEKIT_URL=ws://roost-livekit:7880 \
+            --dart-define=DEMO_AVAILABLE=${{ vars.DEMO_AVAILABLE == 'true' }}
+
+      # upload-testflight-build's appstore-api backend takes app-path as a
+      # literal resolved file path, not a glob — handing it the "*.ipa"
+      # pattern directly fails with "ADM-ZIP: Invalid filename" trying to
+      # read a file literally named that. Resolve it to the one real file
+      # first (flutter build ipa always produces exactly one).
+      - name: Locate built IPA
+        id: ipa
+        run: echo "path=$(ls app/build/ios/ipa/*.ipa)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@1fc69ca369a60b813eaaa2d936eda22794b52e17 # v5.4.0
+        with:
+          app-path: ${{ steps.ipa.outputs.path }}
+          issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_KEY }}

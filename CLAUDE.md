@@ -57,7 +57,7 @@ If any of these paths don't exist yet in the repo, ask where they've been placed
 ## CI/CD
 
 - Maintain a GitHub Actions pipeline that builds and tests the app for both amd64 and arm64.
-- Maintain a separate, fast release pipeline for shipping to the Android and iOS app stores (e.g. internal testing track / TestFlight), kept distinct from the main build-and-test pipeline so releases aren't blocked on the full CI matrix unnecessarily.
+- Ship to the Android and iOS app stores (e.g. internal testing track / TestFlight) from the same workflow, `.github/workflows/ci.yml`: the release jobs run after the app's analyze + test job and depend on nothing else, so a release isn't blocked on the server tests or the multi-arch image jobs.
 
 ## Git workflow
 

@@ -98,7 +98,7 @@ A few notes specific to this repo:
   your own registered devices this way, but the resulting build's
   provisioning profile expires after **7 days** — reinstall by rerunning
   the command above. The paid Program ($99/yr) removes that limit and is
-  what `.github/workflows/release.yml` uses to ship to TestFlight instead.
+  what `.github/workflows/ci.yml`'s `release-ios` job uses to ship to TestFlight instead.
 - If `flutter run --release -d <device-id>` reports install succeeded but
   launch failed with a "device was not, or could not be, unlocked" error,
   the app is already installed — unlock the device and open it from the

@@ -16,7 +16,7 @@ for scope.
 | `docker-compose.yml` | Full local stack: Postgres, SeaweedFS, LiveKit, chat server |
 | `k8s/` | Deployment manifests/Helm values for the target k3s cluster |
 | `docs/` | Architecture, functional requirements, data model, mockups |
-| `.github/workflows/` | CI (build + test) and the app store release pipeline |
+| `.github/workflows/` | CI (build + test), followed by the app store release jobs |
 
 ## Local development
 
@@ -41,8 +41,8 @@ flutter run
 
 See [`docs/ios-dev-setup.md`](docs/ios-dev-setup.md) for iOS Simulator setup
 specifics, and [`docs/release-setup.md`](docs/release-setup.md) for shipping
-a build to TestFlight/Play Store via the `.github/workflows/release.yml`
-pipeline.
+a build to TestFlight/Play Store via the release jobs at the end of
+`.github/workflows/ci.yml`.
 
 ### Android build setup
 

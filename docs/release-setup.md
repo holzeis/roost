@@ -1,6 +1,7 @@
 # Release pipeline setup (TestFlight / Play Store)
 
-One-time setup for `.github/workflows/release.yml`, which builds and ships
+One-time setup for the `release-ios` and `release-android` jobs in
+`.github/workflows/ci.yml`, which build and ship
 the app via GitHub Actions instead of a local Xcode/Android Studio export.
 Kept separate from `docs/ios-dev-setup.md`, which is about running the app
 on your own machine/simulator, not shipping it.
@@ -16,7 +17,7 @@ section below. Either job can also always be run manually regardless.
 `app/lib/data/api_config.dart`'s `API_BASE_URL`/`LIVEKIT_URL` default to
 `localhost`, which only makes sense for a local simulator/emulator sharing
 the dev machine's network — a release build installed on a real device
-needs the actual deployed tailnet hostnames instead. `release.yml`'s build
+needs the actual deployed tailnet hostnames instead. the release jobs' build
 steps pass these explicitly:
 `--dart-define=API_BASE_URL=http://roost-chat --dart-define=LIVEKIT_URL=ws://roost-livekit:7880`
 (matching `TSNET_HOSTNAME`/`TS_HOSTNAME` in `k8s/chat-server` and
@@ -46,7 +47,7 @@ location-share message). Two more repo secrets cover this:
 | `ANDROID_GOOGLE_MAPS_API_KEY` | Your Android Maps SDK key |
 | `IOS_GOOGLE_MAPS_API_KEY` | Your iOS Maps SDK key |
 
-`release.yml` writes each into the same gitignored file a local dev would
+The release jobs write each into the same gitignored file a local dev would
 normally create by hand, right before the build step that needs it.
 
 ## iOS — TestFlight
@@ -118,7 +119,7 @@ ships an older Xcode than that, switch `app/ios/ExportOptions.plist`'s
 
 ## Android — Play Store internal testing track
 
-Not wired up yet — `release.yml`'s `android` job still has its signing and
+Not wired up yet — the `release-android` job still has its signing and
 upload steps as TODOs. Needs a release keystore
 (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
 `ANDROID_KEY_PASSWORD`) and a Play Console service account
