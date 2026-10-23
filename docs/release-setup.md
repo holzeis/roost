@@ -20,8 +20,8 @@ the dev machine's network — a release build installed on a real device
 needs the actual deployed tailnet hostnames instead. the release jobs' build
 steps pass these explicitly:
 `--dart-define=API_BASE_URL=http://roost-chat --dart-define=LIVEKIT_URL=ws://roost-livekit:7880`
-(matching `TSNET_HOSTNAME`/`TS_HOSTNAME` in `k8s/chat-server` and
-`k8s/livekit` — both plain http/ws, since the tailnet's own WireGuard layer
+(matching the chat server's `TSNET_HOSTNAME` and LiveKit's tailnet hostname,
+see `docs/deployment.md` — both plain http/ws, since the tailnet's own WireGuard layer
 already encrypts this traffic). **Your phone needs Tailscale installed and
 connected to the same tailnet** for MagicDNS to resolve those hostnames at
 all — this is unrelated to TestFlight and won't happen automatically.

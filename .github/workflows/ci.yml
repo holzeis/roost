@@ -310,7 +310,7 @@ jobs:
       # API_BASE_URL/LIVEKIT_URL default to localhost (see api_config.dart),
       # which is only right for a local simulator/emulator sharing the dev
       # machine's network — a real device needs the deployed tailnet
-      # hostnames instead (see k8s/chat-server and k8s/livekit's
+      # hostnames instead (see docs/deployment.md: chat-server's
       # TSNET_HOSTNAME/TS_HOSTNAME). Both listen unencrypted (plain
       # http/ws) since the tailnet's own WireGuard layer already encrypts
       # this traffic.

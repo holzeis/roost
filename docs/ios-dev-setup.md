@@ -127,11 +127,11 @@ the Simulator. Once enrolled, at <https://developer.apple.com/account/resources>
    registered device, as long as step 1 is done first.
 4. **Server config**: set `APNS_KEY_ID`, `APNS_TEAM_ID`, and
    `APNS_PRIVATE_KEY` (the `.p8` file's contents) via `.env` for local dev,
-   or `kubectl patch secret roost-secrets` for a real deployment — see
-   `k8s/README.md`'s push section. Never paste the `.p8` contents into a
+   or the Secret in the cluster's deployment for a real one — see
+   `docs/deployment.md`. Never paste the `.p8` contents into a
    chat/conversation; set it directly in the file/secret yourself.
    `APNS_PRODUCTION` picks Apple's gateway and must match the build on the
-   phone: `true` for TestFlight/App Store builds (the k8s Deployment sets
+   phone: `true` for TestFlight/App Store builds (the deployment sets
    this, since the release pipeline ships via TestFlight), unset for
    Xcode/`flutter run` builds, which get sandbox tokens. A mismatch — or a
    `.p8` key scoped to only the other environment — makes Apple reject
