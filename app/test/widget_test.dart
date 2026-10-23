@@ -2434,6 +2434,55 @@ void main() {
       expect(find.text('Weekend trip'), findsOneWidget);
     });
 
+    testWidgets('The creator can delete the group, after a confirmation', (tester) async {
+      final api = _seededApiClient(); // "me" created Family
+      await openGroupInfo(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('group-delete')));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete "Family"?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(api.deletedRooms, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('group-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(api.deletedRooms, ['room-family']);
+      expect(find.text('Group info'), findsNothing);
+      expect(find.text('Family'), findsNothing);
+      expect(find.text('Weekend trip'), findsOneWidget);
+    });
+
+    testWidgets('Someone who did not create the group is not offered to delete it', (tester) async {
+      final api = _seededApiClient();
+      api.rooms = [
+        for (final r in api.rooms)
+          if (r.id == 'room-family') ApiRoom(id: r.id, name: r.name, isGroup: true, createdBy: 'user-mom', createdAt: r.createdAt, members: r.members) else r,
+      ];
+      await openGroupInfo(tester, api);
+
+      expect(find.byKey(const ValueKey('group-leave')), findsOneWidget);
+      expect(find.byKey(const ValueKey('group-delete')), findsNothing);
+    });
+
+    testWidgets('When the creator deletes a group you are looking at, you are taken back to the list', (tester) async {
+      final api = _seededApiClient();
+      await _pumpApp(tester, api);
+      await tester.tap(find.text('Family'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatScreen), findsOneWidget);
+
+      api.rooms = [for (final r in api.rooms) if (r.id != 'room-family') r];
+      api.ws.emit(const WsEvent('room.removed', {'id': 'room-family'}));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ChatScreen), findsNothing);
+      expect(find.text('Weekend trip'), findsOneWidget, reason: 'back on the chat list');
+    });
+
     testWidgets('Muting offers 8 hours, 1 week and always, and the list shows a muted group', (tester) async {
       final api = _seededApiClient();
       await openGroupInfo(tester, api);

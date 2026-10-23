@@ -72,7 +72,10 @@ the client derives a display name from the other member) or a group
 muting (FR5.3). Changing a group's picture (FR1.16), name (FR1.17) or members
 (FR1.18, FR1.19) is announced to its members over the WebSocket as
 `room.updated`, carrying the whole room; a member who leaves also gets
-`room.removed` (`{id}`) for their other devices. Leaving takes the member's
+`room.removed` (`{id}`) for their other devices, and every member gets it when
+the creator deletes the group (FR1.20), which removes the room, its messages
+(cascade) and the media only it used (shared photos/videos, location
+snapshots, the group picture). Leaving takes the member's
 `room_members` row away, and a room left with no members is deleted (its
 messages cascade).
 

@@ -348,6 +348,66 @@ func (s *Store) AddRoomMembers(ctx context.Context, roomID string, userIDs []str
 	return s.GetRoom(ctx, roomID)
 }
 
+// DeleteRoom deletes a room with everything in it — members, messages,
+// calls, location shares — together with the media only it used: the shared
+// photos and videos, location snapshots and the group's picture (forwarding
+// copies media, so none of it is shared with another room). It returns those
+// media objects, already gone from the database, so the caller can remove
+// their files from object storage.
+func (s *Store) DeleteRoom(ctx context.Context, roomID string) ([]models.MediaObject, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const media = `
+		SELECT id, bucket, object_key, content_type, size_bytes, uploaded_by, created_at, width, height, preview_object_key
+		FROM media_objects WHERE id IN (
+			SELECT media_id FROM messages WHERE room_id = $1 AND media_id IS NOT NULL
+			UNION
+			SELECT ls.snapshot_media_id FROM location_shares ls JOIN messages m ON m.id = ls.message_id
+				WHERE m.room_id = $1 AND ls.snapshot_media_id IS NOT NULL
+			UNION
+			SELECT avatar_media_id FROM rooms WHERE id = $1 AND avatar_media_id IS NOT NULL
+		)`
+	rows, err := tx.Query(ctx, media, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("store: room media: %w", err)
+	}
+	var objects []models.MediaObject
+	for rows.Next() {
+		var m models.MediaObject
+		if err := rows.Scan(&m.ID, &m.Bucket, &m.ObjectKey, &m.ContentType, &m.SizeBytes, &m.UploadedBy, &m.CreatedAt,
+			&m.Width, &m.Height, &m.PreviewObjectKey); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("store: scan room media: %w", err)
+		}
+		objects = append(objects, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM rooms WHERE id = $1`, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("store: delete room: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	for _, m := range objects {
+		if _, err := tx.Exec(ctx, `DELETE FROM media_objects WHERE id = $1`, m.ID); err != nil {
+			return nil, fmt.Errorf("store: delete room media: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("store: commit: %w", err)
+	}
+	return objects, nil
+}
+
 // RemoveRoomMember takes userID out of a room and reports how many members
 // are left. A room nobody is left in is deleted (its messages go with it).
 func (s *Store) RemoveRoomMember(ctx context.Context, roomID, userID string) (int, error) {

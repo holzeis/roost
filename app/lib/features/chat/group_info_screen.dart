@@ -19,7 +19,7 @@ import '../../widgets/back_button.dart';
 /// other member is already named right there in the title.
 ///
 /// Any member can change the group's picture or name, add people, mute it
-/// for themselves and leave it from here.
+/// for themselves, leave it and (if they created it) delete it from here.
 class GroupInfoScreen extends ConsumerStatefulWidget {
   const GroupInfoScreen({super.key, required this.roomId});
 
@@ -189,6 +189,34 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
     }
   }
 
+  Future<void> _delete(String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete "$title"?'),
+        content: const Text('The group and all its messages and photos are deleted for everyone. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(dialogContext).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final router = GoRouter.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).deleteRoom(roomId);
+      await ref.read(roomsProvider.notifier).refresh();
+      router.go('/');
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not delete the group: $error')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final roomAsync = ref.watch(roomProvider(roomId));
@@ -338,6 +366,14 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                   title: Text('Leave group', style: TextStyle(color: scheme.error, fontWeight: FontWeight.w600)),
                   onTap: () => _leave(title),
                 ),
+                // Only the person who created the group can delete it.
+                if (room.createdBy == me?.id)
+                  ListTile(
+                    key: const ValueKey('group-delete'),
+                    leading: Icon(TablerIcons.trash, color: scheme.error),
+                    title: Text('Delete group', style: TextStyle(color: scheme.error, fontWeight: FontWeight.w600)),
+                    onTap: () => _delete(title),
+                  ),
               ],
             ),
     );

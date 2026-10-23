@@ -259,6 +259,17 @@ void main() {
       expect(events.where((e) => e.type == 'room.updated'), isNotEmpty);
     });
 
+    test('the creator can delete a group; a 1:1 chat cannot be deleted', () async {
+      final room = await backend.api.createRoom(name: 'Gone', isGroup: true, memberIds: [(await backend.api.listUsers()).first.id]);
+      await backend.api.deleteRoom(room.id);
+      expect((await backend.api.listRooms()).where((r) => r.id == room.id), isEmpty);
+      expect(events.where((e) => e.type == 'room.removed').map((e) => e.payload['id']), [room.id]);
+      await expectLater(
+        backend.api.deleteRoom(demoMomRoomId),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 400)),
+      );
+    });
+
     test('a 1:1 chat can be none of these', () async {
       await expectLater(
         backend.api.leaveRoom(demoMomRoomId),

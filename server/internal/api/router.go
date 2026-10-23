@@ -64,6 +64,7 @@ func (s *Server) Router() http.Handler {
 				r.Post("/rooms", s.handleCreateRoom)
 				r.Get("/rooms/{roomID}", s.handleGetRoom)
 				r.Patch("/rooms/{roomID}", s.handleRenameRoom)
+				r.Delete("/rooms/{roomID}", s.handleDeleteRoom)
 				r.Post("/rooms/{roomID}/members", s.handleAddRoomMembers)
 				r.Delete("/rooms/{roomID}/members/me", s.handleLeaveRoom)
 				r.Put("/rooms/{roomID}/mute", s.handlePutRoomMute)

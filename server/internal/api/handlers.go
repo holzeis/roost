@@ -524,6 +524,39 @@ func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleDeleteRoom lets the creator of a group delete it: the group, its
+// messages and its media are gone for every member, who are told live
+// (room.removed). Everyone else can only leave.
+func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
+	u, room, ok := s.groupForMember(w, r)
+	if !ok {
+		return
+	}
+	if room.CreatedBy != u.ID {
+		writeError(w, http.StatusForbidden, "only the person who created the group can delete it")
+		return
+	}
+	objects, err := s.Store.DeleteRoom(r.Context(), room.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not delete group")
+		return
+	}
+	// Best effort, like deleting a single photo's preview: the database no
+	// longer points at these files, so a leftover costs storage, not correctness.
+	for _, obj := range objects {
+		if err := s.Media.Delete(r.Context(), obj.ObjectKey); err != nil {
+			slog.Warn("delete room: could not delete object", "error", err)
+		}
+		if obj.PreviewObjectKey != nil {
+			if err := s.Media.Delete(r.Context(), *obj.PreviewObjectKey); err != nil {
+				slog.Warn("delete room: could not delete preview object", "error", err)
+			}
+		}
+	}
+	s.Hub.SendToUsers(room.Members, ws.Event{Type: "room.removed", Payload: map[string]string{"id": room.ID}})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // roomMuteDurations are the ways a member can mute a room (FR5.3); "always"
 // has no end.
 var roomMuteDurations = map[string]time.Duration{

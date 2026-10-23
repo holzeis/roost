@@ -398,3 +398,76 @@ func TestSystemNotesAreNotInteractive(t *testing.T) {
 		t.Fatalf("notes must not push, got %d", got)
 	}
 }
+
+func TestHandleDeleteRoom(t *testing.T) {
+	f := newGroupFixture(t)
+	ctx := context.Background()
+
+	// A photo, a text and a group picture, so there is media to clean up.
+	photo, err := f.s.Store.CreateMediaObject(ctx, f.s.Media.Bucket(), "rooms/photo.jpg", "image/jpeg", 3, f.b.ID, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	picture, err := f.s.Store.CreateMediaObject(ctx, f.s.Media.Bucket(), "avatars/group.jpg", "image/jpeg", 3, f.b.ID, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Store.CreateMediaMessage(ctx, f.room.ID, f.b.ID, "image", photo.ID, nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Store.CreateTextMessage(ctx, f.room.ID, f.a.ID, "hello", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Store.SetRoomAvatar(ctx, f.room.ID, picture.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Media in another room must survive.
+	other, _ := f.s.Store.CreateRoom(ctx, f.a.ID, nil, true, []string{f.b.ID})
+	keep, _ := f.s.Store.CreateMediaObject(ctx, f.s.Media.Bucket(), "rooms/keep.jpg", "image/jpeg", 3, f.a.ID, nil, nil, nil)
+	_, _ = f.s.Store.CreateMediaMessage(ctx, other.ID, f.a.ID, "image", keep.ID, nil, nil, false)
+
+	// Only the creator (a) may; b is an ordinary member.
+	if rec := roomCall(t, f.s.handleDeleteRoom, f.b, http.MethodDelete, f.room.ID, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("a member who isn't the creator gets 403, got %d", rec.Code)
+	}
+	if rec := roomCall(t, f.s.handleDeleteRoom, f.outsider, http.MethodDelete, f.room.ID, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("a non-member gets 403, got %d", rec.Code)
+	}
+	if _, err := f.s.Store.GetRoom(ctx, f.room.ID); err != nil {
+		t.Fatal("refused requests must not delete anything")
+	}
+
+	if rec := roomCall(t, f.s.handleDeleteRoom, f.a, http.MethodDelete, f.room.ID, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("creator deletes: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := f.s.Store.GetRoom(ctx, f.room.ID); err == nil {
+		t.Fatal("the room should be gone")
+	}
+	for _, id := range []string{photo.ID, picture.ID} {
+		if _, err := f.s.Store.GetMediaObject(ctx, id); err == nil {
+			t.Fatalf("media %s should be gone with the room", id)
+		}
+	}
+	if _, err := f.s.Store.GetMediaObject(ctx, keep.ID); err != nil {
+		t.Fatalf("another room's media must stay: %v", err)
+	}
+	if rooms, _ := f.s.Store.ListRoomsForUser(ctx, f.b.ID); len(rooms) != 1 || rooms[0].ID != other.ID {
+		t.Fatalf("b should only have the other room left, got %+v", rooms)
+	}
+	for who, c := range map[string]*recordingWSConn{"a": f.aConn, "b": f.bConn} {
+		if ev := eventTypes(c); fmt.Sprint(ev) != "[room.removed]" {
+			t.Fatalf("%s should hear room.removed, got %v", who, ev)
+		}
+	}
+	if ev := eventTypes(f.outConn); len(ev) != 0 {
+		t.Fatalf("a non-member must hear nothing, got %v", ev)
+	}
+}
+
+func TestHandleDeleteRoom_DirectChatCannotBeDeleted(t *testing.T) {
+	f := newGroupFixture(t)
+	direct, _ := f.s.Store.CreateRoom(context.Background(), f.a.ID, nil, false, []string{f.b.ID})
+	if rec := roomCall(t, f.s.handleDeleteRoom, f.a, http.MethodDelete, direct.ID, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}

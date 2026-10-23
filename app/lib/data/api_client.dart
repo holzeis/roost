@@ -150,6 +150,13 @@ class ApiClient {
     return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Deletes a group with all its messages — only the person who created it
+  /// may. Every member is told over the socket (`room.removed`).
+  Future<void> deleteRoom(String roomId) async {
+    final res = await _http.delete(_uri('/api/rooms/$roomId'));
+    _checkOk(res);
+  }
+
   /// Leaves a group.
   Future<void> leaveRoom(String roomId) async {
     final res = await _http.delete(_uri('/api/rooms/$roomId/members/me'));

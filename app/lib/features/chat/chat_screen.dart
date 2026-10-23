@@ -51,6 +51,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final roomId = widget.roomId;
+    // The group was deleted, or this user left it (maybe from another
+    // device): there's no chat to show any more.
+    ref.listen(wsEventsProvider, (previous, next) {
+      final event = next.valueOrNull;
+      if (event?.type == 'room.removed' && event?.payload['id'] == roomId) {
+        GoRouter.of(context).go('/');
+      }
+    });
     // The room handed over when navigating here is a snapshot from the chat
     // list; the list itself stays current (e.g. a group's picture changed by
     // another member), so prefer it and keep the snapshot as the fallback.

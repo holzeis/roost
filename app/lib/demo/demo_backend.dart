@@ -379,6 +379,15 @@ class DemoApiClient extends ApiClient {
   }
 
   @override
+  Future<void> deleteRoom(String roomId) async {
+    final room = _groupRoom(roomId);
+    if (room.createdBy != _b.me.id) throw ApiException(403, 'only the person who created the group can delete it');
+    _b.rooms.remove(roomId);
+    _b.messages.remove(roomId);
+    _b.ws.emit(WsEvent('room.removed', {'id': roomId}));
+  }
+
+  @override
   Future<ApiRoom> muteRoom(String roomId, RoomMuteDuration duration) async {
     final until = switch (duration) {
       RoomMuteDuration.eightHours => DateTime.now().add(const Duration(hours: 8)),

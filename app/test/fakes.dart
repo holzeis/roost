@@ -232,6 +232,7 @@ class FakeApiClient extends ApiClient {
   final List<({String roomId, String name})> renames = [];
   final List<({String roomId, List<String> userIds})> memberAdditions = [];
   final List<String> leftRooms = [];
+  final List<String> deletedRooms = [];
   final List<({String roomId, RoomMuteDuration? duration})> mutes = [];
 
   /// Replaces room [roomId] and tells the socket, as the server would.
@@ -257,6 +258,13 @@ class FakeApiClient extends ApiClient {
   @override
   Future<void> leaveRoom(String roomId) async {
     leftRooms.add(roomId);
+    rooms = [for (final r in rooms) if (r.id != roomId) r];
+    ws.emit(WsEvent('room.removed', {'id': roomId}));
+  }
+
+  @override
+  Future<void> deleteRoom(String roomId) async {
+    deletedRooms.add(roomId);
     rooms = [for (final r in rooms) if (r.id != roomId) r];
     ws.emit(WsEvent('room.removed', {'id': roomId}));
   }
