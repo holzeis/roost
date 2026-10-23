@@ -127,6 +127,53 @@ class ApiClient {
     return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  /// Renames a group — any member may. Everyone in it is told over the
+  /// socket (`room.updated`).
+  Future<ApiRoom> renameRoom(String roomId, String name) async {
+    final res = await _http.patch(
+      _uri('/api/rooms/$roomId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name}),
+    );
+    _checkOk(res);
+    return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Adds people to a group — any member may.
+  Future<ApiRoom> addRoomMembers(String roomId, List<String> userIds) async {
+    final res = await _http.post(
+      _uri('/api/rooms/$roomId/members'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'userIds': userIds}),
+    );
+    _checkOk(res);
+    return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Leaves a group.
+  Future<void> leaveRoom(String roomId) async {
+    final res = await _http.delete(_uri('/api/rooms/$roomId/members/me'));
+    _checkOk(res);
+  }
+
+  /// Mutes the room's notifications for this user only (FR5.3). [duration]
+  /// is one of [RoomMuteDuration]'s values.
+  Future<ApiRoom> muteRoom(String roomId, RoomMuteDuration duration) async {
+    final res = await _http.put(
+      _uri('/api/rooms/$roomId/mute'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'duration': duration.wire}),
+    );
+    _checkOk(res);
+    return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  Future<ApiRoom> unmuteRoom(String roomId) async {
+    final res = await _http.delete(_uri('/api/rooms/$roomId/mute'));
+    _checkOk(res);
+    return ApiRoom.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<List<ApiMessage>> listMessages(String roomId, {DateTime? before, int limit = 50}) async {
     final res = await _http.get(_uri('/api/rooms/$roomId/messages', {
       if (before != null) 'before': before.toUtc().toIso8601String(),

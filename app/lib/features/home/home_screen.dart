@@ -347,6 +347,10 @@ class _RoomTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+            if (room.muted) ...[
+              Icon(TablerIcons.bellOff, key: const ValueKey('room-muted'), size: 14, color: scheme.onSurface.withValues(alpha: 0.45)),
+              const SizedBox(width: 6),
+            ],
             Text(
               timeLabel,
               style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurface.withValues(alpha: 0.45)),

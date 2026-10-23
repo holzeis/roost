@@ -227,4 +227,44 @@ void main() {
       );
     });
   });
+
+  group('group actions', () {
+    test('rename, add people, mute and leave work on a group and tell the room', () async {
+      final renamed = await backend.api.renameRoom(demoFamilyRoomId, ' Fam Jam ');
+      expect(renamed.name, 'Fam Jam');
+      expect((await backend.api.getRoom(demoFamilyRoomId)).name, 'Fam Jam');
+      await expectLater(
+        backend.api.renameRoom(demoFamilyRoomId, '  '),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 400)),
+      );
+
+      final contacts = await backend.api.listUsers();
+      final small = await backend.api.createRoom(name: 'Small', isGroup: true, memberIds: [contacts.first.id]);
+      final grown = await backend.api.addRoomMembers(small.id, [contacts.last.id, contacts.last.id]);
+      expect(grown.members, [...small.members, contacts.last.id]);
+
+      final timed = await backend.api.muteRoom(demoFamilyRoomId, RoomMuteDuration.eightHours);
+      expect(timed.muted, isTrue);
+      expect(timed.mutedUntil!.difference(DateTime.now()).inHours, 7);
+      expect((await backend.api.muteRoom(demoFamilyRoomId, RoomMuteDuration.always)).mutedUntil, isNull);
+      expect((await backend.api.listRooms()).firstWhere((r) => r.id == demoFamilyRoomId).muted, isTrue);
+      expect((await backend.api.unmuteRoom(demoFamilyRoomId)).muted, isFalse);
+
+      await backend.api.leaveRoom(demoFamilyRoomId);
+      expect((await backend.api.listRooms()).where((r) => r.id == demoFamilyRoomId), isEmpty);
+      expect(events.where((e) => e.type == 'room.removed').map((e) => e.payload['id']), [demoFamilyRoomId]);
+      expect(events.where((e) => e.type == 'room.updated'), isNotEmpty);
+    });
+
+    test('a 1:1 chat can be none of these', () async {
+      await expectLater(
+        backend.api.leaveRoom(demoMomRoomId),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 400)),
+      );
+      await expectLater(
+        backend.api.renameRoom(demoMomRoomId, 'X'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 400)),
+      );
+    });
+  });
 }

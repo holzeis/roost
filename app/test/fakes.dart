@@ -227,6 +227,57 @@ class FakeApiClient extends ApiClient {
     return updated;
   }
 
+  /// What [renameRoom], [addRoomMembers], [leaveRoom] and [muteRoom] were
+  /// given, in order.
+  final List<({String roomId, String name})> renames = [];
+  final List<({String roomId, List<String> userIds})> memberAdditions = [];
+  final List<String> leftRooms = [];
+  final List<({String roomId, RoomMuteDuration? duration})> mutes = [];
+
+  /// Replaces room [roomId] and tells the socket, as the server would.
+  ApiRoom _changeRoom(String roomId, ApiRoom Function(ApiRoom) change) {
+    final updated = change(rooms.firstWhere((r) => r.id == roomId));
+    rooms = [for (final r in rooms) if (r.id == roomId) updated else r];
+    ws.emit(WsEvent('room.updated', {'id': roomId}));
+    return updated;
+  }
+
+  @override
+  Future<ApiRoom> renameRoom(String roomId, String name) async {
+    renames.add((roomId: roomId, name: name));
+    return _changeRoom(roomId, (r) => r.copyWith(name: name));
+  }
+
+  @override
+  Future<ApiRoom> addRoomMembers(String roomId, List<String> userIds) async {
+    memberAdditions.add((roomId: roomId, userIds: userIds));
+    return _changeRoom(roomId, (r) => r.copyWith(members: {...r.members, ...userIds}.toList()));
+  }
+
+  @override
+  Future<void> leaveRoom(String roomId) async {
+    leftRooms.add(roomId);
+    rooms = [for (final r in rooms) if (r.id != roomId) r];
+    ws.emit(WsEvent('room.removed', {'id': roomId}));
+  }
+
+  @override
+  Future<ApiRoom> muteRoom(String roomId, RoomMuteDuration duration) async {
+    mutes.add((roomId: roomId, duration: duration));
+    final until = switch (duration) {
+      RoomMuteDuration.eightHours => DateTime.now().add(const Duration(hours: 8)),
+      RoomMuteDuration.oneWeek => DateTime.now().add(const Duration(days: 7)),
+      RoomMuteDuration.always => null,
+    };
+    return _changeRoom(roomId, (r) => r.copyWith(muted: true, mutedUntil: until));
+  }
+
+  @override
+  Future<ApiRoom> unmuteRoom(String roomId) async {
+    mutes.add((roomId: roomId, duration: null));
+    return _changeRoom(roomId, (r) => r.copyWith(muted: false));
+  }
+
   /// Every {platform, pushToken, tokenType} registerDevice was called with,
   /// in order — lets a test assert the push service actually registered
   /// (or didn't).

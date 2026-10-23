@@ -135,6 +135,8 @@ class DemoBackend {
       createdAt: room.createdAt,
       members: room.members,
       avatarMediaId: room.avatarMediaId,
+      muted: room.muted && (room.mutedUntil == null || room.mutedUntil!.isAfter(DateTime.now())),
+      mutedUntil: room.mutedUntil,
       lastMessageBody: last?.body,
       lastMessageKind: last == null ? null : (last.isDeleted ? 'deleted' : last.kind),
       lastMessageAt: last?.createdAt,
@@ -326,6 +328,52 @@ class DemoApiClient extends ApiClient {
     _b.ws.emit(WsEvent('room.updated', {'id': roomId, 'avatarMediaId': mediaId}));
     return _b.roomView(_b.rooms[roomId]!);
   }
+
+  ApiRoom _groupRoom(String roomId) {
+    final room = _b.rooms[roomId];
+    if (room == null) throw ApiException(404, 'room not found');
+    if (!room.isGroup) throw ApiException(400, 'only a group can do this');
+    return room;
+  }
+
+  ApiRoom _changeRoom(ApiRoom updated) {
+    _b.addRoom(updated);
+    _b.ws.emit(WsEvent('room.updated', {'id': updated.id}));
+    return _b.roomView(updated);
+  }
+
+  @override
+  Future<ApiRoom> renameRoom(String roomId, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw ApiException(400, 'a group name is 1 to 100 characters');
+    return _changeRoom(_groupRoom(roomId).copyWith(name: trimmed));
+  }
+
+  @override
+  Future<ApiRoom> addRoomMembers(String roomId, List<String> userIds) async {
+    final room = _groupRoom(roomId);
+    return _changeRoom(room.copyWith(members: {...room.members, ...userIds}.toList()));
+  }
+
+  @override
+  Future<void> leaveRoom(String roomId) async {
+    _groupRoom(roomId);
+    _b.rooms.remove(roomId);
+    _b.ws.emit(WsEvent('room.removed', {'id': roomId}));
+  }
+
+  @override
+  Future<ApiRoom> muteRoom(String roomId, RoomMuteDuration duration) async {
+    final until = switch (duration) {
+      RoomMuteDuration.eightHours => DateTime.now().add(const Duration(hours: 8)),
+      RoomMuteDuration.oneWeek => DateTime.now().add(const Duration(days: 7)),
+      RoomMuteDuration.always => null,
+    };
+    return _changeRoom(_b.rooms[roomId]!.copyWith(muted: true, mutedUntil: until));
+  }
+
+  @override
+  Future<ApiRoom> unmuteRoom(String roomId) async => _changeRoom(_b.rooms[roomId]!.copyWith(muted: false));
 
   /// Nothing to register: the demo never receives push notifications.
   @override

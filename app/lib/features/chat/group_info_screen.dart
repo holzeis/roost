@@ -18,7 +18,8 @@ import '../../widgets/back_button.dart';
 /// _ChatTitle) — a 1:1 room has nothing this would add, since its one
 /// other member is already named right there in the title.
 ///
-/// Any member can change the group's picture from here by tapping it.
+/// Any member can change the group's picture or name, add people, mute it
+/// for themselves and leave it from here.
 class GroupInfoScreen extends ConsumerStatefulWidget {
   const GroupInfoScreen({super.key, required this.roomId});
 
@@ -97,6 +98,94 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
       }
     } finally {
       if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  /// Runs [action] and then refreshes this room; shows [failure] and the
+  /// error if it throws.
+  Future<void> _change(String failure, Future<void> Function() action) async {
+    try {
+      await action();
+      await ref.read(roomsProvider.notifier).roomChanged(roomId);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$failure: $error')));
+      }
+    }
+  }
+
+  Future<void> _rename(String currentName) async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _RenameDialog(currentName: currentName),
+    );
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty || trimmed == currentName) return;
+    await _change('Could not rename the group', () => ref.read(apiClientProvider).renameRoom(roomId, trimmed));
+  }
+
+  void _showMuteOptions(ApiRoom room) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        Widget option(String label, RoomMuteDuration duration) => ListTile(
+              title: Text(label),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _change('Could not mute the group', () => ref.read(apiClientProvider).muteRoom(roomId, duration));
+              },
+            );
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Text('Mute notifications', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              ),
+              option('For 8 hours', RoomMuteDuration.eightHours),
+              option('For 1 week', RoomMuteDuration.oneWeek),
+              option('Always', RoomMuteDuration.always),
+              if (room.muted)
+                ListTile(
+                  title: const Text('Unmute'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _change('Could not unmute the group', () => ref.read(apiClientProvider).unmuteRoom(roomId));
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _leave(String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Leave "$title"?'),
+        content: const Text('You will no longer get its messages. Someone in the group can add you back.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Leave')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final router = GoRouter.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(apiClientProvider).leaveRoom(roomId);
+      await ref.read(roomsProvider.notifier).refresh();
+      router.go('/');
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not leave the group: $error')));
     }
   }
 
@@ -180,10 +269,23 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                        textAlign: TextAlign.center,
+                      GestureDetector(
+                        key: const ValueKey('group-name'),
+                        onTap: () => _rename(room.name ?? ''),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Icon(TablerIcons.pencil, size: 16, color: scheme.onSurface.withValues(alpha: 0.45)),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -193,8 +295,16 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                     ],
                   ),
                 ),
+                ListTile(
+                  key: const ValueKey('group-mute'),
+                  leading: Icon(room.muted ? TablerIcons.bellOff : TablerIcons.bell),
+                  title: const Text('Mute notifications'),
+                  subtitle: Text(muteLabel(context, room)),
+                  onTap: () => _showMuteOptions(room),
+                ),
+                const Divider(height: 1),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
                   child: Text(
                     'MEMBERS',
                     style: TextStyle(
@@ -205,6 +315,15 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                     ),
                   ),
                 ),
+                ListTile(
+                  key: const ValueKey('group-add-members'),
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.primary.withValues(alpha: 0.12),
+                    child: Icon(TablerIcons.userPlus, color: scheme.primary),
+                  ),
+                  title: const Text('Add people', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                  onTap: () => context.push('/chat/$roomId/add-members'),
+                ),
                 for (final memberId in room.members)
                   _MemberTile(
                     memberId: memberId,
@@ -212,10 +331,69 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                     contact: usersById[memberId],
                     myAvatarMediaId: me?.avatarMediaId,
                   ),
+                const Divider(height: 24),
+                ListTile(
+                  key: const ValueKey('group-leave'),
+                  leading: Icon(TablerIcons.logout, color: scheme.error),
+                  title: Text('Leave group', style: TextStyle(color: scheme.error, fontWeight: FontWeight.w600)),
+                  onTap: () => _leave(title),
+                ),
               ],
             ),
     );
   }
+}
+
+/// Asks for a group's new name; pops with what was typed (or null).
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.currentName});
+
+  final String currentName;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final _controller = TextEditingController(text: widget.currentName);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Group name'),
+      content: TextField(
+        key: const ValueKey('group-name-field'),
+        controller: _controller,
+        autofocus: true,
+        maxLength: 100,
+        textCapitalization: TextCapitalization.sentences,
+        onSubmitted: (value) => Navigator.of(context).pop(value),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.of(context).pop(_controller.text), child: const Text('Save')),
+      ],
+    );
+  }
+}
+
+/// What the mute row says: whether the group's notifications are muted, and
+/// until when.
+String muteLabel(BuildContext context, ApiRoom room, {DateTime? now}) {
+  if (!room.muted) return 'Off';
+  final until = room.mutedUntil?.toLocal();
+  if (until == null) return 'Muted';
+  final l10n = MaterialLocalizations.of(context);
+  final time = l10n.formatTimeOfDay(TimeOfDay.fromDateTime(until));
+  final today = now ?? DateTime.now();
+  final sameDay = until.year == today.year && until.month == today.month && until.day == today.day;
+  return sameDay ? 'Muted until $time' : 'Muted until ${l10n.formatMediumDate(until)}, $time';
 }
 
 class _MemberTile extends StatelessWidget {

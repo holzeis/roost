@@ -47,7 +47,8 @@ final usersByIdProvider = Provider<AsyncValue<Map<String, ApiContact>>>((ref) {
 /// IncomingCallScreen, reached from a global listener rather than by
 /// tapping a room in a list that already had one).
 final roomProvider = FutureProvider.family<ApiRoom, String>((ref, roomId) {
-  // A group's picture can be changed by any member at any time (room.updated).
+  // A group's picture, name or members can be changed by any member at any
+  // time (room.updated).
   final sub = ref.listen(wsEventsProvider, (previous, next) {
     final event = next.valueOrNull;
     if (event?.type == 'room.updated' && event?.payload['id'] == roomId) ref.invalidateSelf();
@@ -78,6 +79,13 @@ class RoomsController extends AsyncNotifier<List<ApiRoom>> {
     final room = await ref.read(apiClientProvider).createRoom(name: name, isGroup: isGroup, memberIds: memberIds);
     await refresh();
     return room;
+  }
+
+  /// Applies a room change this user made, e.g. a rename: refreshes this
+  /// list and that room's own details, without waiting for the socket.
+  Future<void> roomChanged(String roomId) async {
+    ref.invalidate(roomProvider(roomId));
+    await refresh();
   }
 }
 

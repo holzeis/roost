@@ -2332,6 +2332,164 @@ void main() {
     expect(find.text('Yesterday'), findsWidgets);
     expect(find.text('Today'), findsWidgets);
   });
+
+  group('Group actions', () {
+    Future<void> openGroupInfo(WidgetTester tester, FakeApiClient api, {String title = 'Family'}) async {
+      await _pumpApp(tester, api);
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(find.text('Group info'), findsOneWidget);
+    }
+
+    testWidgets('A member can rename the group, and the new name shows in group info and the chat', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('group-name')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('group-name-field')), '  Fam Jam ');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.renames.single, (roomId: 'room-family', name: 'Fam Jam'));
+      expect(find.text('Fam Jam'), findsOneWidget, reason: 'group info shows the new name');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Fam Jam'), findsOneWidget, reason: 'and so does the chat title');
+    });
+
+    testWidgets('An empty or unchanged name is not sent', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('group-name')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('group-name-field')), '   ');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('group-name')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save')); // still "Family"
+      await tester.pumpAndSettle();
+
+      expect(api.renames, isEmpty);
+    });
+
+    testWidgets('A member can add people who are not in the group yet', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api, title: 'Weekend trip'); // me + Mom; Dad isn't in it
+
+      await tester.tap(find.byKey(const ValueKey('group-add-members')));
+      await tester.pumpAndSettle();
+      expect(find.text('Add people'), findsOneWidget);
+      expect(find.text('Mom'), findsNothing, reason: 'already in the group');
+      expect(find.text('Dad'), findsOneWidget);
+
+      await tester.tap(find.text('Dad'));
+      await tester.pump();
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(api.memberAdditions.single.roomId, 'room-weekend');
+      expect(api.memberAdditions.single.userIds, ['user-dad']);
+      expect(find.text('Group info'), findsOneWidget, reason: 'back on group info');
+      expect(find.text('3 members'), findsOneWidget);
+      expect(find.text('Dad'), findsOneWidget);
+    });
+
+    testWidgets('Add is disabled until someone is picked, and says so when everyone is in', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api); // everyone is already in Family
+
+      await tester.tap(find.byKey(const ValueKey('group-add-members')));
+      await tester.pumpAndSettle();
+      expect(find.text('Everyone is already in this group.'), findsOneWidget);
+      expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'Add')).onPressed, isNull);
+    });
+
+    testWidgets('Leaving asks first, then drops the group from the list', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('group-leave')));
+      await tester.pumpAndSettle();
+      expect(find.text('Leave "Family"?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(api.leftRooms, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('group-leave')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Leave'));
+      await tester.pumpAndSettle();
+
+      expect(api.leftRooms, ['room-family']);
+      expect(find.text('Group info'), findsNothing);
+      expect(find.text('Family'), findsNothing, reason: 'gone from the chat list');
+      expect(find.text('Weekend trip'), findsOneWidget);
+    });
+
+    testWidgets('Muting offers 8 hours, 1 week and always, and the list shows a muted group', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api);
+      expect(find.text('Off'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('group-mute')));
+      await tester.pumpAndSettle();
+      expect(find.text('For 8 hours'), findsOneWidget);
+      expect(find.text('For 1 week'), findsOneWidget);
+      expect(find.text('Always'), findsOneWidget);
+      expect(find.text('Unmute'), findsNothing, reason: 'not muted yet');
+
+      await tester.tap(find.text('For 8 hours'));
+      await tester.pumpAndSettle();
+      expect(api.mutes.single, (roomId: 'room-family', duration: RoomMuteDuration.eightHours));
+      expect(find.textContaining('Muted until'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('group-mute')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Always'));
+      await tester.pumpAndSettle();
+      expect(api.mutes.last.duration, RoomMuteDuration.always);
+      expect(find.text('Muted'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('room-muted')), findsOneWidget, reason: 'only Family is muted');
+
+      await tester.tap(find.text('Family'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Family'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('group-mute')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unmute'));
+      await tester.pumpAndSettle();
+      expect(api.mutes.last.duration, isNull);
+      expect(find.text('Off'), findsOneWidget);
+    });
+
+    testWidgets('Changes other members make show up live', (tester) async {
+      final api = _seededApiClient();
+      await openGroupInfo(tester, api, title: 'Weekend trip');
+      expect(find.text('2 members'), findsOneWidget);
+
+      api.rooms = [
+        for (final r in api.rooms)
+          if (r.id == 'room-weekend') r.copyWith(name: 'Cabin crew', members: ['me', 'user-mom', 'user-dad']) else r,
+      ];
+      api.ws.emit(const WsEvent('room.updated', {'id': 'room-weekend'}));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cabin crew'), findsOneWidget);
+      expect(find.text('3 members'), findsOneWidget);
+    });
+  });
+
 }
 
 /// Stands in for iOS's emoji keyboard (ios/Runner/EmojiKeyboard.swift).

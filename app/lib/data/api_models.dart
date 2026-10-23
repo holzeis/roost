@@ -35,6 +35,18 @@ class ApiContact {
   final String? avatarMediaId;
 }
 
+/// How long a member can mute a room for (FR5.3).
+enum RoomMuteDuration {
+  eightHours('8h'),
+  oneWeek('1w'),
+  always('always');
+
+  const RoomMuteDuration(this.wire);
+
+  /// What the server calls it.
+  final String wire;
+}
+
 class ApiRoom {
   const ApiRoom({
     required this.id,
@@ -44,6 +56,8 @@ class ApiRoom {
     required this.createdAt,
     this.members = const [],
     this.avatarMediaId,
+    this.muted = false,
+    this.mutedUntil,
     this.lastMessageBody,
     this.lastMessageKind,
     this.lastMessageAt,
@@ -57,6 +71,8 @@ class ApiRoom {
         createdAt: DateTime.parse(json['createdAt'] as String),
         members: (json['members'] as List<dynamic>?)?.cast<String>() ?? const [],
         avatarMediaId: json['avatarMediaId'] as String?,
+        muted: json['muted'] as bool? ?? false,
+        mutedUntil: json['mutedUntil'] != null ? DateTime.parse(json['mutedUntil'] as String) : null,
         lastMessageBody: json['lastMessageBody'] as String?,
         lastMessageKind: json['lastMessageKind'] as String?,
         lastMessageAt: json['lastMessageAt'] != null ? DateTime.parse(json['lastMessageAt'] as String) : null,
@@ -73,9 +89,32 @@ class ApiRoom {
   /// which shows the other person's profile picture, and for a group
   /// without one).
   final String? avatarMediaId;
+
+  /// Whether *this user* has the room's notifications muted right now
+  /// (FR5.3), and until when (null: until they turn it back on).
+  final bool muted;
+  final DateTime? mutedUntil;
   final String? lastMessageBody;
   final String? lastMessageKind;
   final DateTime? lastMessageAt;
+
+  /// This room with a different name, member list or mute; everything else
+  /// carries over. [mutedUntil] only applies together with [muted].
+  ApiRoom copyWith({String? name, List<String>? members, bool? muted, DateTime? mutedUntil, String? avatarMediaId}) =>
+      ApiRoom(
+        id: id,
+        name: name ?? this.name,
+        isGroup: isGroup,
+        createdBy: createdBy,
+        createdAt: createdAt,
+        members: members ?? this.members,
+        avatarMediaId: avatarMediaId ?? this.avatarMediaId,
+        muted: muted ?? this.muted,
+        mutedUntil: muted == null ? this.mutedUntil : (muted ? mutedUntil : null),
+        lastMessageBody: lastMessageBody,
+        lastMessageKind: lastMessageKind,
+        lastMessageAt: lastMessageAt,
+      );
 }
 
 class ApiMessage {
