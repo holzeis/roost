@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,6 +17,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 
 import 'package:roost/data/api_client.dart';
 import 'package:roost/demo/demo_json.dart';
+import 'package:roost/features/new_group/new_group_screen.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/chat/chat_screen.dart';
@@ -2472,6 +2474,89 @@ void main() {
       await tester.pumpAndSettle();
       expect(api.mutes.last.duration, isNull);
       expect(find.text('Off'), findsOneWidget);
+    });
+
+    // A 1x1 PNG, so the preview of the picked picture can really decode.
+    final pngBytes = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+
+    Future<void> openNewGroup(WidgetTester tester, FakeApiClient api) async {
+      await _pumpApp(tester, api);
+      await tester.tap(find.byIcon(TablerIcons.edit));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New group'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('A group can be given a picture when it is created', (tester) async {
+      ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList(pngBytes), name: 'g.png', mimeType: 'image/png');
+      final api = _seededApiClient();
+      await openNewGroup(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('new-group-avatar')));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove photo'), findsNothing, reason: 'nothing picked yet');
+      await tester.tap(find.text('Choose from gallery'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsOneWidget, reason: 'the picked picture is previewed');
+
+      await tester.enterText(find.byType(TextField), 'Cabin');
+      await tester.tap(find.text('Mom'));
+      await tester.pump();
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      expect(api.roomAvatarUploads, hasLength(1));
+      final created = api.rooms.firstWhere((r) => r.name == 'Cabin');
+      expect(api.roomAvatarUploads.single.roomId, created.id);
+      expect(created.avatarMediaId, isNotNull);
+      expect(find.byType(NewGroupScreen), findsNothing);
+    });
+
+    testWidgets('A picked picture can be removed again, and a group without one uploads nothing', (tester) async {
+      ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList(pngBytes), name: 'g.png', mimeType: 'image/png');
+      final api = _seededApiClient();
+      await openNewGroup(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('new-group-avatar')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose from gallery'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('new-group-avatar')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove photo'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 'Plain');
+      await tester.tap(find.text('Mom'));
+      await tester.pump();
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      expect(api.roomAvatarUploads, isEmpty);
+      expect(api.rooms.any((r) => r.name == 'Plain'), isTrue);
+    });
+
+    testWidgets('If the picture cannot be uploaded the group still exists, and says so', (tester) async {
+      ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList(pngBytes), name: 'g.png', mimeType: 'image/png');
+      final api = _FailingRoomAvatarApi();
+      _seed(api);
+      await openNewGroup(tester, api);
+
+      await tester.tap(find.byKey(const ValueKey('new-group-avatar')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose from gallery'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Cabin');
+      await tester.tap(find.text('Mom'));
+      await tester.pump();
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      expect(api.rooms.any((r) => r.name == 'Cabin'), isTrue, reason: 'the group was created');
+      expect(find.textContaining('Group created, but the picture could not be set'), findsOneWidget);
+      expect(find.byType(NewGroupScreen), findsNothing, reason: 'and the chat opened');
     });
 
     testWidgets('Joins and leaves show as centered notes, live too, that cannot be acted on', (tester) async {

@@ -1,10 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 
 import '../../data/api_models.dart';
 import '../../providers/chat_providers.dart';
+import '../../services/image_shrinker.dart';
+import '../profile/avatar_picker.dart';
 import '../../widgets/avatar.dart';
 
 class NewGroupScreen extends ConsumerStatefulWidget {
@@ -19,10 +24,64 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
   final _selected = <String>{};
   bool _creating = false;
 
+  /// The picture picked for the group, uploaded once the group exists.
+  ShrunkImage? _picture;
+
   @override
   void dispose() {
     _nameController.dispose();
     super.dispose();
+  }
+
+  void _showPictureOptions() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(TablerIcons.camera),
+              title: const Text('Take photo'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pick(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(TablerIcons.photo),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _pick(ImageSource.gallery);
+              },
+            ),
+            if (_picture != null)
+              ListTile(
+                leading: const Icon(TablerIcons.trash),
+                title: const Text('Remove photo'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  setState(() => _picture = null);
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pick(ImageSource source) async {
+    try {
+      final picked = await pickShrunkAvatar(ref, source);
+      if (picked != null && mounted) setState(() => _picture = picked);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not use that picture: $error')));
+      }
+    }
   }
 
   Future<void> _create(List<ApiContact> contacts) async {
@@ -35,6 +94,22 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
             isGroup: true,
             memberIds: _selected.toList(),
           );
+      // The group exists either way: a picture that fails to upload can be
+      // set again from group info.
+      final picture = _picture;
+      if (picture != null) {
+        try {
+          await ref.read(apiClientProvider).uploadRoomAvatar(
+                room.id,
+                bytes: picture.bytes,
+                filename: picture.filename,
+                contentType: picture.contentType,
+              );
+          await ref.read(roomsProvider.notifier).refresh();
+        } catch (error) {
+          messenger.showSnackBar(SnackBar(content: Text('Group created, but the picture could not be set: $error')));
+        }
+      }
       if (!mounted) return;
       router.pop();
       router.push('/chat/${room.id}');
@@ -78,28 +153,35 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                 child: Row(
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: scheme.onSurface.withValues(alpha: 0.08),
-                            shape: BoxShape.circle,
+                    GestureDetector(
+                      key: const ValueKey('new-group-avatar'),
+                      onTap: _creating ? null : _showPictureOptions,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: scheme.onSurface.withValues(alpha: 0.08),
+                              shape: BoxShape.circle,
+                            ),
+                            child: _picture == null
+                                ? Icon(TablerIcons.users, color: scheme.onSurface.withValues(alpha: 0.5))
+                                : Image.memory(Uint8List.fromList(_picture!.bytes), fit: BoxFit.cover),
                           ),
-                          child: Icon(TablerIcons.users, color: scheme.onSurface.withValues(alpha: 0.5)),
-                        ),
-                        Positioned(
-                          right: -2,
-                          bottom: -2,
-                          child: CircleAvatar(
-                            radius: 10,
-                            backgroundColor: scheme.primary,
-                            child: const Icon(TablerIcons.camera, size: 11, color: Colors.white),
+                          Positioned(
+                            right: -2,
+                            bottom: -2,
+                            child: CircleAvatar(
+                              radius: 10,
+                              backgroundColor: scheme.primary,
+                              child: const Icon(TablerIcons.camera, size: 11, color: Colors.white),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
