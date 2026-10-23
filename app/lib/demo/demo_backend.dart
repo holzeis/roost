@@ -352,7 +352,23 @@ class DemoApiClient extends ApiClient {
   @override
   Future<ApiRoom> addRoomMembers(String roomId, List<String> userIds) async {
     final room = _groupRoom(roomId);
-    return _changeRoom(room.copyWith(members: {...room.members, ...userIds}.toList()));
+    final added = userIds.toSet().where((id) => !room.members.contains(id)).toList();
+    final updated = _changeRoom(room.copyWith(members: [...room.members, ...added]));
+    if (added.isNotEmpty) {
+      final names = [for (final id in added) _b.contacts[id]?.displayName ?? '?'];
+      final joined = names.length == 1 ? names.single : '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+      final note = ApiMessage(
+        id: _b.newId('msg'),
+        roomId: roomId,
+        senderId: _b.me.id,
+        kind: 'system',
+        body: '${_b.me.displayName} added $joined',
+        createdAt: DateTime.now(),
+      );
+      _b.addMessage(note);
+      _b.emitMessage('message.created', note);
+    }
+    return updated;
   }
 
   @override

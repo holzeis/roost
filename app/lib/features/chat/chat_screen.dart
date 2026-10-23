@@ -482,9 +482,13 @@ class _MessageListState extends ConsumerState<_MessageList> {
               i + 1 < reversed.length ? reversed[i + 1] : null;
           final newer = i > 0 ? reversed[i - 1] : null;
           final isFirstInGroup = older == null ||
+              older.kind == 'system' ||
+              message.kind == 'system' ||
               older.senderId != message.senderId ||
               !_isSameDay(older.createdAt, message.createdAt);
           final isLastInGroup = newer == null ||
+              newer.kind == 'system' ||
+              message.kind == 'system' ||
               newer.senderId != message.senderId ||
               !_isSameDay(newer.createdAt, message.createdAt);
           entries.add(_MessageEntry(message,
@@ -526,6 +530,12 @@ class _MessageListState extends ConsumerState<_MessageList> {
                     );
                   }
                   final message = (entry as _MessageEntry).message;
+                  if (message.kind == 'system') {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _SystemNote(key: ValueKey(message.id), text: message.body ?? ''),
+                    );
+                  }
                   final senderName = message.senderId == widget.meId
                       ? 'Me'
                       : (widget.usersById[message.senderId]?.displayName ?? '?');
@@ -922,6 +932,33 @@ class DeletedMessageBubble extends StatelessWidget {
           const SizedBox(width: 10),
           Transform.translate(offset: const Offset(0, TextWithTrailingMeta.drop), child: meta),
         ],
+      ),
+    );
+  }
+}
+
+/// A note the chat makes about itself — "Mom added Dad", "Dad left" — centered
+/// between the bubbles, not attributed to a sender and not interactive.
+class _SystemNote extends StatelessWidget {
+  const _SystemNote({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: scheme.onSurface.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12.5, color: scheme.onSurface.withValues(alpha: 0.6)),
+        ),
       ),
     );
   }

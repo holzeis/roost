@@ -242,6 +242,9 @@ void main() {
       final small = await backend.api.createRoom(name: 'Small', isGroup: true, memberIds: [contacts.first.id]);
       final grown = await backend.api.addRoomMembers(small.id, [contacts.last.id, contacts.last.id]);
       expect(grown.members, [...small.members, contacts.last.id]);
+      final note = (await backend.api.listMessages(small.id)).single;
+      expect(note.kind, 'system');
+      expect(note.body, endsWith('added ${contacts.last.displayName}'));
 
       final timed = await backend.api.muteRoom(demoFamilyRoomId, RoomMuteDuration.eightHours);
       expect(timed.muted, isTrue);

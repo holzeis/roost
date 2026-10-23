@@ -15,6 +15,7 @@ import 'package:tabler_icons_plus/tabler_icons_plus.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import 'package:roost/data/api_client.dart';
+import 'package:roost/demo/demo_json.dart';
 import 'package:roost/data/api_models.dart';
 import 'package:roost/data/ws_client.dart';
 import 'package:roost/features/chat/chat_screen.dart';
@@ -2471,6 +2472,41 @@ void main() {
       await tester.pumpAndSettle();
       expect(api.mutes.last.duration, isNull);
       expect(find.text('Off'), findsOneWidget);
+    });
+
+    testWidgets('Joins and leaves show as centered notes, live too, that cannot be acted on', (tester) async {
+      final api = _seededApiClient();
+      api.messagesByRoom['room-family']!.add(ApiMessage(
+        id: 'note-1',
+        roomId: 'room-family',
+        senderId: 'user-mom',
+        kind: 'system',
+        body: 'Mom added Dad',
+        createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      ));
+      await _pumpApp(tester, api);
+      await tester.tap(find.text('Family'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mom added Dad'), findsOneWidget);
+
+      api.ws.emit(WsEvent(
+        'message.created',
+        messageToJson(ApiMessage(
+          id: 'note-2',
+          roomId: 'room-family',
+          senderId: 'user-dad',
+          kind: 'system',
+          body: 'Dad left',
+          createdAt: DateTime.now(),
+        )),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Dad left'), findsOneWidget);
+
+      // No sender label, no reply/forward menu.
+      await tester.longPress(find.text('Dad left'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reply'), findsNothing);
     });
 
     testWidgets('Changes other members make show up live', (tester) async {
