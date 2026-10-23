@@ -2513,6 +2513,23 @@ void main() {
       expect(find.byType(NewGroupScreen), findsNothing);
     });
 
+    testWidgets('People in the new-group list show their profile pictures, in the list and once chosen', (tester) async {
+      final api = _seededApiClient();
+      api.contacts = const [
+        ApiContact(id: 'user-mom', displayName: 'Mom', online: true, avatarMediaId: 'avatar-mom'),
+        ApiContact(id: 'user-dad', displayName: 'Dad', online: false),
+      ];
+      await openNewGroup(tester, api);
+
+      Iterable<InitialAvatar> withPicture() =>
+          tester.widgetList<InitialAvatar>(find.byType(InitialAvatar)).where((a) => a.avatarMediaId == 'avatar-mom');
+      expect(withPicture().where((a) => a.size == 44), hasLength(1), reason: 'Mom in the list; Dad has none');
+
+      await tester.tap(find.text('Mom'));
+      await tester.pump();
+      expect(withPicture().where((a) => a.size == 20), hasLength(1), reason: 'and in the chip of chosen people');
+    });
+
     testWidgets('A picked picture can be removed again, and a group without one uploads nothing', (tester) async {
       ImagePickerPlatform.instance = FakeImagePickerPlatform(Uint8List.fromList(pngBytes), name: 'g.png', mimeType: 'image/png');
       final api = _seededApiClient();
