@@ -17,10 +17,12 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG TARGETOS=linux
 ARG TARGETARCH
+# The release number CI stamps into the binary (see ci.yml); `dev` otherwise.
+ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -o /out/alert-bridge ./cmd/alert-bridge
+    go build -ldflags "-X main.version=$VERSION" -o /out/alert-bridge ./cmd/alert-bridge
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/alert-bridge /alert-bridge

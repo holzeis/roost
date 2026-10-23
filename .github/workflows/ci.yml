@@ -42,10 +42,17 @@ jobs:
       server: ${{ steps.filter.outputs.server }}
       app: ${{ steps.filter.outputs.app }}
       app_code: ${{ steps.filter.outputs.app_code }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      # The release number: how many commits lead up to this one. It only ever
+      # goes up as long as main's history isn't rewritten, and needs the full
+      # history, hence fetch-depth 0 above. Images are tagged with it.
+      - name: Compute version
+        id: version
+        run: echo "version=$(git rev-list --count ${{ github.sha }})" >> "$GITHUB_OUTPUT"
       - name: Determine changed paths
         id: filter
         env:
@@ -156,6 +163,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes, server-test, server-build-matrix]
     if: needs.changes.outputs.server == 'true'
+    env:
+      VERSION: ${{ needs.changes.outputs.version }}
     permissions:
       contents: read
       packages: write # so GITHUB_TOKEN itself can push to GHCR, instead of a separate long-lived PAT
@@ -178,6 +187,7 @@ jobs:
         with:
           context: server
           load: true
+          build-args: VERSION=${{ env.VERSION }}
           tags: roost-chat-server:scan
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -205,7 +215,12 @@ jobs:
           context: server
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
+          build-args: VERSION=${{ env.VERSION }}
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
           tags: |
+            ghcr.io/${{ github.repository }}-chat-server:${{ env.VERSION }}
             ghcr.io/${{ github.repository }}-chat-server:${{ github.sha }}
             ghcr.io/${{ github.repository }}-chat-server:latest
           # Same cache scope as the scan build above, so its amd64 layers
@@ -219,6 +234,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes, server-test, server-build-matrix]
     if: needs.changes.outputs.server == 'true'
+    env:
+      VERSION: ${{ needs.changes.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -232,6 +249,7 @@ jobs:
           context: server
           file: server/Dockerfile.alert-bridge
           load: true
+          build-args: VERSION=${{ env.VERSION }}
           tags: roost-alert-bridge:scan
           cache-from: type=gha,scope=alert-bridge
           cache-to: type=gha,mode=max,scope=alert-bridge
@@ -253,7 +271,12 @@ jobs:
           file: server/Dockerfile.alert-bridge
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
+          build-args: VERSION=${{ env.VERSION }}
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
           tags: |
+            ghcr.io/${{ github.repository }}-alert-bridge:${{ env.VERSION }}
             ghcr.io/${{ github.repository }}-alert-bridge:${{ github.sha }}
             ghcr.io/${{ github.repository }}-alert-bridge:latest
           cache-from: type=gha,scope=alert-bridge

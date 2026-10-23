@@ -30,6 +30,10 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
+// version is the release number, stamped in at build time (-ldflags -X);
+// "dev" for a local build.
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("server exited", "error", err)
@@ -91,7 +95,7 @@ func run() error {
 	httpServer := &http.Server{Handler: srv.Router()}
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("roost chat server listening", "addr", listener.Addr())
+		slog.Info("roost chat server listening", "addr", listener.Addr(), "version", version)
 		errCh <- httpServer.Serve(listener)
 	}()
 

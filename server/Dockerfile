@@ -17,10 +17,12 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG TARGETOS=linux
 ARG TARGETARCH
+# The release number CI stamps into the binary (see ci.yml); `dev` otherwise.
+ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -o /out/roost-server ./cmd/server
+    go build -ldflags "-X main.version=$VERSION" -o /out/roost-server ./cmd/server
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/roost-server /roost-server

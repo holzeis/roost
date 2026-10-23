@@ -22,6 +22,10 @@ import (
 // tailnetUpTimeout bounds the wait for the first tailnet login.
 const tailnetUpTimeout = 2 * time.Minute
 
+// version is the release number, stamped in at build time (-ldflags -X);
+// "dev" for a local build.
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("alert-bridge exited", "error", err)
@@ -53,7 +57,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("alert-bridge listening", "addr", server.Addr)
+		slog.Info("alert-bridge listening", "addr", server.Addr, "version", version)
 		errCh <- server.ListenAndServe()
 	}()
 

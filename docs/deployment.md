@@ -10,8 +10,12 @@ the services fit together locally.
 ## Images
 
 CI (`.github/workflows/ci.yml`) builds each for **amd64 and arm64** and, on a
-push to main that changed `server/`, publishes them to GHCR as `:<git sha>` and
-`:latest`:
+push to main that changed `server/`, publishes them to GHCR tagged with the version, the git sha
+and `latest`. The **version** is the number of commits in main's history
+(`git rev-list --count`), so `roost-chat-server:412` is newer than `:398`. It is
+also stamped into the binary (logged at startup as `version`) and set as the
+`org.opencontainers.image.version` label. Pin a deployment to a version tag
+rather than `latest`:
 
 | Image | What it is |
 |---|---|
