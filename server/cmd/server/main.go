@@ -76,6 +76,7 @@ func run() error {
 		Media:     media,
 		Push:      pushSender,
 		StaticMap: staticmap.NewGoogleFetcher(cfg.GoogleMapsStaticAPIKey),
+		AlertTag:  alertBotTag(),
 	}
 
 	// FR4.8: a call nobody answered ends up "missed" even when the
@@ -159,7 +160,7 @@ func newListener(ctx context.Context, listenAddr string, resolver *auth.Resolver
 		ts.Close()
 		return nil, nil, err
 	}
-	*resolver = auth.TsnetResolver{Local: local, AlertTag: getenvDefault("ALERT_BOT_TAG", "tag:roost-alerts")}
+	*resolver = auth.TsnetResolver{Local: local, AlertTag: alertBotTag()}
 
 	l, err := ts.Listen("tcp", ":80")
 	if err != nil {
@@ -220,3 +221,6 @@ func getenvDefault(key, fallback string) string {
 	}
 	return fallback
 }
+
+// alertBotTag is the ACL tag of the alert bridge's tailnet node.
+func alertBotTag() string { return getenvDefault("ALERT_BOT_TAG", "tag:roost-alerts") }

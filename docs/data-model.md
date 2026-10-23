@@ -69,8 +69,12 @@ The "Alerts" group (FR8.1) is an ordinary group room created by the alert identi
 A room is either a 1:1 (`is_group = false`, exactly 2 members, `name` null —
 the client derives a display name from the other member) or a group
 (`is_group = true`, named). `room_members.muted` backs per-room notification
-muting (FR5.3). Changing a group's picture (FR1.16) is announced to its members
-over the WebSocket as `room.updated`, carrying the whole room.
+muting (FR5.3). Changing a group's picture (FR1.16), name (FR1.17) or members
+(FR1.18, FR1.19) is announced to its members over the WebSocket as
+`room.updated`, carrying the whole room; a member who leaves also gets
+`room.removed` (`{id}`) for their other devices. Leaving takes the member's
+`room_members` row away, and a room left with no members is deleted (its
+messages cascade).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -82,7 +86,8 @@ over the WebSocket as `room.updated`, carrying the whole room.
 | `rooms.avatar_media_id` | uuid, FK → `media_objects`, nullable | A group's picture (FR1.16), set by any member; null for a group without one and always for a 1:1 room. Same pointer style as `users.avatar_media_id`; `ON DELETE SET NULL`. Like a profile picture, the image has no owning message, so it is served to anyone who can reach the server. Changing it leaves the old media object in place — migration 0010 |
 | `room_members.room_id`, `room_members.user_id` | uuid, composite PK | |
 | `room_members.joined_at` | timestamptz | |
-| `room_members.muted` | boolean | |
+| `room_members.muted` | boolean | The member muted the room until they turn it off (FR5.3) |
+| `room_members.muted_until` | timestamptz, nullable | A timed mute (8 hours, 1 week) that lapses by itself; the mute is in force while `muted` or `muted_until > now()`. Per member, so it is reported only in responses made for that member (`muted`, `mutedUntil` on the room), never in the `room.updated` broadcast. Muting holds back message-notification pushes only — migration 0011 |
 
 ### messages
 

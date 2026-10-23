@@ -26,6 +26,8 @@ type Server struct {
 	Push      push.Sender
 	StaticMap staticmap.Fetcher
 	Resolver  auth.Resolver
+	// AlertTag is the alert identity's ACL tag; the group it created can't be left.
+	AlertTag string
 }
 
 func (s *Server) Router() http.Handler {
@@ -63,6 +65,11 @@ func (s *Server) Router() http.Handler {
 				r.Get("/rooms", s.handleListRooms)
 				r.Post("/rooms", s.handleCreateRoom)
 				r.Get("/rooms/{roomID}", s.handleGetRoom)
+				r.Patch("/rooms/{roomID}", s.handleRenameRoom)
+				r.Post("/rooms/{roomID}/members", s.handleAddRoomMembers)
+				r.Delete("/rooms/{roomID}/members/me", s.handleLeaveRoom)
+				r.Put("/rooms/{roomID}/mute", s.handlePutRoomMute)
+				r.Delete("/rooms/{roomID}/mute", s.handleDeleteRoomMute)
 				r.Get("/rooms/{roomID}/messages", s.handleListMessages)
 				r.Post("/rooms/{roomID}/messages", s.handleCreateMessage)
 				r.Get("/rooms/{roomID}/search", s.handleSearchMessages)

@@ -248,7 +248,7 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 	const q = `
 		SELECT r.id, r.name, r.is_group, r.created_by, r.created_at, r.avatar_media_id,
 		       lm.body, CASE WHEN lm.deleted_at IS NOT NULL THEN 'deleted' ELSE lm.kind END, lm.created_at,
-		       members.member_ids
+		       members.member_ids, rm.muted, rm.muted_until
 		FROM rooms r
 		JOIN room_members rm ON rm.room_id = r.id
 		LEFT JOIN LATERAL (
@@ -273,9 +273,12 @@ func (s *Store) ListRoomsForUser(ctx context.Context, userID string) ([]models.R
 	for rows.Next() {
 		var r models.Room
 		var lastKind *string
-		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.AvatarMediaID, &r.LastMessageBody, &lastKind, &r.LastMessageAt, &r.Members); err != nil {
+		var muted bool
+		var mutedUntil *time.Time
+		if err := rows.Scan(&r.ID, &r.Name, &r.IsGroup, &r.CreatedBy, &r.CreatedAt, &r.AvatarMediaID, &r.LastMessageBody, &lastKind, &r.LastMessageAt, &r.Members, &muted, &mutedUntil); err != nil {
 			return nil, fmt.Errorf("store: scan room: %w", err)
 		}
+		r.Muted, r.MutedUntil = effectiveMute(muted, mutedUntil, time.Now())
 		if lastKind != nil {
 			kind := models.MessageKind(*lastKind)
 			r.LastMessageKind = &kind
@@ -317,6 +320,137 @@ func (s *Store) SetRoomAvatar(ctx context.Context, roomID, mediaID string) (mode
 		return models.Room{}, ErrNotFound
 	}
 	return s.GetRoom(ctx, roomID)
+}
+
+// effectiveMute turns a member's stored mute (muted = until turned off,
+// mutedUntil = a timed mute) into what is reported: whether it is in force
+// at now, and when it ends (nil when it never does).
+func effectiveMute(muted bool, mutedUntil *time.Time, now time.Time) (bool, *time.Time) {
+	if muted {
+		return true, nil
+	}
+	if mutedUntil != nil && mutedUntil.After(now) {
+		return true, mutedUntil
+	}
+	return false, nil
+}
+
+// RenameRoom changes a room's name and returns the updated room.
+func (s *Store) RenameRoom(ctx context.Context, roomID, name string) (models.Room, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE rooms SET name = $2 WHERE id = $1`, roomID, name)
+	if err != nil {
+		return models.Room{}, fmt.Errorf("store: rename room: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return models.Room{}, ErrNotFound
+	}
+	return s.GetRoom(ctx, roomID)
+}
+
+// AddRoomMembers adds userIDs to a room (anyone already in it is skipped)
+// and returns the updated room. ErrNotFound if any of them isn't a user.
+func (s *Store) AddRoomMembers(ctx context.Context, roomID string, userIDs []string) (models.Room, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Room{}, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var known int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE id = ANY($1::uuid[])`, userIDs).Scan(&known); err != nil {
+		return models.Room{}, fmt.Errorf("store: check users: %w", err)
+	}
+	if known != len(userIDs) {
+		return models.Room{}, ErrNotFound
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO room_members (room_id, user_id) SELECT $1, UNNEST($2::uuid[]) ON CONFLICT DO NOTHING`,
+		roomID, userIDs); err != nil {
+		return models.Room{}, fmt.Errorf("store: add members: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return models.Room{}, fmt.Errorf("store: commit: %w", err)
+	}
+	return s.GetRoom(ctx, roomID)
+}
+
+// RemoveRoomMember takes userID out of a room and reports how many members
+// are left. A room nobody is left in is deleted (its messages go with it).
+func (s *Store) RemoveRoomMember(ctx context.Context, roomID, userID string) (int, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("store: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM room_members WHERE room_id = $1 AND user_id = $2`, roomID, userID); err != nil {
+		return 0, fmt.Errorf("store: remove member: %w", err)
+	}
+	var left int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM room_members WHERE room_id = $1`, roomID).Scan(&left); err != nil {
+		return 0, fmt.Errorf("store: count members: %w", err)
+	}
+	if left == 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM rooms WHERE id = $1`, roomID); err != nil {
+			return 0, fmt.Errorf("store: delete empty room: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("store: commit: %w", err)
+	}
+	return left, nil
+}
+
+// SetRoomMute sets userID's notification mute for a room (FR5.3): until
+// the given time, or — with until nil — until they turn it off. The zero
+// value of both unmutes.
+func (s *Store) SetRoomMute(ctx context.Context, roomID, userID string, forever bool, until *time.Time) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE room_members SET muted = $3, muted_until = $4 WHERE room_id = $1 AND user_id = $2`,
+		roomID, userID, forever, until)
+	if err != nil {
+		return fmt.Errorf("store: set room mute: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RoomMuteFor fills in userID's mute on room (see models.Room.Muted).
+func (s *Store) RoomMuteFor(ctx context.Context, room *models.Room, userID string) error {
+	var muted bool
+	var mutedUntil *time.Time
+	err := s.pool.QueryRow(ctx,
+		`SELECT muted, muted_until FROM room_members WHERE room_id = $1 AND user_id = $2`,
+		room.ID, userID).Scan(&muted, &mutedUntil)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: room mute: %w", err)
+	}
+	room.Muted, room.MutedUntil = effectiveMute(muted, mutedUntil, time.Now())
+	return nil
+}
+
+// MutedMemberIDs returns the members of a room who currently have it muted.
+func (s *Store) MutedMemberIDs(ctx context.Context, roomID string) (map[string]bool, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT user_id FROM room_members WHERE room_id = $1 AND (muted OR muted_until > now())`, roomID)
+	if err != nil {
+		return nil, fmt.Errorf("store: muted members: %w", err)
+	}
+	defer rows.Close()
+	muted := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: scan muted member: %w", err)
+		}
+		muted[id] = true
+	}
+	return muted, rows.Err()
 }
 
 func (s *Store) ListRoomMemberIDs(ctx context.Context, roomID string) ([]string, error) {

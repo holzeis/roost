@@ -22,6 +22,9 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR1.14 | Users see a rich preview (title/description/image) for links shared in a message | Could |
 | FR1.15 | Users can delete their own messages (any kind), with a confirmation prompt before it happens. A message that someone has already seen is replaced by a "Deleted message" placeholder for everyone; one nobody has seen yet disappears entirely | Should |
 | FR1.16 | Any member of a group can set or change the group's picture from its group info screen (take a photo or choose one; scaled down to at most 1024 px like a profile picture). It shows in the chat list, the chat header and group info, and every member sees a change live. A 1:1 chat has no picture of its own — it shows the other person's profile picture | Should |
+| FR1.17 | Any member of a group can rename it from its group info screen; every member sees the new name live | Should |
+| FR1.18 | Any member of a group can add people to it from group info (everyone who isn't in it yet is offered); the newcomers get the group, with its history, and every member sees the new list live | Should |
+| FR1.19 | A member can leave a group, after a confirmation. The group disappears from their list, their live location shares in it end, and the others see the shorter member list. A group nobody is left in is deleted. The "Alerts" group (FR8.1) can't be left — mute it instead — and a 1:1 chat can't be left | Should |
 
 ## 2. Media sharing (images & video)
 
@@ -67,7 +70,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 |---|---|---|
 | FR5.1 | Users receive a push notification for an incoming call when the app is backgrounded or closed | Must |
 | FR5.2 | Users receive a push notification for new messages when the app is backgrounded or closed, showing the sender, the sender's profile picture in place of the app icon (when they have one), and a preview of the message (the text, or e.g. "📷 Photo"). The preview is end-to-end encrypted to the receiving device; the picture is never sent through push, only its id, and the device fetches it from the chat server | Should |
-| FR5.3 | Users can mute notifications per room | Could |
+| FR5.3 | A member can mute a group's notifications for themselves only, for 8 hours, 1 week or until they turn it off, and unmute it again, from group info. While muted they get no message notification push for it (the messages still arrive in the chat, and an incoming call still rings); the chat list marks a muted group with a bell icon | Could |
 
 ## 6. Identity & access
 

@@ -23,6 +23,13 @@ type Room struct {
 	CreatedAt     time.Time `json:"createdAt"`
 	Members       []string  `json:"members,omitempty"`
 
+	// Muted and MutedUntil are the *requesting* member's notification mute
+	// for this room (FR5.3), so only responses made for one member carry
+	// them — never the room.updated broadcast. MutedUntil is nil for a mute
+	// with no end; a mute that has lapsed isn't reported at all.
+	Muted      bool       `json:"muted,omitempty"`
+	MutedUntil *time.Time `json:"mutedUntil,omitempty"`
+
 	// Populated by ListRoomsForUser for the room list UI; absent (all nil)
 	// for a room with no messages yet.
 	LastMessageBody *string      `json:"lastMessageBody,omitempty"`

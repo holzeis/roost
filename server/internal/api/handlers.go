@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/disintegration/imaging"
 	"github.com/go-chi/chi/v5"
@@ -345,6 +346,215 @@ func (s *Server) handleGetRoom(w http.ResponseWriter, r *http.Request) {
 	room, err := s.Store.GetRoom(r.Context(), roomID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+	if err := s.Store.RoomMuteFor(r.Context(), &room, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load room")
+		return
+	}
+	writeJSON(w, http.StatusOK, room)
+}
+
+// groupForMember loads the room named in the URL for a request that only a
+// member of a group may make: 403 for a non-member, 400 for a 1:1 room.
+func (s *Server) groupForMember(w http.ResponseWriter, r *http.Request) (models.User, models.Room, bool) {
+	u, ok := session.UserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return models.User{}, models.Room{}, false
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, u.ID, roomID) {
+		return models.User{}, models.Room{}, false
+	}
+	room, err := s.Store.GetRoom(r.Context(), roomID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load room")
+		return models.User{}, models.Room{}, false
+	}
+	if !room.IsGroup {
+		writeError(w, http.StatusBadRequest, "only a group can do this")
+		return models.User{}, models.Room{}, false
+	}
+	return u, room, true
+}
+
+// maxRoomNameRunes caps a group's name.
+const maxRoomNameRunes = 100
+
+// handleRenameRoom lets any member change a group's name; everyone in it is
+// told live (room.updated).
+func (s *Server) handleRenameRoom(w http.ResponseWriter, r *http.Request) {
+	_, room, ok := s.groupForMember(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" || utf8.RuneCountInString(name) > maxRoomNameRunes {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("a group name is 1 to %d characters", maxRoomNameRunes))
+		return
+	}
+	updated, err := s.Store.RenameRoom(r.Context(), room.ID, name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not rename room")
+		return
+	}
+	s.Hub.SendToUsers(updated.Members, ws.Event{Type: "room.updated", Payload: updated})
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleAddRoomMembers lets any member add people to a group. Everyone in
+// it, the newcomers included, is told live (room.updated). People who are
+// already in the group are left as they are.
+func (s *Server) handleAddRoomMembers(w http.ResponseWriter, r *http.Request) {
+	_, room, ok := s.groupForMember(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		UserIDs []string `json:"userIds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.UserIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "userIds is required")
+		return
+	}
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(body.UserIDs))
+	for _, id := range body.UserIDs {
+		if _, err := uuid.Parse(id); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	updated, err := s.Store.AddRoomMembers(r.Context(), room.ID, ids)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no such user")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not add members")
+		return
+	}
+	s.Hub.SendToUsers(updated.Members, ws.Event{Type: "room.updated", Payload: updated})
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleLeaveRoom lets a member leave a group. The rest are told live
+// (room.updated), the leaver's other devices likewise (room.removed). Their
+// live location shares in the group end, and a group nobody is left in is
+// deleted. The Alerts group can't be left — the alert bridge adds everyone
+// back with its next alert — so it is muted instead.
+func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
+	u, room, ok := s.groupForMember(w, r)
+	if !ok {
+		return
+	}
+	if creator, err := s.Store.GetUser(r.Context(), room.CreatedBy); err == nil && s.AlertTag != "" && creator.TailscaleID == s.AlertTag {
+		writeError(w, http.StatusBadRequest, "the Alerts group can't be left; mute it instead")
+		return
+	}
+
+	ended, err := s.Store.EndActiveLocationSharesInRoom(r.Context(), room.ID, u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not leave room")
+		return
+	}
+	for _, m := range ended {
+		s.Hub.SendToUsers(room.Members, ws.Event{Type: "message.updated", Payload: m})
+	}
+
+	left, err := s.Store.RemoveRoomMember(r.Context(), room.ID, u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not leave room")
+		return
+	}
+	s.Hub.SendToUser(u.ID, ws.Event{Type: "room.removed", Payload: map[string]string{"id": room.ID}})
+	if left > 0 {
+		if updated, err := s.Store.GetRoom(r.Context(), room.ID); err == nil {
+			s.Hub.SendToUsers(updated.Members, ws.Event{Type: "room.updated", Payload: updated})
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// roomMuteDurations are the ways a member can mute a room (FR5.3); "always"
+// has no end.
+var roomMuteDurations = map[string]time.Duration{
+	"8h":     8 * time.Hour,
+	"1w":     7 * 24 * time.Hour,
+	"always": 0,
+}
+
+// handlePutRoomMute mutes a room's notifications for the caller only (FR5.3).
+// Messages still arrive in the chat — only the push about them is held back.
+func (s *Server) handlePutRoomMute(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+	var body struct {
+		Duration string `json:"duration"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	d, known := roomMuteDurations[body.Duration]
+	if !known {
+		writeError(w, http.StatusBadRequest, `duration must be "8h", "1w" or "always"`)
+		return
+	}
+	var until *time.Time
+	if d > 0 {
+		t := time.Now().Add(d)
+		until = &t
+	}
+	if err := s.Store.SetRoomMute(r.Context(), roomID, userID, d == 0, until); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not mute room")
+		return
+	}
+	s.respondRoomForMember(w, r, roomID, userID)
+}
+
+// handleDeleteRoomMute turns the caller's mute off.
+func (s *Server) handleDeleteRoomMute(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	roomID := chi.URLParam(r, "roomID")
+	if !s.requireMembership(w, r, userID, roomID) {
+		return
+	}
+	if err := s.Store.SetRoomMute(r.Context(), roomID, userID, false, nil); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not unmute room")
+		return
+	}
+	s.respondRoomForMember(w, r, roomID, userID)
+}
+
+func (s *Server) respondRoomForMember(w http.ResponseWriter, r *http.Request, roomID, userID string) {
+	room, err := s.Store.GetRoom(r.Context(), roomID)
+	if err == nil {
+		err = s.Store.RoomMuteFor(r.Context(), &room, userID)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load room")
 		return
 	}
 	writeJSON(w, http.StatusOK, room)
@@ -1807,12 +2017,17 @@ func (s *Server) deliverMessageEvent(ctx context.Context, roomID string, sender 
 		slog.Error("deliver: list room members failed", "room", roomID, "error", err)
 		return
 	}
+	// FR5.3: a member who muted the room still gets the message, just no push.
+	muted, err := s.Store.MutedMemberIDs(ctx, roomID)
+	if err != nil {
+		slog.Error("deliver: list muted members failed", "room", roomID, "error", err)
+	}
 	ev := ws.Event{Type: "message.created", Payload: msg}
 	for _, memberID := range memberIDs {
 		if s.Hub.SendToUser(memberID, ev) {
 			continue
 		}
-		if memberID == sender.ID {
+		if memberID == sender.ID || muted[memberID] {
 			continue
 		}
 		s.pushMessageNotification(ctx, memberID, push.MessagePayload{
