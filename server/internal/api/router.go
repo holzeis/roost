@@ -26,8 +26,6 @@ type Server struct {
 	Push      push.Sender
 	StaticMap staticmap.Fetcher
 	Resolver  auth.Resolver
-	// AlertTag is the alert identity's ACL tag; the group it created can't be left.
-	AlertTag string
 }
 
 func (s *Server) Router() http.Handler {

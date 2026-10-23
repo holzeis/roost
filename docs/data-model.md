@@ -64,7 +64,7 @@ the message *was* the shared photo/video, so deleting one deletes the other.
 
 ### rooms / room_members
 
-The "Alerts" group (FR8.1) is an ordinary group room created by the alert identity on its first alert; it is found by `created_by` being that identity, and every user is added to `room_members` (again on each later alert, to pick up users who joined since).
+The groups alerts land in (FR8.1) are ordinary group rooms the alert identity was added to as a member (Add people); the alert endpoint posts to every group it is in. Migration 0013 deleted the "Alerts" group earlier versions auto-created (any group created by a `tag:` identity).
 
 A room is either a 1:1 (`is_group = false`, exactly 2 members, `name` null —
 the client derives a display name from the other member) or a group

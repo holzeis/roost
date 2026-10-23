@@ -224,23 +224,6 @@ func TestHandleLeaveRoom(t *testing.T) {
 	}
 }
 
-func TestHandleLeaveRoom_AlertsGroupCannotBeLeft(t *testing.T) {
-	f := newGroupFixture(t)
-	ctx := context.Background()
-	bot, _ := f.s.Store.GetOrCreateUserByTailscaleID(ctx, "tag:roost-alerts-test-"+fmt.Sprint(time.Now().UnixNano()), "Homelab")
-	f.s.AlertTag = bot.TailscaleID
-	alerts, err := f.s.Store.CreateRoom(ctx, bot.ID, nil, true, []string{f.a.ID})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if rec := roomCall(t, f.s.handleLeaveRoom, f.a, http.MethodDelete, alerts.ID, ""); rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-	if in, _ := f.s.Store.IsRoomMember(ctx, alerts.ID, f.a.ID); !in {
-		t.Fatal("still a member")
-	}
-}
-
 func TestHandleRoomMute(t *testing.T) {
 	f := newGroupFixture(t)
 	ctx := context.Background()

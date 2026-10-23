@@ -124,7 +124,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
 
-  # Forwards Alertmanager webhooks to the Alerts room. Try it locally with:
+  # Forwards Alertmanager webhooks to the groups the Homelab contact is in. Try it locally
+  # (after adding Homelab to a group in the app) with:
   #   curl -X POST localhost:8081/watchdog
   alert-bridge:
     build:

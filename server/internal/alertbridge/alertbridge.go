@@ -1,5 +1,5 @@
 // Package alertbridge forwards Prometheus Alertmanager webhooks to Roost's
-// Alerts room. It posts as the dedicated alert identity: the bridge runs as
+// groups the alert identity was added to. It posts as the dedicated alert identity: the bridge runs as
 // its own tagged tailnet node, and the chat server recognises that tag (see
 // server/internal/auth) — there is no token or other credential to leak.
 package alertbridge
@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// Sender delivers one text message to the Alerts room.
+// Sender delivers one text message to every group the alert identity is in.
 type Sender interface {
 	Send(ctx context.Context, text string) error
 }

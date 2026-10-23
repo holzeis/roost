@@ -26,7 +26,7 @@ type Identity struct {
 	DisplayName string
 	// Bot is true for the dedicated alert identity (a tagged tailnet node,
 	// see TsnetResolver.AlertTag). A bot may only post to the alerts
-	// endpoint, never use the family-facing API.
+	// endpoint (into the groups it was added to), never use the family-facing API.
 	Bot bool
 }
 

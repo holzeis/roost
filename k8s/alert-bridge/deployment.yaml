@@ -1,4 +1,4 @@
-# Forwards Prometheus Alertmanager webhooks into Roost's Alerts room as a
+# Forwards Prometheus Alertmanager webhooks into the Roost groups the Homelab contact is in, as a
 # dedicated alert identity. The bridge is its own tailnet node (tsnet), and
 # the chat server recognises it by its ACL tag — there is no token. The
 # tagged auth key and the ACL tag are set up out-of-band; see

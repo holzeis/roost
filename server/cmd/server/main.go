@@ -76,7 +76,6 @@ func run() error {
 		Media:     media,
 		Push:      pushSender,
 		StaticMap: staticmap.NewGoogleFetcher(cfg.GoogleMapsStaticAPIKey),
-		AlertTag:  alertBotTag(),
 	}
 
 	// FR4.8: a call nobody answered ends up "missed" even when the

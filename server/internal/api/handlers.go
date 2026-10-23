@@ -494,18 +494,12 @@ func (s *Server) handleAddRoomMembers(w http.ResponseWriter, r *http.Request) {
 // handleLeaveRoom lets a member leave a group. The rest are told live
 // (room.updated), the leaver's other devices likewise (room.removed). Their
 // live location shares in the group end, and a group nobody is left in is
-// deleted. The Alerts group can't be left — the alert bridge adds everyone
-// back with its next alert — so it is muted instead.
+// deleted.
 func (s *Server) handleLeaveRoom(w http.ResponseWriter, r *http.Request) {
 	u, room, ok := s.groupForMember(w, r)
 	if !ok {
 		return
 	}
-	if creator, err := s.Store.GetUser(r.Context(), room.CreatedBy); err == nil && s.AlertTag != "" && creator.TailscaleID == s.AlertTag {
-		writeError(w, http.StatusBadRequest, "the Alerts group can't be left; mute it instead")
-		return
-	}
-
 	ended, err := s.Store.EndActiveLocationSharesInRoom(r.Context(), room.ID, u.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not leave room")
@@ -720,8 +714,11 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 const maxAlertBytes = 16 << 10
 
 // handleBotMessage lets the alert identity (auth.Identity.Bot) post a text
-// message into the Alerts group, creating the group on first use. It takes
-// no room ID: the bot can only ever write to its own room.
+// message into every group it is a member of — someone adds the "Homelab"
+// contact to a group to choose where alerts go. It takes no room ID, so the
+// bot can only ever write where it was invited. With no group yet it answers
+// 409, which the bridge turns into a failed delivery so Alertmanager retries
+// and the problem is visible.
 func (s *Server) handleBotMessage(w http.ResponseWriter, r *http.Request) {
 	bot, ok := session.UserFromContext(r.Context())
 	if !ok {
@@ -737,19 +734,25 @@ func (s *Server) handleBotMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := s.Store.EnsureAlertsRoom(r.Context(), bot.ID)
+	roomIDs, err := s.Store.ListGroupIDsForMember(r.Context(), bot.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not open alerts room")
+		writeError(w, http.StatusInternalServerError, "could not list groups")
 		return
 	}
-	msg, err := s.Store.CreateTextMessage(r.Context(), room.ID, bot.ID, body.Body, nil, false)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not create message")
+	if len(roomIDs) == 0 {
+		writeError(w, http.StatusConflict, "not in any group: add Homelab to a group to receive alerts")
 		return
 	}
-	s.deliverMessageEvent(r.Context(), room.ID, bot, msg)
+	for _, roomID := range roomIDs {
+		msg, err := s.Store.CreateTextMessage(r.Context(), roomID, bot.ID, body.Body, nil, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not create message")
+			return
+		}
+		s.deliverMessageEvent(r.Context(), roomID, bot, msg)
+	}
 
-	writeJSON(w, http.StatusCreated, msg)
+	writeJSON(w, http.StatusCreated, map[string]int{"groups": len(roomIDs)})
 }
 
 // handleBotAvatar lets the alert identity set its own profile picture. The

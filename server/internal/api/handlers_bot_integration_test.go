@@ -27,57 +27,89 @@ func postAlert(t *testing.T, s *Server, bot models.User, payload string) *httpte
 	return rec
 }
 
-// TestHandleBotMessage_PostsToSharedAlertsRoom covers the whole alert path:
-// the room is created once, every user (including one who joined after the
-// first alert) becomes a member, and the message is sent by the bot.
-func TestHandleBotMessage_PostsToSharedAlertsRoom(t *testing.T) {
+// TestHandleBotMessage_PostsToEveryGroupItWasAddedTo covers the whole alert
+// path: the bot posts to each group it is a member of — and only those, no
+// 1:1 chat and no group it wasn't invited to — as itself, and a member who
+// muted a group gets no push for it.
+func TestHandleBotMessage_PostsToEveryGroupItWasAddedTo(t *testing.T) {
 	s := newAPITestServer(t)
 	s.Hub = ws.NewHub()
+	pushSender := &fakePushSender{}
+	s.Push = pushSender
 	ctx := context.Background()
 	run := time.Now().UnixNano()
 
-	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-%d", run), "Alerts")
-	if err != nil {
-		t.Fatalf("create bot: %v", err)
+	mk := func(login, name string) models.User {
+		u, err := s.Store.GetOrCreateUserByTailscaleID(ctx, login, name)
+		if err != nil {
+			t.Fatalf("create user: %v", err)
+		}
+		return u
 	}
-	early, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alerts-early-%d@github", run), "Early")
-	if err != nil {
-		t.Fatalf("create early user: %v", err)
+	bot := mk(fmt.Sprintf("tag:test-alerts-%d", run), "Homelab")
+	alice := mk(fmt.Sprintf("alerts-alice-%d@github", run), "Alice")
+	bob := mk(fmt.Sprintf("alerts-bob-%d@github", run), "Bob")
+	name := "Alerts"
+	invited, _ := s.Store.CreateRoom(ctx, alice.ID, &name, true, []string{bob.ID})
+	if _, err := s.Store.AddRoomMembers(ctx, invited.ID, []string{bot.ID}); err != nil {
+		t.Fatalf("add bot: %v", err)
+	}
+	other := "Other"
+	notInvited, _ := s.Store.CreateRoom(ctx, alice.ID, &other, true, []string{bob.ID})
+	direct, _ := s.Store.CreateRoom(ctx, alice.ID, nil, false, []string{bot.ID})
+
+	for _, u := range []models.User{alice, bob} {
+		if _, err := s.Store.UpsertDevice(ctx, u.ID, "android", "fcm-"+u.ID, "fcm", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Store.SetRoomMute(ctx, invited.ID, bob.ID, true, nil); err != nil {
+		t.Fatal(err)
 	}
 
 	rec := postAlert(t, s, bot, `{"body":"🚨 HighCPU"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var first models.Message
-	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if first.SenderID != bot.ID {
-		t.Fatalf("expected sender %q, got %q", bot.ID, first.SenderID)
-	}
-	if ok, _ := s.Store.IsRoomMember(ctx, first.RoomID, early.ID); !ok {
-		t.Fatal("existing user should be a member of the alerts room")
-	}
-	room, err := s.Store.GetRoom(ctx, first.RoomID)
-	if err != nil || room.Name == nil || *room.Name != "Alerts" || !room.IsGroup {
-		t.Fatalf("expected a group room named Alerts, got %+v (%v)", room, err)
+	if !strings.Contains(rec.Body.String(), `"groups":1`) {
+		t.Fatalf("expected one group, got %s", rec.Body.String())
 	}
 
-	late, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("alerts-late-%d@github", run), "Late")
-	if err != nil {
-		t.Fatalf("create late user: %v", err)
+	messages := func(roomID string) []models.Message {
+		got, _ := s.Store.ListMessages(ctx, roomID, time.Now().Add(time.Minute), 10)
+		return got
 	}
-	rec = postAlert(t, s, bot, `{"body":"✅ Resolved Alert: HighCPU"}`)
-	var second models.Message
-	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
-		t.Fatalf("decode: %v", err)
+	if got := messages(invited.ID); len(got) != 1 || got[0].SenderID != bot.ID || *got[0].Body != "🚨 HighCPU" {
+		t.Fatalf("expected the alert from the bot, got %+v", got)
 	}
-	if second.RoomID != first.RoomID {
-		t.Fatalf("expected the same alerts room, got %q then %q", first.RoomID, second.RoomID)
+	if got := messages(notInvited.ID); len(got) != 0 {
+		t.Fatalf("a group the bot isn't in must get nothing, got %+v", got)
 	}
-	if ok, _ := s.Store.IsRoomMember(ctx, first.RoomID, late.ID); !ok {
-		t.Fatal("a user who joined after the first alert should be added on the next one")
+	if got := messages(direct.ID); len(got) != 0 {
+		t.Fatalf("a 1:1 chat must get nothing, got %+v", got)
+	}
+	calls := pushSender.messageCallsSnapshot()
+	if len(calls) != 1 || calls[0].deviceToken != "fcm-"+alice.ID {
+		t.Fatalf("only Alice (Bob muted it) should be pushed, got %+v", calls)
+	}
+
+	// A second group the bot is added to gets the next alert too.
+	second, _ := s.Store.CreateRoom(ctx, bob.ID, &other, true, nil)
+	_, _ = s.Store.AddRoomMembers(ctx, second.ID, []string{bot.ID})
+	if rec := postAlert(t, s, bot, `{"body":"✅ Resolved"}`); !strings.Contains(rec.Body.String(), `"groups":2`) {
+		t.Fatalf("expected two groups, got %s", rec.Body.String())
+	}
+}
+
+// TestHandleBotMessage_NotInAnyGroupIsAConflict: with nowhere to post, the
+// bridge must see a failure (so Alertmanager retries and it is noticed)
+// rather than a silent success.
+func TestHandleBotMessage_NotInAnyGroupIsAConflict(t *testing.T) {
+	s := newAPITestServer(t)
+	s.Hub = ws.NewHub()
+	bot, _ := s.Store.GetOrCreateUserByTailscaleID(context.Background(), fmt.Sprintf("tag:test-alerts-none-%d", time.Now().UnixNano()), "Homelab")
+	if rec := postAlert(t, s, bot, `{"body":"x"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -91,33 +123,6 @@ func TestHandleBotMessage_RejectsEmptyBody(t *testing.T) {
 	for _, payload := range []string{`{"body":""}`, `{"body":"   "}`, `not json`} {
 		if rec := postAlert(t, s, bot, payload); rec.Code != http.StatusBadRequest {
 			t.Errorf("payload %q: expected 400, got %d", payload, rec.Code)
-		}
-	}
-}
-
-func TestEnsureAlertsRoom_ConcurrentFirstAlertsCreateOneRoom(t *testing.T) {
-	s := newAPITestServer(t)
-	ctx := context.Background()
-	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-race-%d", time.Now().UnixNano()), "Alerts")
-	if err != nil {
-		t.Fatalf("create bot: %v", err)
-	}
-
-	ids := make(chan string, 8)
-	for i := 0; i < cap(ids); i++ {
-		go func() {
-			room, err := s.Store.EnsureAlertsRoom(ctx, bot.ID)
-			if err != nil {
-				ids <- "error: " + err.Error()
-				return
-			}
-			ids <- room.ID
-		}()
-	}
-	first := <-ids
-	for i := 1; i < cap(ids); i++ {
-		if got := <-ids; got != first {
-			t.Fatalf("concurrent calls returned different rooms: %q vs %q", first, got)
 		}
 	}
 }

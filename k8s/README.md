@@ -164,8 +164,8 @@ published, same as `roost-chat-server` already needed.
 
 ## Alert bridge
 
-`k8s/alert-bridge/` forwards Alertmanager webhooks into an "Alerts" group in
-Roost, posted by a dedicated identity (FR8.1; the architecture overview's
+`k8s/alert-bridge/` forwards Alertmanager webhooks into the Roost groups the
+"Homelab" contact is a member of, posted by a dedicated identity (FR8.1; the architecture overview's
 "Infrastructure alerts…" decision has the reasoning). The identity is the
 bridge's tailnet ACL tag, so there is no token — set it up once, out-of-band:
 
@@ -197,8 +197,13 @@ The bridge's identity appears in chat as **Homelab** (`auth.AlertDisplayName`)
 and its profile picture is set from `server/internal/alertbridge/avatar.jpg` on
 every start (skipped when it is already that image). To change either, edit
 the name constant or replace the image, rebuild, and restart chat-server (name)
-or alert-bridge (picture). The group the alerts land in is still called
-"Alerts".
+or alert-bridge (picture).
+
+To choose where alerts go, create a group in the app and add the "Homelab"
+contact to it (Group info → Add people). Every group Homelab is in gets every
+alert; members mute or leave the group like any other. Until Homelab is in a
+group the bridge reports failed deliveries (HTTP 409 from chat-server), so
+Alertmanager retries and the problem is visible.
 
 `network-policies.yaml` only lets the `monitoring` namespace reach the bridge;
 change that selector if Alertmanager runs elsewhere. Unlike chat-server, the

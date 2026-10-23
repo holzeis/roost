@@ -24,7 +24,7 @@ First draft, derived from the goals and decisions in the architecture overview. 
 | FR1.16 | Any member of a group can set or change the group's picture from its group info screen (take a photo or choose one; scaled down to at most 1024 px like a profile picture). It shows in the chat list, the chat header and group info, and every member sees a change live. A 1:1 chat has no picture of its own — it shows the other person's profile picture | Should |
 | FR1.17 | Any member of a group can rename it from its group info screen; every member sees the new name live | Should |
 | FR1.18 | Any member of a group can add people to it from group info (everyone who isn't in it yet is offered); the newcomers get the group, with its history, and every member sees the new list live. The chat gets a note, "Alice added Bob and Carol", that appears centered between the messages | Should |
-| FR1.19 | A member can leave a group, after a confirmation. The group disappears from their list, their live location shares in it end, and the others see the shorter member list and a note, "Alice left". A group nobody is left in is deleted. The "Alerts" group (FR8.1) can't be left — mute it instead — and a 1:1 chat can't be left | Should |
+| FR1.19 | A member can leave a group, after a confirmation. The group disappears from their list, their live location shares in it end, and the others see the shorter member list and a note, "Alice left". A group nobody is left in is deleted. A 1:1 chat can't be left | Should |
 
 ## 2. Media sharing (images & video)
 
@@ -97,4 +97,4 @@ First draft, derived from the goals and decisions in the architecture overview. 
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR8.1 | Infrastructure alerts from Prometheus Alertmanager (firing, resolved, and a daily "all systems operational" watchdog) appear as messages in an "Alerts" group that every user is a member of, posted by a dedicated "Homelab" identity that cannot use the rest of the app. Alerts notify like any other message (FR5.2) | Should |
+| FR8.1 | Infrastructure alerts from Prometheus Alertmanager (firing, resolved, and a daily "all systems operational" watchdog) appear as messages in every group the dedicated "Homelab" identity has been added to (it is an ordinary contact, added with "Add people", so whoever sets up the alert group chooses its members; members can mute or leave it like any group). Homelab cannot use the rest of the app. Alerts notify like any other message (FR5.2) | Should |

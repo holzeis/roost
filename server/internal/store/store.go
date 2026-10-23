@@ -168,54 +168,28 @@ func (s *Store) CreateRoom(ctx context.Context, creatorID string, name *string, 
 	return room, nil
 }
 
-// AlertsRoomName is the fixed name of the group the alert identity posts to.
-const AlertsRoomName = "Alerts"
-
-// EnsureAlertsRoom returns the alert identity's group room, creating it on
-// first use, and adds every user who isn't yet a member — so someone who
-// first opens the app after the room exists still gets it on the next
-// alert. The room is whichever group the bot created; an advisory lock
-// keeps two concurrent first alerts from creating it twice.
-func (s *Store) EnsureAlertsRoom(ctx context.Context, botID string) (models.Room, error) {
-	tx, err := s.pool.Begin(ctx)
+// ListGroupIDsForMember returns the IDs of the group rooms userID is in
+// (1:1 chats are left out). The alert identity posts to each of its groups.
+func (s *Store) ListGroupIDsForMember(ctx context.Context, userID string) ([]string, error) {
+	const q = `
+		SELECT r.id FROM rooms r
+		JOIN room_members rm ON rm.room_id = r.id
+		WHERE rm.user_id = $1 AND r.is_group
+		ORDER BY r.created_at`
+	rows, err := s.pool.Query(ctx, q, userID)
 	if err != nil {
-		return models.Room{}, fmt.Errorf("store: begin: %w", err)
+		return nil, fmt.Errorf("store: list groups: %w", err)
 	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('roost-alerts-room'))`); err != nil {
-		return models.Room{}, fmt.Errorf("store: lock alerts room: %w", err)
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: scan group id: %w", err)
+		}
+		ids = append(ids, id)
 	}
-
-	var room models.Room
-	const find = `
-		SELECT id, name, is_group, created_by, created_at, avatar_media_id FROM rooms
-		WHERE created_by = $1 AND is_group ORDER BY created_at LIMIT 1`
-	err = tx.QueryRow(ctx, find, botID).
-		Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt, &room.AvatarMediaID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		name := AlertsRoomName
-		const insert = `
-			INSERT INTO rooms (name, is_group, created_by) VALUES ($1, true, $2)
-			RETURNING id, name, is_group, created_by, created_at, avatar_media_id`
-		err = tx.QueryRow(ctx, insert, name, botID).
-			Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt, &room.AvatarMediaID)
-	}
-	if err != nil {
-		return models.Room{}, fmt.Errorf("store: alerts room: %w", err)
-	}
-
-	const addMembers = `
-		INSERT INTO room_members (room_id, user_id)
-		SELECT $1, id FROM users
-		ON CONFLICT DO NOTHING`
-	if _, err := tx.Exec(ctx, addMembers, room.ID); err != nil {
-		return models.Room{}, fmt.Errorf("store: add alerts members: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return models.Room{}, fmt.Errorf("store: commit: %w", err)
-	}
-	return room, nil
+	return ids, rows.Err()
 }
 
 // FindDirectRoom returns the existing 1:1 (non-group) room between userA
