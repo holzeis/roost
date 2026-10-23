@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -192,12 +192,12 @@ func TestEnsureAvatar_UploadsTheEmbeddedJPEGAsAMultipartFile(t *testing.T) {
 	if err := sender.EnsureAvatar(context.Background()); err != nil {
 		t.Fatalf("ensure avatar: %v", err)
 	}
-	if gotPath != "/bot/avatar" || gotName != "avatar.jpg" || gotType != "image/jpeg" {
+	if gotPath != "/bot/avatar" || gotName != "avatar.png" || gotType != "image/png" {
 		t.Fatalf("unexpected upload: path=%q name=%q type=%q", gotPath, gotName, gotType)
 	}
-	img, err := jpeg.Decode(bytes.NewReader(gotFile))
+	img, err := png.Decode(bytes.NewReader(gotFile))
 	if err != nil {
-		t.Fatalf("uploaded bytes are not a valid JPEG: %v", err)
+		t.Fatalf("uploaded bytes are not a valid PNG: %v", err)
 	}
 	if b := img.Bounds(); b.Dx() != b.Dy() {
 		t.Fatalf("avatar should be square, got %dx%d", b.Dx(), b.Dy())

@@ -46,7 +46,7 @@ func TestHandleBotMessage_PostsToEveryGroupItWasAddedTo(t *testing.T) {
 		}
 		return u
 	}
-	bot := mk(fmt.Sprintf("tag:test-alerts-%d", run), "Homelab")
+	bot := mk(fmt.Sprintf("tag:test-alerts-%d", run), "Prometheus")
 	alice := mk(fmt.Sprintf("alerts-alice-%d@github", run), "Alice")
 	bob := mk(fmt.Sprintf("alerts-bob-%d@github", run), "Bob")
 	name := "Alerts"
@@ -107,7 +107,7 @@ func TestHandleBotMessage_PostsToEveryGroupItWasAddedTo(t *testing.T) {
 func TestHandleBotMessage_NotInAnyGroupIsAConflict(t *testing.T) {
 	s := newAPITestServer(t)
 	s.Hub = ws.NewHub()
-	bot, _ := s.Store.GetOrCreateUserByTailscaleID(context.Background(), fmt.Sprintf("tag:test-alerts-none-%d", time.Now().UnixNano()), "Homelab")
+	bot, _ := s.Store.GetOrCreateUserByTailscaleID(context.Background(), fmt.Sprintf("tag:test-alerts-none-%d", time.Now().UnixNano()), "Prometheus")
 	if rec := postAlert(t, s, bot, `{"body":"x"}`); rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -144,7 +144,7 @@ func postBotAvatar(t *testing.T, s *Server, bot models.User, content string) *ht
 func TestHandleBotAvatar_IdenticalUploadIsANoOpButANewImageReplaces(t *testing.T) {
 	s := newAPITestServer(t)
 	ctx := context.Background()
-	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-avatar-%d", time.Now().UnixNano()), "Homelab")
+	bot, err := s.Store.GetOrCreateUserByTailscaleID(ctx, fmt.Sprintf("tag:test-alerts-avatar-%d", time.Now().UnixNano()), "Prometheus")
 	if err != nil {
 		t.Fatalf("create bot: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestHandleBotAvatar_IdenticalUploadIsANoOpButANewImageReplaces(t *testing.T
 	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil || first.AvatarMediaID == nil {
 		t.Fatalf("expected an avatar to be set, got %+v (%v)", first, err)
 	}
-	if first.DisplayName != "Homelab" {
+	if first.DisplayName != "Prometheus" {
 		t.Fatalf("display name should be untouched, got %q", first.DisplayName)
 	}
 
@@ -204,11 +204,11 @@ func TestResolveUser_SyncsTheAlertIdentitysName(t *testing.T) {
 		got, _ = session.UserFromContext(r.Context())
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/bot/messages", nil)
-	req = req.WithContext(auth.WithIdentity(req.Context(), auth.Identity{LoginName: login, DisplayName: "Homelab", Bot: true}))
+	req = req.WithContext(auth.WithIdentity(req.Context(), auth.Identity{LoginName: login, DisplayName: "Prometheus", Bot: true}))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	if got.DisplayName != "Homelab" {
-		t.Fatalf("expected the user to be renamed to Homelab, got %q", got.DisplayName)
+	if got.DisplayName != "Prometheus" {
+		t.Fatalf("expected the user to be renamed to Prometheus, got %q", got.DisplayName)
 	}
 	if got.AvatarMediaID == nil || *got.AvatarMediaID != media.ID {
 		t.Fatalf("avatar should be kept across the rename, got %v", got.AvatarMediaID)

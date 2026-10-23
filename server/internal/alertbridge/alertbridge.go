@@ -161,23 +161,23 @@ func (s RoostSender) Send(ctx context.Context, text string) error {
 	return nil
 }
 
-// avatarJPEG is the alert identity's profile picture.
+// avatarPNG is the alert identity's profile picture.
 //
-//go:embed avatar.jpg
-var avatarJPEG []byte
+//go:embed avatar.png
+var avatarPNG []byte
 
 // EnsureAvatar offers the embedded profile picture to the chat server, which
 // applies it unless it is already the current one.
 func (s RoostSender) EnsureAvatar(ctx context.Context) error {
-	return s.uploadAvatar(ctx, avatarJPEG)
+	return s.uploadAvatar(ctx, avatarPNG)
 }
 
 func (s RoostSender) uploadAvatar(ctx context.Context, image []byte) error {
 	body := &bytes.Buffer{}
 	form := multipart.NewWriter(body)
 	header := textproto.MIMEHeader{}
-	header.Set("Content-Disposition", `form-data; name="file"; filename="avatar.jpg"`)
-	header.Set("Content-Type", "image/jpeg")
+	header.Set("Content-Disposition", `form-data; name="file"; filename="avatar.png"`)
+	header.Set("Content-Type", "image/png")
 	part, err := form.CreatePart(header)
 	if err != nil {
 		return fmt.Errorf("build avatar upload: %w", err)

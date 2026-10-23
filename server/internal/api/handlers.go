@@ -747,7 +747,7 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 const maxAlertBytes = 16 << 10
 
 // handleBotMessage lets the alert identity (auth.Identity.Bot) post a text
-// message into every group it is a member of — someone adds the "Homelab"
+// message into every group it is a member of — someone adds the "Prometheus"
 // contact to a group to choose where alerts go. It takes no room ID, so the
 // bot can only ever write where it was invited. With no group yet it answers
 // 409, which the bridge turns into a failed delivery so Alertmanager retries
@@ -773,7 +773,7 @@ func (s *Server) handleBotMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(roomIDs) == 0 {
-		writeError(w, http.StatusConflict, "not in any group: add Homelab to a group to receive alerts")
+		writeError(w, http.StatusConflict, "not in any group: add Prometheus to a group to receive alerts")
 		return
 	}
 	for _, roomID := range roomIDs {

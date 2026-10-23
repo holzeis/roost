@@ -1,5 +1,5 @@
 // Command alert-bridge forwards Prometheus Alertmanager webhooks to Roost's
-// groups the Homelab identity was added to, as a dedicated alert identity. See internal/alertbridge.
+// groups the Prometheus identity was added to, as a dedicated alert identity. See internal/alertbridge.
 package main
 
 import (

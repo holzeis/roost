@@ -98,4 +98,4 @@ First draft, derived from the goals and decisions in the architecture overview. 
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR8.1 | Infrastructure alerts from Prometheus Alertmanager (firing, resolved, and a daily "all systems operational" watchdog) appear as messages in every group the dedicated "Homelab" identity has been added to (it is an ordinary contact, added with "Add people", so whoever sets up the alert group chooses its members; members can mute or leave it like any group). Homelab cannot use the rest of the app. Alerts notify like any other message (FR5.2) | Should |
+| FR8.1 | Infrastructure alerts from Prometheus Alertmanager (firing, resolved, and a daily "all systems operational" watchdog) appear as messages in every group the dedicated "Prometheus" identity has been added to (it is an ordinary contact, added with "Add people", so whoever sets up the alert group chooses its members; members can mute or leave it like any group). Prometheus cannot use the rest of the app. Alerts notify like any other message (FR5.2) | Should |

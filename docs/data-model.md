@@ -23,7 +23,7 @@ on first authenticated request — there's no signup flow (FR6.1).
 | `avatar_media_id` | uuid, FK → `media_objects`, nullable | |
 | `created_at`, `updated_at` | timestamptz | |
 
-The alert bridge's identity (FR8.1) is an ordinary row too, with `tailscale_id` set to its ACL tag (`tag:roost-alerts`) rather than a login, and display name "Homelab" (`auth.AlertDisplayName`; unlike a person's name it is re-applied from code on every request, so a rename reaches the existing row). It is told apart from people by that identity at request time (`auth.Identity.Bot`), not by a column, so there is no schema change for it.
+The alert bridge's identity (FR8.1) is an ordinary row too, with `tailscale_id` set to its ACL tag (`tag:roost-alerts`) rather than a login, and display name "Prometheus" (`auth.AlertDisplayName`; unlike a person's name it is re-applied from code on every request, so a rename reaches the existing row). It is told apart from people by that identity at request time (`auth.Identity.Bot`), not by a column, so there is no schema change for it.
 
 ### devices
 

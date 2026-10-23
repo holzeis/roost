@@ -84,7 +84,7 @@ no phone can reach, and calls timed out connecting media. Therefore:
 
 ## Alert bridge (FR8.1)
 
-The bridge turns Alertmanager webhooks into messages from the "Homelab"
+The bridge turns Alertmanager webhooks into messages from the "Prometheus"
 identity. Its identity is its tailnet ACL tag, so there is no token. One-time
 setup, outside the cluster:
 
@@ -110,13 +110,13 @@ setup, outside the cluster:
          - url: http://alert-bridge.roost.svc.cluster.local/watchdog
    ```
 
-5. In the app, create a group and add the "Homelab" contact (Group info → Add
-   people). Every group Homelab is in gets every alert. Until it is in one, the
+5. In the app, create a group and add the "Prometheus" contact (Group info → Add
+   people). Every group Prometheus is in gets every alert. Until it is in one, the
    bridge reports failed deliveries (HTTP 409 from the chat server), so
    Alertmanager retries and the problem is visible.
 
 The identity's name is `auth.AlertDisplayName` and its picture is
-`server/internal/alertbridge/avatar.jpg` (offered on every start, and skipped
+`server/internal/alertbridge/avatar.png` (offered on every start, and skipped
 when unchanged). Changing either means rebuilding the images and restarting the
 chat server (name) or the bridge (picture).
 
